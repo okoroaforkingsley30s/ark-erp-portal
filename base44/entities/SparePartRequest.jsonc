@@ -1,0 +1,178 @@
+{
+  "name": "SparePartRequest",
+  "type": "object",
+  "properties": {
+    "request_number": {
+      "type": "string",
+      "description": "Auto reference number"
+    },
+    "part_id": {
+      "type": "string",
+      "description": "ID of requested spare part"
+    },
+    "part_name": {
+      "type": "string",
+      "description": "Part name"
+    },
+    "part_number": {
+      "type": "string",
+      "description": "Part number"
+    },
+    "quantity_requested": {
+      "type": "number",
+      "default": 1
+    },
+    "engineer_email": {
+      "type": "string",
+      "description": "Requesting engineer email"
+    },
+    "engineer_name": {
+      "type": "string",
+      "description": "Requesting engineer name"
+    },
+    "ticket_id": {
+      "type": "string",
+      "description": "Related ticket ID"
+    },
+    "site_id": {
+      "type": "string",
+      "description": "Related site ID"
+    },
+    "site_name": {
+      "type": "string",
+      "description": "Related site name"
+    },
+    "urgency": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "default": "medium"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "dispatched",
+        "received"
+      ],
+      "default": "pending"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Reason for request"
+    },
+    "faulty_part_photo": {
+      "type": "string",
+      "description": "Photo URL of faulty part"
+    },
+    "approver_email": {
+      "type": "string",
+      "description": "Approver email"
+    },
+    "approval_notes": {
+      "type": "string",
+      "description": "Notes from approver"
+    },
+    "approved_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "part_name",
+    "engineer_email",
+    "quantity_requested"
+  ],
+  "rls": {
+    "create": {
+      "data.engineer_email": "{{user.email}}"
+    },
+    "read": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "inventory",
+                "procurement",
+                "manager",
+                "repair_head",
+                "helpdesk",
+                "ceo",
+                "agm"
+              ]
+            }
+          }
+        },
+        {
+          "data.engineer_email": "{{user.email}}"
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "inventory",
+                "procurement",
+                "manager",
+                "repair_head",
+                "helpdesk"
+              ]
+            }
+          }
+        },
+        {
+          "$and": [
+            {
+              "data.engineer_email": "{{user.email}}"
+            },
+            {
+              "data.status": {
+                "$in": [
+                  "pending",
+                  "dispatched"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "inventory",
+                "procurement"
+              ]
+            }
+          }
+        },
+        {
+          "$and": [
+            {
+              "data.engineer_email": "{{user.email}}"
+            },
+            {
+              "data.status": "pending"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

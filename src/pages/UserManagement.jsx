@@ -1,0 +1,803 @@
+import React, { useState } from 'react';
+import { useOutletContext } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabaseClient';
+
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+
+import { Switch } from '@/components/ui/switch';
+import PendingApprovalPanel from '@/components/users/PendingApprovalPanel';
+
+import {
+  Search,
+  UserPlus,
+  Shield,
+  Headphones,
+  Wrench,
+  User,
+  Mail,
+  Loader2,
+  Phone,
+  Building2,
+  BadgeCheck,
+  UserCog,
+  BarChart3,
+  DollarSign,
+  TrendingUp,
+  ShoppingCart,
+  UserCheck,
+  Trash2,
+  KeyRound,
+  RefreshCw,
+} from 'lucide-react';
+
+import { format } from 'date-fns';
+
+const ALL_ROLES = [
+  { value: 'admin', label: 'Administrator', icon: Shield, color: 'bg-red-100 text-red-700 border-red-200' },
+  { value: 'ceo', label: 'CEO', icon: BadgeCheck, color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
+  { value: 'ceo_pa', label: 'CEO PA', icon: UserCog, color: 'bg-yellow-50 text-yellow-600 border-yellow-100' },
+  { value: 'agm', label: 'Asst. General Manager', icon: BarChart3, color: 'bg-purple-100 text-purple-700 border-purple-200' },
+  { value: 'manager', label: 'Operational Manager', icon: BarChart3, color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+  { value: 'repair_head', label: 'Head of Repair & Refurb.', icon: Wrench, color: 'bg-orange-100 text-orange-700 border-orange-200' },
+  { value: 'helpdesk', label: 'Help Desk', icon: Headphones, color: 'bg-blue-100 text-blue-700 border-blue-200' },
+  { value: 'engineer', label: 'Field Engineer', icon: Wrench, color: 'bg-amber-100 text-amber-700 border-amber-200' },
+  { value: 'hr', label: 'Human Resources', icon: UserCheck, color: 'bg-pink-100 text-pink-700 border-pink-200' },
+  { value: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-100 text-green-700 border-green-200' },
+  { value: 'inventory', label: 'Inventory', icon: ShoppingCart, color: 'bg-teal-100 text-teal-700 border-teal-200' },
+  { value: 'procurement', label: 'Procurement', icon: ShoppingCart, color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+  { value: 'crm', label: 'CRM / Marketing', icon: TrendingUp, color: 'bg-violet-100 text-violet-700 border-violet-200' },
+  { value: 'client', label: 'Client / Bank', icon: User, color: 'bg-slate-100 text-slate-600 border-slate-200' },
+];
+
+const EMPTY_PROFILE = {
+  employee_id: '',
+  phone: '',
+  department: '',
+  branch: '',
+  region: '',
+  account_status: 'active',
+  is_approved: true,
+  must_change_password: false,
+};
+
+export default function UserManagement() {
+  const { user } = useOutletContext();
+  const qc = useQueryClient();
+
+  const isAdmin = ['admin', 'super_admin'].includes(user?.role);
+
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('helpdesk');
+  const [inviting, setInviting] = useState(false);
+  const [profile, setProfile] = useState(EMPTY_PROFILE);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [deleteConfirmUser, setDeleteConfirmUser] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('SUPABASE USERS ERROR:', error);
+        return [];
+      }
+
+      return data || [];
+    },
+  });
+
+  const filtered = users.filter((u) => {
+    if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+
+    if (search) {
+      const s = search.toLowerCase();
+      return (
+        u.full_name?.toLowerCase().includes(s) ||
+        u.email?.toLowerCase().includes(s)
+      );
+    }
+
+    return true;
+  });
+
+  const roleCfg = (role) =>
+    ALL_ROLES.find((r) => r.value === role) || ALL_ROLES[ALL_ROLES.length - 1];
+
+  const handleInvite = async () => {
+    setInviting(true);
+
+    try {
+      const cleanEmail = inviteEmail.trim().toLowerCase();
+
+      if (!cleanEmail) {
+        alert('Please enter an email address.');
+        return;
+      }
+
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('*')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+
+      if (existingUser) {
+        alert('This user already exists.');
+        return;
+      }
+
+      const { error } = await supabase.from('users').insert({
+        full_name: cleanEmail.split('@')[0],
+        email: cleanEmail,
+        role: inviteRole,
+        department: '',
+        account_status: 'active',
+        is_approved: true,
+        must_change_password: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (error) {
+        alert('Invite failed: ' + error.message);
+        return;
+      }
+
+      alert('User added successfully. Create the user in Supabase Authentication with the same email.');
+
+      setInviteEmail('');
+      setInviteOpen(false);
+      qc.invalidateQueries({ queryKey: ['users'] });
+    } catch (err) {
+      console.error(err);
+      alert('Unexpected error adding user.');
+    } finally {
+      setInviting(false);
+    }
+  };
+
+  const handleRoleChange = async (userId, newRole) => {
+    const { error } = await supabase
+      .from('users')
+      .update({
+        role: newRole,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      alert('Role update failed: ' + error.message);
+      return;
+    }
+
+    qc.invalidateQueries({ queryKey: ['users'] });
+  };
+
+  const handleForcePasswordReset = async (u) => {
+    if (!confirm(`Force ${u.full_name || u.email} to change their password on next login?`)) return;
+
+    const { error } = await supabase
+      .from('users')
+      .update({
+        must_change_password: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', u.id);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    qc.invalidateQueries({ queryKey: ['users'] });
+  };
+
+  const handleBulkForceReset = async () => {
+    if (!confirm(`Force ALL ${users.length} users to change passwords on next login?`)) return;
+
+    const { error } = await supabase
+      .from('users')
+      .update({
+        must_change_password: true,
+        updated_at: new Date().toISOString(),
+      })
+      .not('id', 'is', null);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    qc.invalidateQueries({ queryKey: ['users'] });
+  };
+
+  const openProfile = (u) => {
+    setSelectedUser(u);
+
+    setProfile({
+      employee_id: u.employee_id || '',
+      phone: u.phone || '',
+      department: u.department || '',
+      branch: u.branch || '',
+      region: u.region || '',
+      account_status: u.account_status || 'active',
+      is_approved: !!u.is_approved,
+      must_change_password: !!u.must_change_password,
+    });
+
+    setProfileOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!deleteConfirmUser) return;
+
+    setDeleting(true);
+
+    try {
+      const { data: employees } = await supabase.from('employees').select('*');
+
+      const linked = employees?.find(
+        (e) =>
+          e.user_account_email === deleteConfirmUser.email ||
+          e.email_address === deleteConfirmUser.email
+      );
+
+      if (linked) {
+        await supabase
+          .from('employees')
+          .update({
+            employment_status: 'Terminated',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', linked.id);
+      }
+
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', deleteConfirmUser.id);
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+
+      qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['hr-employees'] });
+    } catch (err) {
+      alert('Delete failed: ' + (err?.message || 'Unknown error'));
+    } finally {
+      setDeleting(false);
+      setDeleteConfirmUser(null);
+    }
+  };
+
+  const saveProfile = async () => {
+    if (!selectedUser?.id) return;
+
+    setSavingProfile(true);
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({
+          employee_id: profile.employee_id,
+          phone: profile.phone,
+          department: profile.department,
+          branch: profile.branch,
+          region: profile.region,
+          account_status: profile.account_status,
+          is_approved: profile.is_approved,
+          must_change_password: profile.must_change_password,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedUser.id);
+
+      if (error) {
+        alert('Profile save failed: ' + error.message);
+        return;
+      }
+
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setProfileOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert('Unexpected error saving profile');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  const roleCounts = ALL_ROLES.reduce((acc, r) => {
+    acc[r.value] = users.filter((u) => u.role === r.value).length;
+    return acc;
+  }, {});
+
+  const pendingCount = users.filter((u) => !u.role || u.role === '').length;
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">User Management</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {users.length} registered users ·{' '}
+            {ALL_ROLES.filter((r) => roleCounts[r.value] > 0).length} roles active
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          {isAdmin && (
+            <Button variant="outline" onClick={handleBulkForceReset}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Reset All Passwords
+            </Button>
+          )}
+
+          <Button onClick={() => setInviteOpen(true)}>
+            <UserPlus className="w-4 h-4 mr-2" />
+            Invite User
+          </Button>
+        </div>
+      </div>
+
+      {isAdmin && pendingCount > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
+          <PendingApprovalPanel />
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setRoleFilter('all')}
+          className={
+            'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
+            (roleFilter === 'all'
+              ? 'bg-primary text-primary-foreground border-primary'
+              : 'bg-card border-border text-muted-foreground')
+          }
+        >
+          All ({users.length})
+        </button>
+
+        {ALL_ROLES.filter((r) => roleCounts[r.value] > 0).map((r) => (
+          <button
+            type="button"
+            key={r.value}
+            onClick={() => setRoleFilter(r.value)}
+            className={
+              'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
+              (roleFilter === r.value
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-card border-border text-muted-foreground')
+            }
+          >
+            {r.label} ({roleCounts[r.value]})
+          </button>
+        ))}
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Search by name or email..."
+          className="pl-9"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-12">
+          <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {filtered.map((u) => {
+            const rc = roleCfg(u.role);
+            const Icon = rc.icon;
+
+            return (
+              <Card key={u.id} className="p-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20">
+                    <span className="text-sm font-bold text-primary">
+                      {u.full_name?.[0]?.toUpperCase() || '?'}
+                    </span>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-sm truncate">
+                        {u.full_name || 'Unnamed'}
+                      </p>
+
+                      {u.account_status === 'inactive' && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-red-50 text-red-600 border-red-200"
+                        >
+                          Inactive
+                        </Badge>
+                      )}
+
+                      {u.account_status === 'suspended' && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-amber-50 text-amber-600 border-amber-200"
+                        >
+                          Suspended
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                      <p className="text-xs text-muted-foreground">{u.email}</p>
+
+                      {u.department && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                          <Building2 className="w-3 h-3" />
+                          {u.department}
+                        </span>
+                      )}
+
+                      {u.employee_id && (
+                        <span className="text-xs font-mono text-muted-foreground">
+                          {u.employee_id}
+                        </span>
+                      )}
+
+                      {u.phone && (
+                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                          <Phone className="w-3 h-3" />
+                          {u.phone}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <Badge
+                    variant="outline"
+                    className={`${rc.color} text-[10px] hidden sm:flex items-center gap-1 flex-shrink-0`}
+                  >
+                    <Icon className="w-3 h-3" />
+                    {rc.label}
+                  </Badge>
+
+                  {isAdmin && u.email !== user.email && (
+                    <Select
+                      value={u.role || ''}
+                      onValueChange={(v) => handleRoleChange(u.id, v)}
+                    >
+                      <SelectTrigger className="w-[130px] h-8 text-xs hidden md:flex">
+                        <SelectValue placeholder="Set role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ALL_ROLES.map((r) => (
+                          <SelectItem key={r.value} value={r.value}>
+                            {r.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {isAdmin && (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => openProfile(u)}>
+                        <UserCog className="w-3.5 h-3.5 mr-1" />
+                        Profile
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={
+                          u.must_change_password
+                            ? 'text-amber-600 border-amber-300 bg-amber-50'
+                            : ''
+                        }
+                        onClick={() => handleForcePasswordReset(u)}
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                      </Button>
+                    </>
+                  )}
+
+                  {isAdmin && u.email !== user.email && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                      onClick={() => setDeleteConfirmUser(u)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
+
+                  <span className="text-xs text-muted-foreground hidden lg:block whitespace-nowrap">
+                    {u.created_at ? format(new Date(u.created_at), 'MMM d, yyyy') : ''}
+                  </span>
+                </div>
+              </Card>
+            );
+          })}
+
+          {filtered.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              <User className="w-8 h-8 mx-auto mb-2 opacity-30" />
+              <p>No users found</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Invite / Add User</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Email Address *</Label>
+              <Input
+                type="email"
+                placeholder="user@bank.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Role / Department</Label>
+              <Select value={inviteRole} onValueChange={setInviteRole}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ALL_ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="p-3 bg-muted/50 rounded-lg text-xs text-muted-foreground">
+              Adds the user profile to the ERP system.
+            </div>
+
+            <Button className="w-full" onClick={handleInvite} disabled={!inviteEmail || inviting}>
+              {inviting ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Mail className="w-4 h-4 mr-2" />
+              )}
+              Add User
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!deleteConfirmUser}
+        onOpenChange={(open) => !open && setDeleteConfirmUser(null)}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete User</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Delete{' '}
+              <span className="font-semibold text-foreground">
+                {deleteConfirmUser?.full_name || deleteConfirmUser?.email}
+              </span>
+              ?
+            </p>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setDeleteConfirmUser(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={handleDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4 mr-2" />
+                )}
+                Delete
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Profile — {selectedUser?.full_name}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Employee ID</Label>
+                <Input
+                  value={profile.employee_id}
+                  onChange={(e) =>
+                    setProfile((p) => ({
+                      ...p,
+                      employee_id: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Phone</Label>
+                <Input
+                  value={profile.phone}
+                  onChange={(e) =>
+                    setProfile((p) => ({
+                      ...p,
+                      phone: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Department</Label>
+                <Input
+                  value={profile.department}
+                  onChange={(e) =>
+                    setProfile((p) => ({
+                      ...p,
+                      department: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Branch</Label>
+                <Input
+                  value={profile.branch}
+                  onChange={(e) =>
+                    setProfile((p) => ({
+                      ...p,
+                      branch: e.target.value,
+                    }))
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Region</Label>
+              <Input
+                value={profile.region}
+                onChange={(e) =>
+                  setProfile((p) => ({
+                    ...p,
+                    region: e.target.value,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>Account Status</Label>
+              <Select
+                value={profile.account_status}
+                onValueChange={(v) =>
+                  setProfile((p) => ({
+                    ...p,
+                    account_status: v,
+                  }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="active">Active</SelectItem>
+                  <SelectItem value="inactive">Inactive</SelectItem>
+                  <SelectItem value="suspended">Suspended</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">Account Approved</p>
+                <p className="text-xs text-muted-foreground">User can access the portal</p>
+              </div>
+
+              <Switch
+                checked={!!profile.is_approved}
+                onCheckedChange={(v) =>
+                  setProfile((p) => ({
+                    ...p,
+                    is_approved: v,
+                  }))
+                }
+              />
+            </div>
+
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">Force Password Change</p>
+                <p className="text-xs text-muted-foreground">
+                  User must change password on next login
+                </p>
+              </div>
+
+              <Switch
+                checked={!!profile.must_change_password}
+                onCheckedChange={(v) =>
+                  setProfile((p) => ({
+                    ...p,
+                    must_change_password: v,
+                  }))
+                }
+              />
+            </div>
+
+            <Button className="w-full" onClick={saveProfile} disabled={savingProfile}>
+              {savingProfile && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Save Profile
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

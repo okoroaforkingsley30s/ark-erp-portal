@@ -1,0 +1,46 @@
+{
+  "name": "Notification",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string",
+      "description": "Email of the recipient"
+    },
+    "title": {
+      "type": "string",
+      "description": "Notification title"
+    },
+    "message": {
+      "type": "string",
+      "description": "Notification message"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "ticket_created",
+        "ticket_assigned",
+        "ticket_updated",
+        "ticket_resolved",
+        "ticket_closed",
+        "workflow",
+        "system",
+        "escalation",
+        "chat_message"
+      ],
+      "description": "Notification type"
+    },
+    "reference_id": {
+      "type": "string",
+      "description": "ID of the related entity"
+    },
+    "read": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": [
+    "user_email",
+    "title",
+    "message"
+  ]
+}

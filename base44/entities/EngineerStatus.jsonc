@@ -1,0 +1,124 @@
+{
+  "name": "EngineerStatus",
+  "type": "object",
+  "properties": {
+    "engineer_email": {
+      "type": "string",
+      "description": "Engineer email (unique per engineer)"
+    },
+    "engineer_name": {
+      "type": "string",
+      "description": "Engineer full name"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "online",
+        "offline",
+        "busy",
+        "on_site",
+        "traveling"
+      ],
+      "default": "offline"
+    },
+    "current_latitude": {
+      "type": "number",
+      "description": "Current GPS latitude"
+    },
+    "current_longitude": {
+      "type": "number",
+      "description": "Current GPS longitude"
+    },
+    "location_label": {
+      "type": "string",
+      "description": "Human-readable current location"
+    },
+    "current_site_id": {
+      "type": "string",
+      "description": "ID of current site if on site"
+    },
+    "current_site_name": {
+      "type": "string",
+      "description": "Name of current site"
+    },
+    "current_ticket_id": {
+      "type": "string",
+      "description": "Active ticket ID"
+    },
+    "checkin_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Site check-in time"
+    },
+    "last_active": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last active timestamp"
+    },
+    "tracking_enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "profile_photo": {
+      "type": "string",
+      "description": "Profile photo URL"
+    },
+    "skills": {
+      "type": "string",
+      "description": "Skills/specializations"
+    },
+    "regions": {
+      "type": "string",
+      "description": "Assigned regions"
+    },
+    "staff_id": {
+      "type": "string",
+      "description": "Staff ID"
+    },
+    "department": {
+      "type": "string",
+      "description": "Department"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Contact phone"
+    }
+  },
+  "required": [
+    "engineer_email"
+  ],
+  "rls": {
+    "create": {
+      "created_by": "{{user.email}}"
+    },
+    "read": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "manager",
+                "helpdesk",
+                "ceo",
+                "agm",
+                "repair_head"
+              ]
+            }
+          }
+        },
+        {
+          "data.engineer_email": "{{user.email}}"
+        }
+      ]
+    },
+    "update": {
+      "data.engineer_email": "{{user.email}}"
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

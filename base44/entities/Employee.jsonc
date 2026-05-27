@@ -1,0 +1,270 @@
+{
+  "name": "Employee",
+  "type": "object",
+  "properties": {
+    "full_name": {
+      "type": "string"
+    },
+    "staff_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string",
+      "enum": [
+        "Mr",
+        "Mrs",
+        "Miss",
+        "Ms",
+        "Dr",
+        "Engr",
+        "Prof"
+      ]
+    },
+    "phone_number": {
+      "type": "string"
+    },
+    "marital_status": {
+      "type": "string",
+      "enum": [
+        "Single",
+        "Married",
+        "Divorced",
+        "Widowed"
+      ]
+    },
+    "gender": {
+      "type": "string",
+      "enum": [
+        "Male",
+        "Female"
+      ]
+    },
+    "date_of_birth": {
+      "type": "string",
+      "format": "date"
+    },
+    "home_address": {
+      "type": "string"
+    },
+    "job_title": {
+      "type": "string"
+    },
+    "current_level": {
+      "type": "string"
+    },
+    "department": {
+      "type": "string"
+    },
+    "religion": {
+      "type": "string",
+      "enum": [
+        "Christianity",
+        "Islam",
+        "Traditional",
+        "Other"
+      ]
+    },
+    "state_of_origin": {
+      "type": "string"
+    },
+    "local_government_area": {
+      "type": "string"
+    },
+    "nationality": {
+      "type": "string"
+    },
+    "country": {
+      "type": "string",
+      "enum": [
+        "Nigeria",
+        "Ghana",
+        "Cameroon",
+        "Benin Republic",
+        "Sierra Leone",
+        "Liberia",
+        "Ivory Coast",
+        "Senegal",
+        "Gambia",
+        "Guinea",
+        "Congo Brazzaville"
+      ],
+      "default": "Nigeria"
+    },
+    "email_address": {
+      "type": "string"
+    },
+    "user_account_email": {
+      "type": "string",
+      "description": "Linked app login email (User.email)"
+    },
+    "access_role": {
+      "type": "string",
+      "description": "App login role e.g. admin, hr, engineer"
+    },
+    "employee_type": {
+      "type": "string",
+      "enum": [
+        "Full-Time",
+        "Part-Time",
+        "Contract",
+        "Intern",
+        "Consultant"
+      ],
+      "default": "Full-Time"
+    },
+    "national_id_type": {
+      "type": "string",
+      "enum": [
+        "NIN",
+        "Passport",
+        "Voter Card",
+        "Driver License",
+        "Staff ID"
+      ]
+    },
+    "national_id_number": {
+      "type": "string"
+    },
+    "date_of_employment": {
+      "type": "string",
+      "format": "date"
+    },
+    "current_pay": {
+      "type": "number"
+    },
+    "employment_status": {
+      "type": "string",
+      "enum": [
+        "Active",
+        "On Leave",
+        "Suspended",
+        "Terminated",
+        "Resigned"
+      ],
+      "default": "Active"
+    },
+    "profile_photo": {
+      "type": "string"
+    },
+    "next_of_kin_full_name": {
+      "type": "string"
+    },
+    "next_of_kin_phone_number": {
+      "type": "string"
+    },
+    "next_of_kin_address": {
+      "type": "string"
+    },
+    "next_of_kin_occupation": {
+      "type": "string"
+    },
+    "next_of_kin_email_address": {
+      "type": "string"
+    },
+    "next_of_kin_relationship": {
+      "type": "string"
+    },
+    "next_of_kin_id_type": {
+      "type": "string"
+    },
+    "next_of_kin_id_number": {
+      "type": "string"
+    },
+    "guarantor_1_full_name": {
+      "type": "string"
+    },
+    "guarantor_1_id_type": {
+      "type": "string"
+    },
+    "guarantor_1_id_number": {
+      "type": "string"
+    },
+    "guarantor_1_phone_number": {
+      "type": "string"
+    },
+    "guarantor_1_email_address": {
+      "type": "string"
+    },
+    "guarantor_1_home_address": {
+      "type": "string"
+    },
+    "guarantor_1_office_address": {
+      "type": "string"
+    },
+    "guarantor_1_occupation": {
+      "type": "string"
+    },
+    "guarantor_2_full_name": {
+      "type": "string"
+    },
+    "guarantor_2_id_type": {
+      "type": "string"
+    },
+    "guarantor_2_id_number": {
+      "type": "string"
+    },
+    "guarantor_2_phone_number": {
+      "type": "string"
+    },
+    "guarantor_2_email_address": {
+      "type": "string"
+    },
+    "guarantor_2_home_address": {
+      "type": "string"
+    },
+    "guarantor_2_office_address": {
+      "type": "string"
+    },
+    "guarantor_2_occupation": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "full_name",
+    "staff_id"
+  ],
+  "rls": {
+    "create": {},
+    "read": {},
+    "update": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "super_admin",
+                "hr",
+                "HR",
+                "manager",
+                "Manager"
+              ]
+            }
+          }
+        },
+        {
+          "data.user_account_email": "{{user.email}}"
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "super_admin",
+                "hr",
+                "HR"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

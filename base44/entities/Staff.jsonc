@@ -1,0 +1,84 @@
+{
+  "name": "Staff",
+  "type": "object",
+  "properties": {
+    "full_name": {
+      "type": "string",
+      "description": "Full name of the staff member"
+    },
+    "email": {
+      "type": "string",
+      "description": "Work email address"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Phone number"
+    },
+    "job_title": {
+      "type": "string",
+      "description": "Job title or position"
+    },
+    "department": {
+      "type": "string",
+      "description": "Department name"
+    },
+    "location": {
+      "type": "string",
+      "description": "Office/site location (e.g. Lagos HQ, Abuja Office)"
+    },
+    "employee_id": {
+      "type": "string",
+      "description": "Employee ID number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "on_leave"
+      ],
+      "default": "active",
+      "description": "Employment status"
+    }
+  },
+  "required": [
+    "full_name",
+    "department"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "hr"
+          ]
+        }
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": {
+          "$nin": [
+            "client"
+          ]
+        }
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "hr"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

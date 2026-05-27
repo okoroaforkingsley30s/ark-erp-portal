@@ -1,0 +1,32 @@
+{
+  "name": "Bank",
+  "type": "object",
+  "properties": {
+    "bank_name": {
+      "type": "string",
+      "description": "Name of the bank"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive",
+        "suspended"
+      ],
+      "default": "active"
+    },
+    "logo_url": {
+      "type": "string",
+      "description": "Bank logo URL"
+    },
+    "contact_email": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "bank_name"
+  ]
+}

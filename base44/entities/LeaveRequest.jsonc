@@ -1,0 +1,144 @@
+{
+  "name": "LeaveRequest",
+  "type": "object",
+  "properties": {
+    "requester_email": {
+      "type": "string"
+    },
+    "requester_name": {
+      "type": "string"
+    },
+    "department": {
+      "type": "string"
+    },
+    "leave_type": {
+      "type": "string",
+      "enum": [
+        "annual",
+        "sick",
+        "maternity",
+        "paternity",
+        "emergency",
+        "unpaid",
+        "other"
+      ],
+      "default": "annual"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "days_requested": {
+      "type": "number"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "cancelled"
+      ],
+      "default": "pending"
+    },
+    "approver_email": {
+      "type": "string"
+    },
+    "approver_notes": {
+      "type": "string"
+    },
+    "approved_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "requester_email",
+    "leave_type",
+    "start_date",
+    "end_date"
+  ],
+  "rls": {
+    "create": {
+      "data.requester_email": "{{user.email}}"
+    },
+    "read": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "hr",
+                "manager",
+                "agm",
+                "ceo"
+              ]
+            }
+          }
+        },
+        {
+          "data.requester_email": "{{user.email}}"
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "hr",
+                "manager",
+                "agm",
+                "ceo"
+              ]
+            }
+          }
+        },
+        {
+          "$and": [
+            {
+              "data.requester_email": "{{user.email}}"
+            },
+            {
+              "data.status": "pending"
+            }
+          ]
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "hr"
+              ]
+            }
+          }
+        },
+        {
+          "$and": [
+            {
+              "data.requester_email": "{{user.email}}"
+            },
+            {
+              "data.status": "pending"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "name": "User",
+  "type": "object",
+  "properties": {
+    "role": {
+      "type": "string",
+      "enum": [
+        "admin",
+        "super_admin",
+        "ceo",
+        "ceo_pa",
+        "agm",
+        "manager",
+        "repair_head",
+        "helpdesk",
+        "engineer",
+        "hr",
+        "finance",
+        "inventory",
+        "procurement",
+        "crm",
+        "client"
+      ],
+      "default": "client"
+    },
+    "must_change_password": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, user is forced to change password before accessing the portal"
+    },
+    "password_changed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp of last password change"
+    }
+  },
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {},
+    "update": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "super_admin"
+              ]
+            }
+          }
+        },
+        {
+          "data.id": "{{user.id}}"
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "super_admin"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "name": "Department",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Department name"
+    },
+    "description": {
+      "type": "string",
+      "description": "Department description"
+    },
+    "head_email": {
+      "type": "string",
+      "description": "Department head email"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "inactive"
+      ],
+      "default": "active"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "hr"
+          ]
+        }
+      }
+    },
+    "read": {},
+    "update": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "hr"
+          ]
+        }
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

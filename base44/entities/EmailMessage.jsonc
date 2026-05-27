@@ -1,0 +1,152 @@
+{
+  "name": "EmailMessage",
+  "type": "object",
+  "properties": {
+    "sender_email": {
+      "type": "string"
+    },
+    "sender_name": {
+      "type": "string"
+    },
+    "recipient_email": {
+      "type": "string"
+    },
+    "cc": {
+      "type": "string",
+      "description": "Comma-separated CC addresses"
+    },
+    "bcc": {
+      "type": "string",
+      "description": "Comma-separated BCC addresses"
+    },
+    "subject": {
+      "type": "string"
+    },
+    "message_body": {
+      "type": "string"
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "received_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "email_category": {
+      "type": "string",
+      "enum": [
+        "Bank Support",
+        "Client Request",
+        "Vendor / Supplier",
+        "Staff Internal",
+        "HR Matter",
+        "Finance Matter",
+        "Procurement Matter",
+        "General Enquiry",
+        "Complaint",
+        "Escalation",
+        "Other"
+      ],
+      "default": "General Enquiry"
+    },
+    "related_bank": {
+      "type": "string"
+    },
+    "related_branch": {
+      "type": "string"
+    },
+    "related_device": {
+      "type": "string"
+    },
+    "linked_ticket_id": {
+      "type": "string"
+    },
+    "linked_task_id": {
+      "type": "string"
+    },
+    "assigned_department": {
+      "type": "string"
+    },
+    "assigned_staff": {
+      "type": "string"
+    },
+    "priority": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "critical"
+      ],
+      "default": "medium"
+    },
+    "email_status": {
+      "type": "string",
+      "enum": [
+        "New",
+        "Reviewed",
+        "Assigned",
+        "Converted to Ticket",
+        "Converted to Task",
+        "Replied",
+        "Closed",
+        "Archived"
+      ],
+      "default": "New"
+    },
+    "internal_notes": {
+      "type": "string"
+    },
+    "replied_status": {
+      "type": "boolean",
+      "default": false
+    },
+    "archived_status": {
+      "type": "boolean",
+      "default": false
+    },
+    "is_draft": {
+      "type": "boolean",
+      "default": false
+    },
+    "is_sent": {
+      "type": "boolean",
+      "default": false
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "inbound",
+        "outbound"
+      ],
+      "default": "inbound"
+    },
+    "source_account": {
+      "type": "string",
+      "description": "Which official email account this came from"
+    }
+  },
+  "required": [
+    "subject",
+    "sender_email"
+  ],
+  "rls": {
+    "create": {},
+    "read": {},
+    "update": {},
+    "delete": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "helpdesk",
+            "manager"
+          ]
+        }
+      }
+    }
+  }
+}

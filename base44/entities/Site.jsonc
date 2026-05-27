@@ -1,0 +1,152 @@
+{
+  "name": "Site",
+  "type": "object",
+  "properties": {
+    "site_id": {
+      "type": "string",
+      "description": "Auto-generated site reference ID"
+    },
+    "name": {
+      "type": "string",
+      "description": "Site name"
+    },
+    "client_name": {
+      "type": "string",
+      "description": "Client organization name"
+    },
+    "client_email": {
+      "type": "string",
+      "description": "Client contact email"
+    },
+    "address": {
+      "type": "string",
+      "description": "Physical address"
+    },
+    "latitude": {
+      "type": "number",
+      "description": "GPS latitude"
+    },
+    "longitude": {
+      "type": "number",
+      "description": "GPS longitude"
+    },
+    "region": {
+      "type": "string",
+      "description": "Geographic region"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "down",
+        "maintenance",
+        "offline"
+      ],
+      "default": "active",
+      "description": "Site operational status"
+    },
+    "assigned_engineer_email": {
+      "type": "string",
+      "description": "Assigned engineer email"
+    },
+    "assigned_engineer_name": {
+      "type": "string",
+      "description": "Assigned engineer name"
+    },
+    "last_maintenance_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Last maintenance date"
+    },
+    "next_maintenance_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Next scheduled maintenance"
+    },
+    "machine_count": {
+      "type": "number",
+      "description": "Number of machines at site"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    },
+    "contact_phone": {
+      "type": "string",
+      "description": "Site contact phone"
+    },
+    "sla_tier": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "premium",
+        "critical"
+      ],
+      "default": "standard"
+    }
+  },
+  "required": [
+    "name",
+    "client_name"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": {
+          "$in": [
+            "admin",
+            "manager",
+            "helpdesk"
+          ]
+        }
+      }
+    },
+    "read": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "manager",
+                "helpdesk",
+                "ceo",
+                "agm",
+                "repair_head"
+              ]
+            }
+          }
+        },
+        {
+          "data.client_email": "{{user.email}}"
+        },
+        {
+          "data.assigned_engineer_email": "{{user.email}}"
+        }
+      ]
+    },
+    "update": {
+      "$or": [
+        {
+          "user_condition": {
+            "role": {
+              "$in": [
+                "admin",
+                "manager",
+                "helpdesk"
+              ]
+            }
+          }
+        },
+        {
+          "data.assigned_engineer_email": "{{user.email}}"
+        }
+      ]
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

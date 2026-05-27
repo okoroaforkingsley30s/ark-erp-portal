@@ -1,0 +1,89 @@
+{
+  "name": "BankDevice",
+  "type": "object",
+  "properties": {
+    "device_name": {
+      "type": "string",
+      "description": "Device name / label"
+    },
+    "device_category": {
+      "type": "string",
+      "enum": [
+        "ATM",
+        "POS",
+        "Kiosk",
+        "CDM",
+        "CRM",
+        "Other"
+      ],
+      "default": "ATM"
+    },
+    "device_type": {
+      "type": "string",
+      "description": "Device type code (e.g. WNI, HYO, NDC)"
+    },
+    "device_model": {
+      "type": "string",
+      "description": "Device model (e.g. CENIO)"
+    },
+    "atm_terminal_id": {
+      "type": "string",
+      "description": "ATM Terminal ID"
+    },
+    "serial_number": {
+      "type": "string"
+    },
+    "bank_name": {
+      "type": "string",
+      "description": "Associated bank"
+    },
+    "branch_name": {
+      "type": "string",
+      "description": "Associated branch"
+    },
+    "device_location": {
+      "type": "string",
+      "description": "Physical location description"
+    },
+    "assigned_engineer": {
+      "type": "string",
+      "description": "Assigned engineer name"
+    },
+    "device_status": {
+      "type": "string",
+      "enum": [
+        "Active",
+        "Inactive",
+        "Faulty",
+        "Under Maintenance",
+        "Decommissioned"
+      ],
+      "default": "Active"
+    },
+    "sla_status": {
+      "type": "string",
+      "enum": [
+        "Normal",
+        "Warning",
+        "Breached",
+        "Critical"
+      ],
+      "default": "Normal"
+    },
+    "service_history": {
+      "type": "string",
+      "description": "Service history notes"
+    },
+    "last_service_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "device_name",
+    "bank_name"
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "name": "InventoryItem",
+  "type": "object",
+  "properties": {
+    "part_number": {
+      "type": "string",
+      "description": "Part reference number e.g. 1750105988"
+    },
+    "description": {
+      "type": "string",
+      "description": "Part description / name"
+    },
+    "category_group": {
+      "type": "string",
+      "enum": [
+        "WINCOR",
+        "NCR_S1",
+        "NCR_S2",
+        "HYOSUNG",
+        "ENTRUST",
+        "EVOLIS",
+        "GENERAL_PRINTER_ACCESSORIES"
+      ],
+      "default": "WINCOR",
+      "description": "Top-level inventory category group"
+    },
+    "device_brand": {
+      "type": "string",
+      "description": "e.g. Wincor, NCR, Hyosung, Entrust, Evolis"
+    },
+    "device_model": {
+      "type": "string",
+      "description": "e.g. CENIO, S1, DS4, Primacy"
+    },
+    "quantity_available": {
+      "type": "number",
+      "default": 0
+    },
+    "minimum_stock_level": {
+      "type": "number",
+      "default": 2
+    },
+    "supplier_price_usd": {
+      "type": "number",
+      "description": "Import/supplier price in USD"
+    },
+    "unit_price_ngn": {
+      "type": "number",
+      "description": "Local operational price in NGN"
+    },
+    "total_stock_value": {
+      "type": "number",
+      "description": "Auto-calculated: qty x unit_price_ngn"
+    },
+    "stock_status": {
+      "type": "string",
+      "enum": [
+        "AVAILABLE",
+        "LOW STOCK",
+        "OUT OF STOCK"
+      ],
+      "default": "OUT OF STOCK"
+    },
+    "vendor": {
+      "type": "string",
+      "default": "Not specified"
+    },
+    "storage_location": {
+      "type": "string",
+      "description": "Shelf/bin location"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "description",
+    "part_number",
+    "category_group"
+  ],
+  "rls": {
+    "create": {},
+    "read": {},
+    "update": {},
+    "delete": {}
+  }
+}
