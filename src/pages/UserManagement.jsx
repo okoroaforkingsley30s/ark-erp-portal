@@ -134,56 +134,58 @@ export default function UserManagement() {
     ALL_ROLES.find((r) => r.value === role) || ALL_ROLES[ALL_ROLES.length - 1];
 
   const handleInvite = async () => {
-    setInviting(true);
+  setInviting(true);
 
-    try {
-      const cleanEmail = inviteEmail.trim().toLowerCase();
+  try {
+    const cleanEmail = inviteEmail.trim().toLowerCase();
 
-      if (!cleanEmail) {
-        alert('Please enter an email address.');
-        return;
-      }
-
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('email', cleanEmail)
-        .maybeSingle();
-
-      if (existingUser) {
-        alert('This user already exists.');
-        return;
-      }
-
-      const { error } = await supabase.from('users').insert({
-        full_name: cleanEmail.split('@')[0],
-        email: cleanEmail,
-        role: inviteRole,
-        department: '',
-        account_status: 'active',
-        is_approved: true,
-        must_change_password: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-
-      if (error) {
-        alert('Invite failed: ' + error.message);
-        return;
-      }
-
-      alert('User added successfully. Create the user in Supabase Authentication with the same email.');
-
-      setInviteEmail('');
-      setInviteOpen(false);
-      qc.invalidateQueries({ queryKey: ['users'] });
-    } catch (err) {
-      console.error(err);
-      alert('Unexpected error adding user.');
-    } finally {
-      setInviting(false);
+    if (!cleanEmail) {
+      alert('Please enter an email address.');
+      return;
     }
-  };
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData?.session?.access_token;
+
+    const response = await fetch(
+      'https://fryidzyhqhdenghyxjfp.functions.supabase.co/invite-user',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          email: cleanEmail,
+          full_name: cleanEmail.split('@')[0],
+          role: inviteRole,
+          department: '',
+        }),
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      alert(result?.error || 'Invite failed');
+      return;
+    }
+
+    alert('Invitation email sent successfully.');
+
+    setInviteEmail('');
+    setInviteOpen(false);
+
+    qc.invalidateQueries({
+      queryKey: ['users'],
+    });
+  } catch (err) {
+    console.error(err);
+    alert('Unexpected invite error: ' + err.message);
+  } finally {
+    setInviting(false);
+  }
+};
 
   const handleRoleChange = async (userId, newRole) => {
     const { error } = await supabase
