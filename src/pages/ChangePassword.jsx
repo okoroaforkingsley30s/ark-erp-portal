@@ -1,16 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+
 import {
   Shield,
   CheckCircle2,
   Loader2,
   Eye,
-  EyeOff
+  EyeOff,
+  User,
+  Phone,
+  BadgeCheck
 } from 'lucide-react';
 
 const PASSWORD_RE =
@@ -26,7 +31,7 @@ function getDashboardPath(u) {
   if (role === 'manager' || role === 'agm' || role === 'ceo') return '/manager';
   if (role === 'helpdesk') return '/tickets';
 
-  return '/';
+  return '/dashboard';
 }
 
 export default function ChangePassword() {
@@ -34,7 +39,10 @@ export default function ChangePassword() {
 
   const [user, setUser] = useState(null);
 
-  const [current, setCurrent] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [staffId, setStaffId] = useState('');
+
   const [newPass, setNewPass] = useState('');
   const [confirm, setConfirm] = useState('');
 
@@ -43,33 +51,87 @@ export default function ChangePassword() {
 
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  const [loadingSession, setLoadingSession] = useState(true);
+
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const loadUser = async () => {
-      const {
-        data: { session }
-      } = await supabase.auth.getSession();
+    const setupInviteSession = async () => {
+      try {
+        const hash = window.location.hash;
 
-      if (!session?.user) return;
+        if (hash) {
+          const params = new URLSearchParams(
+            hash.replace('#', '')
+          );
 
-      const { data } = await supabase
-        .from('users')
-        .select('*')
-        .eq('email', session.user.email)
-        .single();
+          const access_token = params.get('access_token');
+          const refresh_token = params.get('refresh_token');
 
-      setUser(data || session.user);
+          if (access_token && refresh_token) {
+            await supabase.auth.setSession({
+              access_token,
+              refresh_token,
+            });
+
+            window.history.replaceState(
+              {},
+              document.title,
+              '/create-password'
+            );
+          }
+        }
+
+        const {
+          data: { session }
+        } = await supabase.auth.getSession();
+
+        if (!session?.user) {
+          navigate('/welcome');
+          return;
+        }
+
+        const { data } = await supabase
+          .from('users')
+          .select('*')
+          .eq('email', session.user.email)
+          .single();
+
+        const profile = data || session.user;
+
+        setUser(profile);
+
+        setFullName(profile?.full_name || '');
+        setPhone(profile?.phone || '');
+        setStaffId(profile?.employee_id || '');
+
+      } catch (err) {
+        console.error(err);
+        setError('Invalid or expired invitation link.');
+      } finally {
+        setLoadingSession(false);
+      }
     };
 
-    loadUser();
-  }, []);
+    setupInviteSession();
+  }, [navigate]);
 
   const handleSubmit = async () => {
     setError('');
 
-    if (!current) {
-      setError('Current password is required.');
+    if (!fullName) {
+      setError('Full name is required.');
+      return;
+    }
+
+    if (!phone) {
+      setError('Phone number is required.');
+      return;
+    }
+
+    if (!staffId) {
+      setError('Staff ID is required.');
       return;
     }
 
@@ -79,7 +141,7 @@ export default function ChangePassword() {
     }
 
     if (!confirm) {
-      setError('Please confirm your new password.');
+      setError('Please confirm your password.');
       return;
     }
 
@@ -90,22 +152,21 @@ export default function ChangePassword() {
 
     if (!PASSWORD_RE.test(newPass)) {
       setError(
-        'Password must be at least 8 characters and contain uppercase, lowercase, number, and special character.'
+        'Password must contain uppercase, lowercase, number and special character.'
       );
-      return;
-    }
-
-    if (newPass === current) {
-      setError('New password must be different from your current password.');
       return;
     }
 
     setSaving(true);
 
     try {
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPass
-      });
+      const { error: updateError } =
+        await supabase.auth.updateUser({
+          password: newPass,
+          data: {
+            full_name: fullName,
+          }
+        });
 
       if (updateError) {
         throw updateError;
@@ -115,7 +176,12 @@ export default function ChangePassword() {
         await supabase
           .from('users')
           .update({
-            must_change_password: false
+            full_name: fullName,
+            phone,
+            employee_id: staffId,
+            must_change_password: false,
+            is_approved: true,
+            updated_at: new Date().toISOString(),
           })
           .eq('id', user.id);
       }
@@ -131,29 +197,39 @@ export default function ChangePassword() {
 
       setError(
         err?.message ||
-        'Password update failed. Please try again.'
+        'Account setup failed.'
       );
 
       setSaving(false);
     }
   };
 
+  if (loadingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]">
+        <Loader2 className="w-8 h-8 animate-spin text-white" />
+      </div>
+    );
+  }
+
   if (success) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
+
         <Card className="p-8 max-w-sm w-full text-center space-y-4">
 
           <CheckCircle2 className="w-14 h-14 text-green-500 mx-auto" />
 
           <h2 className="text-xl font-bold">
-            Password Updated!
+            Account Setup Complete
           </h2>
 
           <p className="text-sm text-muted-foreground">
-            Password updated successfully. Redirecting…
+            Redirecting to ARK ONE Portal...
           </p>
 
         </Card>
+
       </div>
     );
   }
@@ -161,50 +237,82 @@ export default function ChangePassword() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
 
-      <Card className="p-8 max-w-md w-full space-y-6">
+      <Card className="p-8 max-w-md w-full space-y-6 border-0 shadow-2xl">
 
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-3">
 
-          <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mx-auto">
-            <Shield className="w-7 h-7 text-amber-600" />
+          <div className="w-16 h-16 rounded-2xl bg-amber-100 flex items-center justify-center mx-auto">
+            <Shield className="w-8 h-8 text-amber-600" />
           </div>
 
-          <h1 className="text-xl font-bold">
-            Change Your Password
-          </h1>
+          <div>
+            <h1 className="text-2xl font-bold">
+              Complete Your Account
+            </h1>
 
-          {user?.must_change_password && (
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2">
-              Your password is temporary. Please create a new password to continue.
+            <p className="text-sm text-muted-foreground mt-1">
+              Finish setting up your ARK ONE ERP Portal access
             </p>
-          )}
+          </div>
 
         </div>
 
         <div className="space-y-4">
 
           <div className="space-y-1.5">
+            <Label>Full Name</Label>
 
-            <Label>Current Password</Label>
+            <div className="relative">
+              <User className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
 
-            <Input
-              type="password"
-              placeholder="Enter current password"
-              value={current}
-              onChange={e => setCurrent(e.target.value)}
-            />
+              <Input
+                className="pl-10"
+                placeholder="Enter full name"
+                value={fullName}
+                onChange={e => setFullName(e.target.value)}
+              />
+            </div>
+          </div>
 
+          <div className="space-y-1.5">
+            <Label>Phone Number</Label>
+
+            <div className="relative">
+              <Phone className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
+              <Input
+                className="pl-10"
+                placeholder="Enter phone number"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Staff ID</Label>
+
+            <div className="relative">
+              <BadgeCheck className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
+              <Input
+                className="pl-10"
+                placeholder="Enter staff ID"
+                value={staffId}
+                onChange={e => setStaffId(e.target.value)}
+              />
+            </div>
           </div>
 
           <div className="space-y-1.5">
 
-            <Label>New Password</Label>
+            <Label>Create Password</Label>
 
             <div className="relative">
 
               <Input
                 type={showNew ? 'text' : 'password'}
-                placeholder="Min 8 chars, upper, lower, number, special"
+                placeholder="Create secure password"
                 value={newPass}
                 onChange={e => setNewPass(e.target.value)}
                 className="pr-10"
@@ -226,13 +334,13 @@ export default function ChangePassword() {
 
           <div className="space-y-1.5">
 
-            <Label>Confirm New Password</Label>
+            <Label>Confirm Password</Label>
 
             <div className="relative">
 
               <Input
                 type={showConfirm ? 'text' : 'password'}
-                placeholder="Re-enter new password"
+                placeholder="Confirm password"
                 value={confirm}
                 onChange={e => setConfirm(e.target.value)}
                 className="pr-10"
@@ -259,29 +367,26 @@ export default function ChangePassword() {
           )}
 
           <Button
-            className="w-full"
+            className="w-full h-11 text-base"
             onClick={handleSubmit}
-            disabled={!current || !newPass || !confirm || saving}
+            disabled={
+              !fullName ||
+              !phone ||
+              !staffId ||
+              !newPass ||
+              !confirm ||
+              saving
+            }
           >
             {saving ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Updating password...
+                Setting up account...
               </>
             ) : (
-              'Update Password'
+              'Complete Setup'
             )}
           </Button>
-
-          {!user?.must_change_password && (
-            <Button
-              variant="ghost"
-              className="w-full text-muted-foreground"
-              onClick={() => navigate(-1)}
-            >
-              Cancel
-            </Button>
-          )}
 
         </div>
 

@@ -60,8 +60,8 @@ const AuthenticatedApp = () => {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-          <p className="text-sm text-muted-foreground font-medium">
+          <div className="w-10 h-10 border-4 border-[#ff5a00]/20 border-t-[#ff5a00] rounded-full animate-spin" />
+          <p className="text-sm text-slate-200 font-medium">
             ARK ONE Portal
           </p>
         </div>
@@ -89,6 +89,9 @@ const AuthenticatedApp = () => {
       <Route path="/signin" element={<Welcome />} />
       <Route path="/register" element={<Welcome />} />
       <Route path="/signup" element={<Welcome />} />
+
+      {/* PUBLIC INVITE ONBOARDING ROUTE */}
+      <Route path="/create-password" element={<ChangePassword />} />
 
       {/* PROTECTED APP ROUTES */}
       <Route element={<AppLayout />}>
@@ -125,7 +128,6 @@ const AuthenticatedApp = () => {
         <Route path="/regional-coverage" element={<RegionalCoverage />} />
         <Route path="/ops-dashboard" element={<OperationsDashboard />} />
         <Route path="/ark-connect" element={<ArkConnect />} />
-        <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/sla-analytics" element={<SLAAnalytics />} />
         <Route path="/official-mail" element={<OfficialMailInbox />} />
         <Route path="/procurement-lpo" element={<ProcurementLPO />} />
