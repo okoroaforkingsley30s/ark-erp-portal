@@ -1,33 +1,33 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../../integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Radio } from "lucide-react";
 
 const siteStatusConfig = {
   active: {
     label: "Active",
-    dot: "bg-green-500",
-    light: "bg-green-50 text-green-700 border-green-200",
+    dot: "bg-emerald-400",
+    badge: "success",
     pulse: true,
   },
   down: {
     label: "Down",
-    dot: "bg-red-500",
-    light: "bg-red-50 text-red-700 border-red-200",
-    pulse: false,
+    dot: "bg-red-400",
+    badge: "destructive",
+    pulse: true,
   },
   maintenance: {
     label: "Maintenance",
     dot: "bg-amber-400",
-    light: "bg-amber-50 text-amber-700 border-amber-200",
+    badge: "warning",
     pulse: false,
   },
   offline: {
     label: "Offline",
     dot: "bg-slate-400",
-    light: "bg-slate-50 text-slate-500 border-slate-200",
+    badge: "secondary",
     pulse: false,
   },
 };
@@ -53,58 +53,69 @@ export default function SiteStatusPanel() {
   const maintSites = sites.filter((s) => s.status === "maintenance");
 
   return (
-    <Card>
+    <Card className="border-white/10 bg-[#102969]/90">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Radio className="w-4 h-4 text-primary" />
-          Site Health Monitor
-          <span className="ml-auto text-xs text-muted-foreground font-normal">
-            {sites.length} sites
+        <CardTitle className="flex items-center gap-2">
+          <span className="w-9 h-9 rounded-2xl bg-[#ff5a00]/15 border border-[#ff5a00]/20 flex items-center justify-center">
+            <Radio className="w-4 h-4 text-[#ff5a00]" />
           </span>
+          Site Health Monitor
         </CardTitle>
+
+        <CardDescription>
+          Live operational status across monitored sites · {sites.length} sites
+        </CardDescription>
       </CardHeader>
 
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div className="rounded-lg bg-green-50 border border-green-200 p-2">
-            <p className="text-lg font-bold text-green-700">
+      <CardContent className="space-y-5">
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="rounded-2xl bg-emerald-500/10 border border-emerald-400/20 p-3">
+            <p className="text-2xl font-black text-emerald-300">
               {activeSites.length}
             </p>
-            <p className="text-[10px] text-green-600">Active</p>
+            <p className="text-[10px] text-emerald-200 uppercase tracking-widest">
+              Active
+            </p>
           </div>
 
-          <div className="rounded-lg bg-red-50 border border-red-200 p-2">
-            <p className="text-lg font-bold text-red-700">
+          <div className="rounded-2xl bg-red-500/10 border border-red-400/20 p-3">
+            <p className="text-2xl font-black text-red-300">
               {downSites.length}
             </p>
-            <p className="text-[10px] text-red-600">Down</p>
+            <p className="text-[10px] text-red-200 uppercase tracking-widest">
+              Down
+            </p>
           </div>
 
-          <div className="rounded-lg bg-amber-50 border border-amber-200 p-2">
-            <p className="text-lg font-bold text-amber-700">
+          <div className="rounded-2xl bg-amber-500/10 border border-amber-400/20 p-3">
+            <p className="text-2xl font-black text-amber-300">
               {maintSites.length}
             </p>
-            <p className="text-[10px] text-amber-600">Maint.</p>
+            <p className="text-[10px] text-amber-200 uppercase tracking-widest">
+              Maint.
+            </p>
           </div>
         </div>
 
         {downSites.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-red-600 flex items-center gap-1">
-              <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-red-300 flex items-center gap-2 uppercase tracking-widest">
+              <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse" />
               Down Sites
             </p>
 
             {downSites.map((s) => (
               <div
                 key={s.id}
-                className="flex items-center gap-2 p-2 bg-red-50 rounded-lg border border-red-200"
+                className="flex items-center gap-3 p-3 bg-red-500/10 rounded-2xl border border-red-400/20"
               >
-                <MapPin className="w-3 h-3 text-red-500 flex-shrink-0" />
+                <MapPin className="w-4 h-4 text-red-300 flex-shrink-0" />
 
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{s.name}</p>
-                  <p className="text-[10px] text-red-600 truncate">
+                  <p className="text-sm font-semibold text-white truncate">
+                    {s.name}
+                  </p>
+                  <p className="text-xs text-red-200 truncate">
                     {s.client_name}
                   </p>
                 </div>
@@ -113,24 +124,26 @@ export default function SiteStatusPanel() {
           </div>
         )}
 
-        <div className="space-y-1.5 max-h-48 overflow-y-auto">
+        <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
           {sites.slice(0, 10).map((s) => {
             const sc = siteStatusConfig[s.status] || siteStatusConfig.offline;
 
             return (
-              <div key={s.id} className="flex items-center gap-2">
+              <div
+                key={s.id}
+                className="flex items-center gap-3 rounded-2xl border border-white/5 bg-[#0b1f5e]/70 px-3 py-2"
+              >
                 <span
-                  className={`w-2 h-2 rounded-full flex-shrink-0 ${sc.dot} ${
+                  className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${sc.dot} ${
                     sc.pulse ? "animate-pulse" : ""
                   }`}
                 />
 
-                <span className="text-xs flex-1 truncate">{s.name}</span>
+                <span className="text-sm text-slate-100 flex-1 truncate">
+                  {s.name}
+                </span>
 
-                <Badge
-                  variant="outline"
-                  className={`${sc.light} text-[9px] px-1.5 py-0`}
-                >
+                <Badge variant={sc.badge}>
                   {sc.label}
                 </Badge>
               </div>
@@ -138,7 +151,7 @@ export default function SiteStatusPanel() {
           })}
 
           {sites.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-2">
+            <p className="text-sm text-slate-300 text-center py-4">
               No sites configured
             </p>
           )}

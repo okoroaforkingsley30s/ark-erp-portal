@@ -71,7 +71,7 @@ const STATUS_COLORS = {
     'bg-emerald-100 text-emerald-700 border-emerald-200',
 
   Cancelled:
-    'bg-slate-100 text-slate-400 border-slate-200',
+    'bg-slate-100 text-slate-200 border-slate-200',
 };
 
 const STATUS_ICONS = {

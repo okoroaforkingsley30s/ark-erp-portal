@@ -140,7 +140,7 @@ export default function ChangePassword() {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
         <Card className="p-8 max-w-sm w-full text-center space-y-4">
 
           <CheckCircle2 className="w-14 h-14 text-green-500 mx-auto" />
@@ -159,7 +159,7 @@ export default function ChangePassword() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
 
       <Card className="p-8 max-w-md w-full space-y-6">
 

@@ -9,10 +9,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Clock,
-  Wrench,
-  MapPin,
   Package,
-  Radio,
+  MapPin,
   Boxes,
   Building2,
   Cpu,
@@ -87,99 +85,48 @@ export default function Dashboard() {
     enabled: !!user,
   });
 
-  const { data: allUsers = [] } = useQuery({
-    queryKey: ['users-count'],
-
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*');
-
-      if (error) return [];
-
-      return data || [];
-    },
-
-    enabled: role === 'admin',
-  });
-
   const { data: banks = [] } = useQuery({
     queryKey: ['banks'],
-
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('banks')
-        .select('*');
-
-      if (error) return [];
-
+      const { data } = await supabase.from('banks').select('*');
       return data || [];
     },
-
     enabled: OPS_ROLES.includes(role),
   });
 
   const { data: devices = [] } = useQuery({
     queryKey: ['devices'],
-
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('devices')
-        .select('*');
-
-      if (error) return [];
-
+      const { data } = await supabase.from('devices').select('*');
       return data || [];
     },
-
     enabled: OPS_ROLES.includes(role),
   });
 
   const { data: engineers = [] } = useQuery({
     queryKey: ['engineers'],
-
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('engineers')
-        .select('*');
-
-      if (error) return [];
-
+      const { data } = await supabase.from('engineers').select('*');
       return data || [];
     },
-
     enabled: OPS_ROLES.includes(role),
   });
 
   const { data: branches = [] } = useQuery({
     queryKey: ['branches'],
-
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('branches')
-        .select('*');
-
-      if (error) return [];
-
+      const { data } = await supabase.from('branches').select('*');
       return data || [];
     },
-
     enabled: OPS_ROLES.includes(role),
   });
 
   const { data: spareParts = [] } = useQuery({
     queryKey: ['spare-parts'],
-
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('spare_parts')
-        .select('*');
-
-      if (error) return [];
-
+      const { data } = await supabase.from('spare_parts').select('*');
       return data || [];
     },
-
     enabled:
       OPS_ROLES.includes(role) ||
       INVENTORY_ROLES.includes(role),
@@ -187,7 +134,6 @@ export default function Dashboard() {
 
   const { data: spareRequests = [] } = useQuery({
     queryKey: ['spare-requests'],
-
     queryFn: async () => {
       let query = supabase
         .from('spare_part_requests')
@@ -198,32 +144,23 @@ export default function Dashboard() {
         query = query.eq('engineer_email', user.email);
       }
 
-      const { data, error } = await query;
-
-      if (error) return [];
+      const { data } = await query;
 
       return data || [];
     },
-
-    enabled:
-      role !== 'client' &&
-      role !== 'finance' &&
-      role !== 'hr',
+    enabled: role !== 'client',
   });
 
   const { data: unreadMessages = [] } = useQuery({
     queryKey: ['unread-dms', user?.email],
 
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('notifications')
         .select('*')
         .eq('user_email', user.email)
         .eq('type', 'chat_message')
-        .eq('read', false)
-        .order('created_at', { ascending: false });
-
-      if (error) return [];
+        .eq('read', false);
 
       return data || [];
     },
@@ -278,37 +215,41 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 text-white">
 
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
 
         <div>
-          <h1 className="text-2xl font-bold">
-            {greeting()},{' '}
-            {user?.full_name?.split(' ')[0] || 'User'}
+          <h1 className="text-3xl lg:text-4xl font-black tracking-tight">
+            {greeting()},{" "}
+            <span className="text-[#ff5a00]">
+              {user?.full_name?.split(' ')[0] || 'User'}
+            </span>
           </h1>
 
-          <p className="text-sm text-muted-foreground mt-1">
-            ARK ONE Portal Dashboard
+          <p className="text-slate-300 mt-2 text-sm tracking-wide">
+            ARK ONE Enterprise Command Center
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
 
-          <ExportButton
-            filename={`ark-tickets-${new Date().toISOString().split('T')[0]}`}
-            label="Export"
-            data={tickets.map(t => ({
-              ID: t.id,
-              Title: t.title || '',
-              Status: t.status || '',
-              Priority: t.priority || '',
-              AssignedTo: t.assigned_to || '',
-            }))}
-          />
+          <div className="scale-95">
+            <ExportButton
+              filename={`ark-tickets-${new Date().toISOString().split('T')[0]}`}
+              label="Export"
+              data={tickets.map(t => ({
+                ID: t.id,
+                Title: t.title || '',
+                Status: t.status || '',
+                Priority: t.priority || '',
+                AssignedTo: t.assigned_to || '',
+              }))}
+            />
+          </div>
 
-          <div className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground bg-muted px-3 py-1.5 rounded-full">
-            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-400/20 text-emerald-300 text-sm font-semibold">
+            <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
             Live
           </div>
 
@@ -318,29 +259,10 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-        <StatCard
-          title="Total Tickets"
-          value={tickets.length}
-          icon={Ticket}
-        />
-
-        <StatCard
-          title="Open Tickets"
-          value={openTickets.length}
-          icon={Clock}
-        />
-
-        <StatCard
-          title="Resolved"
-          value={resolvedTickets.length}
-          icon={CheckCircle2}
-        />
-
-        <StatCard
-          title="Critical"
-          value={criticalTickets.length}
-          icon={AlertTriangle}
-        />
+        <StatCard title="Total Tickets" value={tickets.length} icon={Ticket} />
+        <StatCard title="Open Tickets" value={openTickets.length} icon={Clock} />
+        <StatCard title="Resolved" value={resolvedTickets.length} icon={CheckCircle2} />
+        <StatCard title="Critical" value={criticalTickets.length} icon={AlertTriangle} />
 
       </div>
 
@@ -348,126 +270,100 @@ export default function Dashboard() {
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-            <StatCard
-              title="Banks"
-              value={banks.length}
-              icon={Building2}
-            />
-
-            <StatCard
-              title="Devices"
-              value={devices.length}
-              icon={Cpu}
-            />
-
-            <StatCard
-              title="Engineers"
-              value={engineers.length}
-              icon={UserCheck}
-            />
-
-            <StatCard
-              title="Branches"
-              value={branches.length}
-              icon={MapPin}
-            />
+            <StatCard title="Banks" value={banks.length} icon={Building2} />
+            <StatCard title="Devices" value={devices.length} icon={Cpu} />
+            <StatCard title="Engineers" value={engineers.length} icon={UserCheck} />
+            <StatCard title="Branches" value={branches.length} icon={MapPin} />
 
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-            <StatCard
-              title="Active Devices"
-              value={activeDevices}
-              icon={CheckCircle2}
-            />
-
-            <StatCard
-              title="Faulty Devices"
-              value={faultyDevices}
-              icon={AlertTriangle}
-            />
-
-            <StatCard
-              title="Low Stock"
-              value={lowStock}
-              icon={Package}
-            />
-
-            <StatCard
-              title="Pending Requests"
-              value={spareRequests.length}
-              icon={Boxes}
-            />
+            <StatCard title="Active Devices" value={activeDevices} icon={CheckCircle2} />
+            <StatCard title="Faulty Devices" value={faultyDevices} icon={AlertTriangle} />
+            <StatCard title="Low Stock" value={lowStock} icon={Package} />
+            <StatCard title="Pending Requests" value={spareRequests.length} icon={Boxes} />
 
           </div>
         </>
       )}
 
-      {showMap && <LiveMapPanel compact />}
+      {showMap && (
+        <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
+          <LiveMapPanel compact />
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-3 gap-4">
 
         <div className="lg:col-span-2 space-y-4">
 
-          <TicketTrendChart tickets={tickets} />
+          <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
+            <TicketTrendChart tickets={tickets} />
+          </div>
 
-          <TicketStatusChart tickets={tickets} />
+          <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
+            <TicketStatusChart tickets={tickets} />
+          </div>
 
         </div>
 
         <div className="space-y-4">
 
-          <SiteStatusPanel />
+          <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
+            <SiteStatusPanel />
+          </div>
 
-          <EngineerActivityFeed />
+          <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
+            <EngineerActivityFeed />
+          </div>
 
         </div>
 
       </div>
 
       {unreadMessages.length > 0 && (
-        <div className="border border-primary/20 rounded-xl bg-primary/5 p-4">
+        <div className="rounded-3xl border border-[#ff5a00]/20 bg-[#102969]/90 backdrop-blur-xl p-5 shadow-[0_0_30px_rgba(0,0,0,0.25)]">
 
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-4">
 
             <div className="flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-primary" />
+              <MessageSquare className="w-5 h-5 text-[#ff5a00]" />
 
-              <h3 className="font-semibold text-sm">
+              <h3 className="font-bold text-white">
                 Unread Messages ({unreadMessages.length})
               </h3>
             </div>
 
             <Link
               to="/ark-connect"
-              className="text-xs text-primary hover:underline"
+              className="text-sm text-[#ff5a00] hover:underline"
             >
               Open ARK Connect →
             </Link>
 
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
 
             {unreadMessages.slice(0, 5).map(n => (
               <Link
                 key={n.id}
                 to="/ark-connect"
-                className="flex items-start gap-3 p-2 bg-card rounded-lg border hover:bg-muted/50 transition-colors block"
+                className="flex items-start gap-3 p-3 rounded-2xl bg-[#0b1f5e] border border-white/5 hover:border-[#ff5a00]/20 transition-all"
               >
 
-                <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 text-xs font-bold">
+                <div className="w-9 h-9 rounded-full bg-[#ff5a00]/20 flex items-center justify-center flex-shrink-0 text-sm font-bold text-[#ff5a00]">
                   {n.title?.[0]?.toUpperCase() || '?'}
                 </div>
 
                 <div className="flex-1 min-w-0">
 
-                  <p className="text-xs font-semibold truncate">
+                  <p className="text-sm font-semibold text-white truncate">
                     {n.title}
                   </p>
 
-                  <p className="text-xs text-muted-foreground truncate">
+                  <p className="text-xs text-slate-300 truncate">
                     {n.message}
                   </p>
 
@@ -481,10 +377,12 @@ export default function Dashboard() {
         </div>
       )}
 
-      <RecentTicketsTable
-        tickets={tickets}
-        showAssignee={role !== 'client'}
-      />
+      <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
+        <RecentTicketsTable
+          tickets={tickets}
+          showAssignee={role !== 'client'}
+        />
+      </div>
 
     </div>
   );

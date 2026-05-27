@@ -11,7 +11,7 @@ export default function MobileHeader({ title, showBack = false, notifCount = 0, 
       <div className="flex items-center gap-3">
         {showBack && (
           <button onClick={() => navigate(-1)}
-            className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/10 active:bg-white/20">
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-[#102969]/10 active:bg-[#102969]/20">
             <ArrowLeft className="w-4 h-4 text-white" />
           </button>
         )}
@@ -25,13 +25,13 @@ export default function MobileHeader({ title, showBack = false, notifCount = 0, 
       <div className="flex items-center gap-2">
         {onSearch && (
           <button onClick={onSearch}
-            className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/10 active:bg-white/20">
+            className="w-8 h-8 flex items-center justify-center rounded-xl bg-[#102969]/10 active:bg-[#102969]/20">
             <Search className="w-4 h-4 text-white/70" />
           </button>
         )}
         <button
           onClick={() => navigate('/notifications')}
-          className="relative w-8 h-8 flex items-center justify-center rounded-xl bg-white/10 active:bg-white/20">
+          className="relative w-8 h-8 flex items-center justify-center rounded-xl bg-[#102969]/10 active:bg-[#102969]/20">
           <Bell className="w-4 h-4 text-white/70" />
           {notifCount > 0 && (
             <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-red-500 rounded-full" />

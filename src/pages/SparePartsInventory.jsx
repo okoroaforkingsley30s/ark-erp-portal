@@ -661,7 +661,7 @@ export default function SparePartsInventory() {
                   className="hidden"
                   onChange={handleImportExcel}
                 />
-                <span className="inline-flex items-center gap-1.5 text-sm font-medium h-9 px-3 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground transition-colors">
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium h-9 px-3 rounded-md border border-input bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] hover:bg-accent hover:text-accent-foreground transition-colors">
                   {importLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (

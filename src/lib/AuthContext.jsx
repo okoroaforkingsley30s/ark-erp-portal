@@ -17,26 +17,48 @@ export const AuthProvider = ({ children }) => {
       return;
     }
 
-    const { data: profile } = await supabase
-      .from("users")
-      .select("*")
-      .eq("id", authUser.id)
-      .maybeSingle();
+    try {
+      const { data: profile, error } = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", authUser.id)
+        .maybeSingle();
 
-    setUser({
-      id: authUser.id,
-      email: authUser.email,
-      full_name:
-        profile?.full_name ||
-        authUser.user_metadata?.full_name ||
-        authUser.email,
-      role: profile?.role || "admin",
-      department: profile?.department || "IT",
-      ...profile,
-    });
+      if (error) {
+        console.warn("Profile load warning:", error.message);
+      }
 
-    setIsAuthenticated(true);
-    setIsLoadingAuth(false);
+      setUser({
+        id: authUser.id,
+        email: authUser.email,
+        full_name:
+          profile?.full_name ||
+          authUser.user_metadata?.full_name ||
+          authUser.email,
+        role: profile?.role || "admin",
+        status: profile?.status || "approved",
+        department: profile?.department || "IT",
+        ...profile,
+      });
+
+      setIsAuthenticated(true);
+      setAuthError(null);
+    } catch (error) {
+      console.error("Profile load failed:", error);
+
+      setUser({
+        id: authUser.id,
+        email: authUser.email,
+        full_name: authUser.user_metadata?.full_name || authUser.email,
+        role: "admin",
+        status: "approved",
+        department: "IT",
+      });
+
+      setIsAuthenticated(true);
+    } finally {
+      setIsLoadingAuth(false);
+    }
   };
 
   const checkUserAuth = async () => {
@@ -68,15 +90,61 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    checkUserAuth();
+    let mounted = true;
+
+    const initAuth = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!mounted) return;
+
+        if (session?.user) {
+          await loadUserProfile(session.user);
+        } else {
+          setUser(null);
+          setIsAuthenticated(false);
+          setIsLoadingAuth(false);
+        }
+      } catch (error) {
+        if (!mounted) return;
+
+        console.error("Initial auth failed:", error);
+        setAuthError(error.message);
+        setUser(null);
+        setIsAuthenticated(false);
+        setIsLoadingAuth(false);
+      }
+    };
+
+    initAuth();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      loadUserProfile(session?.user || null);
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setIsAuthenticated(false);
+        setIsLoadingAuth(false);
+        return;
+      }
+
+      if (session?.user) {
+        loadUserProfile(session.user);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+        setIsLoadingAuth(false);
+      }
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const logout = async () => {

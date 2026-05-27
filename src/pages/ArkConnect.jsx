@@ -30,9 +30,10 @@ function getBotAnswer(msg) {
 }
 
 function Avatar({ name, size = 'sm' }) {
-  const s = size === 'sm' ? 'w-7 h-7 text-xs' : 'w-8 h-8 text-sm';
+  const s = size === 'sm' ? 'w-9 h-9 text-sm' : 'w-12 h-12 text-base';
+
   return (
-    <div className={`${s} rounded-full bg-primary/20 flex items-center justify-center font-bold flex-shrink-0`}>
+    <div className={`${s} rounded-2xl bg-[#ff5a00]/15 border border-[#ff5a00]/20 text-[#ff5a00] flex items-center justify-center font-black flex-shrink-0 shadow-[0_0_16px_rgba(255,90,0,0.12)]`}>
       {name?.[0]?.toUpperCase() || '?'}
     </div>
   );
@@ -40,22 +41,25 @@ function Avatar({ name, size = 'sm' }) {
 
 function MessageBubble({ msg, isMine }) {
   return (
-    <div className={`flex gap-2 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+    <div className={`flex gap-3 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
       <Avatar name={msg.sender_name} />
-      <div className={`max-w-[75%] flex flex-col gap-0.5 ${isMine ? 'items-end' : 'items-start'}`}>
+
+      <div className={`max-w-[78%] flex flex-col gap-1 ${isMine ? 'items-end' : 'items-start'}`}>
         {!isMine && (
-          <span className="text-[10px] text-slate-400 px-1">
+          <span className="text-[11px] text-slate-300 px-1">
             {msg.sender_name}{msg.sender_role ? ` · ${ROLE_LABELS[msg.sender_role] || msg.sender_role}` : ''}
           </span>
         )}
-        <div className={`px-3 py-2 rounded-2xl text-sm whitespace-pre-wrap break-words ${
+
+        <div className={`px-4 py-3 rounded-2xl text-sm whitespace-pre-wrap break-words shadow-lg ${
           isMine
-            ? 'bg-primary text-primary-foreground rounded-tr-sm shadow-lg shadow-primary/30'
-            : 'bg-slate-700/80 text-slate-100 rounded-tl-sm border border-slate-600/40'
+            ? 'bg-[#ff5a00] text-white rounded-tr-sm shadow-[0_0_24px_rgba(255,90,0,0.18)]'
+            : 'bg-[#102969] text-slate-100 rounded-tl-sm border border-white/10'
         }`}>
           {msg.message_body}
         </div>
-        <span className="text-[10px] text-slate-500 px-1">
+
+        <span className="text-[10px] text-slate-400 px-1">
           {msg.created_at ? format(new Date(msg.created_at), 'HH:mm') : ''}
         </span>
       </div>
@@ -65,13 +69,15 @@ function MessageBubble({ msg, isMine }) {
 
 function BotBubble({ text }) {
   return (
-    <div className="flex gap-2">
-      <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-        <Bot className="w-4 h-4 text-primary-foreground" />
+    <div className="flex gap-3">
+      <div className="w-9 h-9 rounded-2xl bg-[#ff5a00]/15 border border-[#ff5a00]/20 flex items-center justify-center flex-shrink-0">
+        <Bot className="w-4 h-4 text-[#ff5a00]" />
       </div>
+
       <div className="max-w-[80%]">
-        <span className="text-[10px] text-amber-400/80 px-1">ARK Assistant</span>
-        <div className="px-3 py-2 rounded-2xl rounded-tl-sm text-sm bg-amber-500/10 border border-amber-500/20 text-slate-100 whitespace-pre-wrap">
+        <span className="text-[11px] text-[#ff5a00] px-1 font-semibold">ARK Assistant</span>
+
+        <div className="px-4 py-3 rounded-2xl rounded-tl-sm text-sm bg-[#ff5a00]/10 border border-[#ff5a00]/20 text-slate-100 whitespace-pre-wrap">
           {text}
         </div>
       </div>
@@ -270,31 +276,31 @@ export default function ArkConnect() {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-sidebar-border flex items-center justify-between">
+      <div className="p-4 border-b border-[#ff5a00]/20 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-            <MessageSquare className="w-4 h-4 text-primary-foreground" />
+          <div className="w-10 h-10 rounded-2xl bg-[#ff5a00]/15 border border-[#ff5a00]/20 flex items-center justify-center">
+            <MessageSquare className="w-5 h-5 text-[#ff5a00]" />
           </div>
           <div>
-            <p className="text-xs font-bold text-sidebar-foreground">ARK Connect</p>
-            <p className="text-[9px] text-sidebar-foreground/50">Internal Communication</p>
+            <p className="text-sm font-bold text-white">ARK Connect</p>
+            <p className="text-[10px] text-slate-300">Internal Communication</p>
           </div>
         </div>
-        <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-1 rounded hover:bg-sidebar-accent text-sidebar-foreground/50">
+        <button onClick={() => setSidebarOpen(false)} className="lg:hidden p-2 rounded-xl hover:bg-white/5 text-slate-300">
           <X className="w-4 h-4" />
         </button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
-        <p className="text-[9px] font-bold uppercase tracking-widest text-sidebar-foreground/30 px-2 pt-2 pb-1">Public Channels</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-2 pt-2 pb-1">Public Channels</p>
         {ALL_CHANNELS.map(ch => (
           <button
             key={ch}
             onClick={() => navTo('channel', ch)}
-            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors text-left ${
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-2xl text-sm font-medium transition-all text-left border ${
               view === 'channel' && activeChannel === ch
-                ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-                : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                ? 'bg-[#ff5a00]/15 text-[#ff5a00] border-[#ff5a00]/20'
+                : 'text-slate-200 border-transparent hover:bg-[#ff5a00]/10 hover:text-[#ff5a00]'
             }`}
           >
             <span>{CHANNEL_ICONS[ch] || '#'}</span>
@@ -302,26 +308,26 @@ export default function ArkConnect() {
           </button>
         ))}
 
-        <p className="text-[9px] font-bold uppercase tracking-widest text-sidebar-foreground/30 px-2 pt-3 pb-1">Direct Messages</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-2 pt-4 pb-1">Direct Messages</p>
         <button
           onClick={() => navTo('dm')}
-          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors text-left ${
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-2xl text-sm font-medium transition-all text-left border ${
             view === 'dm'
-              ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+              ? 'bg-[#ff5a00]/15 text-[#ff5a00] border-[#ff5a00]/20'
+              : 'text-slate-200 border-transparent hover:bg-[#ff5a00]/10 hover:text-[#ff5a00]'
           }`}
         >
           <Lock className="w-3.5 h-3.5" />
           <span>Private Messages</span>
         </button>
 
-        <p className="text-[9px] font-bold uppercase tracking-widest text-sidebar-foreground/30 px-2 pt-3 pb-1">Assistant</p>
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-2 pt-4 pb-1">Assistant</p>
         <button
           onClick={() => navTo('bot')}
-          className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors text-left ${
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-2xl text-sm font-medium transition-all text-left border ${
             view === 'bot'
-              ? 'bg-sidebar-primary text-sidebar-primary-foreground'
-              : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+              ? 'bg-[#ff5a00]/15 text-[#ff5a00] border-[#ff5a00]/20'
+              : 'text-slate-200 border-transparent hover:bg-[#ff5a00]/10 hover:text-[#ff5a00]'
           }`}
         >
           <Bot className="w-3.5 h-3.5" />
@@ -329,12 +335,12 @@ export default function ArkConnect() {
         </button>
       </div>
 
-      <div className="p-3 border-t border-sidebar-border">
+      <div className="p-4 border-t border-[#ff5a00]/20">
         <div className="flex items-center gap-2">
           <Avatar name={user?.full_name || user?.email} />
           <div className="min-w-0">
-            <p className="text-xs font-medium text-sidebar-foreground truncate">{user?.full_name || user?.email}</p>
-            <p className="text-[9px] text-sidebar-foreground/50 truncate">{ROLE_LABELS[user?.role] || user?.role}</p>
+            <p className="text-sm font-semibold text-white truncate">{user?.full_name || user?.email}</p>
+            <p className="text-[10px] text-slate-300 truncate">{ROLE_LABELS[user?.role] || user?.role}</p>
           </div>
         </div>
       </div>
@@ -342,27 +348,27 @@ export default function ArkConnect() {
   );
 
   return (
-    <div className="flex overflow-hidden rounded-xl border border-slate-700 shadow-xl relative bg-[#0d1117]" style={{ height: 'calc(100dvh - 5rem)' }}>
+    <div className="flex overflow-hidden rounded-3xl border border-white/10 shadow-[0_0_40px_rgba(0,0,0,0.35)] relative bg-[#08153d]" style={{ height: 'calc(100dvh - 6rem)' }}>
       {sidebarOpen && (
-        <div className="fixed inset-0 z-40 lg:hidden" onClick={() => setSidebarOpen(false)}>
-          <div className="absolute inset-0 bg-black/50" />
+        <div className="fixed inset-0 z-40 lg:hidden bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)}>
+          <div className="absolute inset-0" />
         </div>
       )}
 
-      <aside className={`absolute lg:relative top-0 left-0 h-full z-50 w-56 flex-shrink-0 border-r flex flex-col bg-sidebar transform transition-transform duration-200 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+      <aside className={`absolute lg:relative top-0 left-0 h-full z-50 w-64 flex-shrink-0 border-r border-[#ff5a00]/20 flex flex-col bg-gradient-to-b from-[#08153d] via-[#0b1f5e] to-[#102969] transform transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <SidebarContent />
       </aside>
 
       <div className="flex flex-1 overflow-hidden">
         {view === 'dm' && (
-          <div className="w-44 flex-shrink-0 border-r border-slate-700/60 flex flex-col bg-[#0d1117]/80">
-            <div className="p-2 border-b">
-              <p className="text-[10px] font-semibold text-slate-400 mb-1.5 px-1">
+          <div className="w-56 flex-shrink-0 border-r border-white/10 flex flex-col bg-[#0b1f5e]/80">
+            <div className="p-3 border-b border-white/10">
+              <p className="text-xs font-bold text-white mb-2 px-1">
                 All Staff ({filteredContacts.length})
               </p>
               <div className="relative">
-                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-                <Input placeholder="Search…" className="pl-7 h-7 text-xs" value={staffSearch} onChange={e => setStaffSearch(e.target.value)} />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <Input placeholder="Search…" className="pl-9 h-9 text-xs" value={staffSearch} onChange={e => setStaffSearch(e.target.value)} />
               </div>
             </div>
 
@@ -371,65 +377,65 @@ export default function ArkConnect() {
                 <button
                   key={c.id}
                   onClick={() => setDmRecipient(c)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left text-xs transition-colors ${
-                    dmRecipient?.id === c.id ? 'bg-primary/10 text-primary' : 'hover:bg-muted'
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-2xl text-left text-xs transition-all border ${
+                    dmRecipient?.id === c.id ? 'bg-[#ff5a00]/15 text-[#ff5a00] border-[#ff5a00]/20' : 'border-transparent text-slate-200 hover:bg-white/5'
                   }`}
                 >
-                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-bold flex-shrink-0 overflow-hidden">
+                  <div className="w-9 h-9 rounded-2xl bg-[#ff5a00]/15 border border-[#ff5a00]/20 text-[#ff5a00] flex items-center justify-center text-xs font-black flex-shrink-0 overflow-hidden">
                     {c.profile_photo
                       ? <img src={c.profile_photo} alt={c.full_name} className="w-full h-full object-cover" />
                       : c.full_name?.[0]?.toUpperCase() || '?'}
                   </div>
                   <div className="min-w-0">
                     <p className="font-medium truncate">{c.full_name || c.email}</p>
-                    <p className="text-[9px] text-muted-foreground truncate">{ROLE_LABELS[c.role] || c.role || c.department || 'Staff'}</p>
+                    <p className="text-[10px] text-slate-400 truncate">{ROLE_LABELS[c.role] || c.role || c.department || 'Staff'}</p>
                   </div>
                 </button>
               ))}
 
               {filteredContacts.length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-6">No staff found</p>
+                <p className="text-xs text-slate-400 text-center py-6">No staff found</p>
               )}
             </div>
           </div>
         )}
 
         <div className="flex flex-1 flex-col overflow-hidden">
-          <div className="px-3 py-2.5 border-b border-slate-700/60 flex items-center gap-2 bg-[#161b22]">
-            <button onClick={() => setSidebarOpen(true)} className="p-1.5 rounded-lg hover:bg-muted transition-colors flex-shrink-0 lg:hidden">
-              <Menu className="w-4 h-4 text-muted-foreground" />
+          <div className="px-4 py-3 border-b border-white/10 flex items-center gap-3 bg-[#102969]/90">
+            <button onClick={() => setSidebarOpen(true)} className="p-2 rounded-xl hover:bg-white/5 transition-colors flex-shrink-0 lg:hidden">
+              <Menu className="w-4 h-4 text-slate-300" />
             </button>
 
             {view === 'channel' && (
               <>
-                <Hash className="w-4 h-4 text-slate-400" />
-                <span className="font-semibold text-sm text-slate-100">{activeChannel}</span>
+                <Hash className="w-5 h-5 text-[#ff5a00]" />
+                <span className="font-bold text-white">{activeChannel}</span>
                 <Badge variant="outline" className="text-[10px]">Public Channel</Badge>
               </>
             )}
 
             {view === 'dm' && (
               <>
-                <Lock className="w-4 h-4 text-slate-400" />
-                <span className="font-semibold text-sm text-slate-100">{dmRecipient ? dmRecipient.full_name : 'Direct Messages'}</span>
+                <Lock className="w-5 h-5 text-[#ff5a00]" />
+                <span className="font-bold text-white">{dmRecipient ? dmRecipient.full_name : 'Direct Messages'}</span>
                 {dmRecipient && <Badge variant="outline" className="text-[9px]">{ROLE_LABELS[dmRecipient.role] || dmRecipient.role || 'Staff'}</Badge>}
               </>
             )}
 
             {view === 'bot' && (
               <>
-                <Bot className="w-4 h-4 text-primary" />
-                <span className="font-semibold text-sm text-slate-100">ARK Assistant</span>
+                <Bot className="w-5 h-5 text-[#ff5a00]" />
+                <span className="font-bold text-white">ARK Assistant</span>
                 <Badge className="text-[10px]">AI Bot</Badge>
               </>
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gradient-to-b from-[#0d1117] via-[#0f1724] to-[#0d1117]">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-b from-[#08153d] via-[#0b1f5e] to-[#08153d]">
             {view === 'channel' && (
               <>
                 {channelMessages.length === 0 && (
-                  <div className="text-center py-16 text-muted-foreground text-sm">
+                  <div className="text-center py-16 text-slate-300 text-sm">
                     <span className="text-3xl mb-3 block">{CHANNEL_ICONS[activeChannel] || '#'}</span>
                     No messages yet in #{activeChannel}. Be the first to say something!
                   </div>
@@ -443,15 +449,15 @@ export default function ArkConnect() {
             {view === 'dm' && (
               <>
                 {!dmRecipient && (
-                  <div className="text-center py-16 text-muted-foreground text-sm">
-                    <Lock className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                  <div className="text-center py-16 text-slate-300 text-sm">
+                    <Lock className="w-12 h-12 mx-auto mb-3 opacity-30" />
                     <p className="font-medium">Select a staff member</p>
                     <p className="text-xs mt-1">Choose anyone from the list to start a private conversation</p>
                   </div>
                 )}
 
                 {dmRecipient && dmMessages.length === 0 && (
-                  <div className="text-center py-16 text-muted-foreground text-sm">
+                  <div className="text-center py-16 text-slate-300 text-sm">
                     <Avatar name={dmRecipient.full_name} size="lg" />
                     <p className="font-medium mt-3">{dmRecipient.full_name}</p>
                     <p className="text-xs mt-1">Start your private conversation</p>
@@ -478,8 +484,8 @@ export default function ArkConnect() {
           </div>
 
           {(view === 'channel' || view === 'bot' || (view === 'dm' && dmRecipient)) && (
-            <div className="p-3 border-t border-slate-700/60 bg-[#161b22]">
-              <div className="flex gap-2 items-center">
+            <div className="p-4 border-t border-white/10 bg-[#102969]/95">
+              <div className="flex gap-3 items-center">
                 <Input
                   value={msgInput}
                   onChange={e => setMsgInput(e.target.value)}
@@ -491,7 +497,7 @@ export default function ArkConnect() {
                         ? `Message ${dmRecipient?.full_name}…`
                         : `Message #${activeChannel}…`
                   }
-                  className="flex-1 bg-slate-800 border-slate-600 text-slate-100 placeholder:text-slate-400 focus-visible:ring-primary"
+                  className="flex-1"
                 />
                 <Button
                   size="icon"

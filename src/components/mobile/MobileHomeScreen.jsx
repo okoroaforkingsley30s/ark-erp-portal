@@ -98,7 +98,7 @@ function TicketRow({ ticket }) {
   return (
     <Link
       to={`/tickets/${ticket.id}`}
-      className="flex items-center gap-3 py-3 border-b active:bg-white/5 transition-colors"
+      className="flex items-center gap-3 py-3 border-b active:bg-[#102969]/5 transition-colors"
       style={{ borderColor: 'rgba(255,255,255,0.06)' }}
     >
       <div className={`w-2 h-2 rounded-full flex-shrink-0 ${urgencyColor}`} />
@@ -216,7 +216,7 @@ function EngineerHome({ user }) {
           </p>
         </div>
 
-        <Link to="/field-ops" className="px-3 py-1.5 rounded-xl bg-amber-400 text-black text-[10px] font-bold">
+        <Link to="/field-ops" className="px-3 py-1.5 rounded-xl bg-amber-400 text-white text-[10px] font-bold">
           {engStatus?.status === 'on_site' ? 'Check Out' : 'Check In'}
         </Link>
       </div>
@@ -481,7 +481,7 @@ export default function MobileHomeScreen({ user, notifCount = 0, dmCount = 0 }) 
 
           <div className="flex items-center gap-2">
             <Link to="/ark-connect" className="relative">
-              <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-xl bg-[#102969]/10 flex items-center justify-center">
                 <MessageCircle className="w-4 h-4 text-white/70" />
               </div>
               {dmCount > 0 && (
@@ -492,11 +492,11 @@ export default function MobileHomeScreen({ user, notifCount = 0, dmCount = 0 }) 
             </Link>
 
             <Link to="/notifications" className="relative">
-              <div className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center">
+              <div className="w-8 h-8 rounded-xl bg-[#102969]/10 flex items-center justify-center">
                 <Bell className="w-4 h-4 text-white/70" />
               </div>
               {totalNotif > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-400 text-black text-[9px] font-bold rounded-full flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-amber-400 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
                   {totalNotif > 9 ? '9+' : totalNotif}
                 </span>
               )}

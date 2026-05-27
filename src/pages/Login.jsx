@@ -58,7 +58,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-black text-white">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] text-white">
       <form
         onSubmit={handleLogin}
         className="w-full max-w-sm space-y-4 p-6 border border-yellow-500 rounded-xl"
@@ -66,14 +66,14 @@ export default function Login() {
         <h1 className="text-2xl font-bold text-yellow-400">ARK ONE Login</h1>
 
         <input
-          className="w-full p-3 rounded text-black"
+          className="w-full p-3 rounded text-white"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="Email"
         />
 
         <input
-          className="w-full p-3 rounded text-black"
+          className="w-full p-3 rounded text-white"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -84,7 +84,7 @@ export default function Login() {
 
         <button
           disabled={loading}
-          className="w-full bg-yellow-500 text-black font-bold p-3 rounded disabled:opacity-60"
+          className="w-full bg-yellow-500 text-white font-bold p-3 rounded disabled:opacity-60"
         >
           {loading ? 'Signing in...' : 'Sign In'}
         </button>

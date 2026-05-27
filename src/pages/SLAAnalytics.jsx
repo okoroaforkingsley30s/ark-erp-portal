@@ -147,7 +147,7 @@ const RISK_CONFIG = {
 
   warning: {
     label: 'AT RISK',
-    color: 'bg-yellow-500 text-black',
+    color: 'bg-yellow-500 text-white',
     bar: 'bg-yellow-400',
     ring: 'border-yellow-400',
   },

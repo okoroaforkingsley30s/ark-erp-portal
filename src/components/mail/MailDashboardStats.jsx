@@ -31,7 +31,7 @@ function StatTile({ icon: Icon, label, value, color = 'text-primary' }) {
   );
 }
 
-export default function MailDashboardStats({ emails }) {
+export default function MailDashboardStats({ emails = [] }) {
   const today = emails.filter(e => e.received_at && isToday(new Date(e.received_at)));
   const unread = emails.filter(e => e.email_status === 'New');
   const assigned = emails.filter(e => e.email_status === 'Assigned');

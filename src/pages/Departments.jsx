@@ -344,7 +344,7 @@ export default function Departments() {
               <Label>Status</Label>
 
               <select
-                className="w-full border rounded-md h-10 px-3 bg-background"
+                className="w-full border rounded-md h-10 px-3 bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]"
                 value={form.status}
                 onChange={e =>
                   setForm(f => ({

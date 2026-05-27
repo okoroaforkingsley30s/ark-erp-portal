@@ -141,7 +141,7 @@ export default function OfficialMailInbox({ user }) {
             />
           </div>
 
-          <div className="min-h-0 bg-background">
+          <div className="min-h-0 bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]">
             <MailDetail
               email={selectedEmail}
               onClose={() => setSelectedEmail(null)}

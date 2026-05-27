@@ -49,7 +49,7 @@ export default function QRBarcodeModal({ item, open, onClose }) {
             <TabsTrigger value="barcode" className="flex-1">Barcode</TabsTrigger>
           </TabsList>
           <TabsContent value="qr" className="flex flex-col items-center gap-3 pt-3">
-            <div ref={qrRef} className="p-4 bg-white rounded-xl border">
+            <div ref={qrRef} className="p-4 bg-[#102969] rounded-xl border">
               <QRCodeSVG value={qrValue} size={180} includeMargin />
             </div>
             <div className="flex gap-2 w-full">
@@ -62,7 +62,7 @@ export default function QRBarcodeModal({ item, open, onClose }) {
             </div>
           </TabsContent>
           <TabsContent value="barcode" className="flex flex-col items-center gap-3 pt-3">
-            <div ref={barcodeRef} className="p-4 bg-white rounded-xl border overflow-x-auto max-w-full">
+            <div ref={barcodeRef} className="p-4 bg-[#102969] rounded-xl border overflow-x-auto max-w-full">
               <Barcode value={barcodeValue} width={1.5} height={60} fontSize={11} />
             </div>
             <Button size="sm" variant="outline" className="w-full" onClick={() => downloadSVG(barcodeRef, `BC_${item.part_number}.svg`)}>

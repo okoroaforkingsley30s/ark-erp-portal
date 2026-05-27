@@ -114,7 +114,7 @@ const EMPTY_EXP = {
 const fmt = (n) => '₦' + Number(n || 0).toLocaleString();
 
 const CHART_COLORS = [
-  '#f5b800',
+  '#ff5a00',
   '#ef4444',
   '#22c55e',
   '#3b82f6',
@@ -502,7 +502,7 @@ export default function FinancePortal() {
                 tickFormatter={(v) => '₦' + (v / 1000).toFixed(0) + 'k'}
               />
               <Tooltip formatter={(v) => fmt(v)} />
-              <Bar dataKey="income" fill="#f5b800" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="income" fill="#ff5a00" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

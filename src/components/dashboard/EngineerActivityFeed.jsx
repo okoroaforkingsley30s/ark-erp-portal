@@ -1,15 +1,47 @@
 import React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "../../integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MapPin, Navigation } from "lucide-react";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription
+} from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { MapPin, Navigation, UserCheck } from "lucide-react";
 
 const statusConfig = {
-  online: { label: "Online", dot: "bg-green-500", text: "text-green-600", pulse: true },
-  offline: { label: "Offline", dot: "bg-red-400", text: "text-red-600", pulse: false },
-  busy: { label: "Busy", dot: "bg-amber-400", text: "text-amber-600", pulse: false },
-  on_site: { label: "On Site", dot: "bg-blue-500", text: "text-blue-600", pulse: true },
-  traveling: { label: "Traveling", dot: "bg-purple-400", text: "text-purple-600", pulse: true },
+  online: {
+    label: "Online",
+    dot: "bg-emerald-400",
+    badge: "success",
+    pulse: true,
+  },
+  offline: {
+    label: "Offline",
+    dot: "bg-red-400",
+    badge: "destructive",
+    pulse: false,
+  },
+  busy: {
+    label: "Busy",
+    dot: "bg-amber-400",
+    badge: "warning",
+    pulse: false,
+  },
+  on_site: {
+    label: "On Site",
+    dot: "bg-cyan-400",
+    badge: "info",
+    pulse: true,
+  },
+  traveling: {
+    label: "Traveling",
+    dot: "bg-purple-400",
+    badge: "secondary",
+    pulse: true,
+  },
 };
 
 export default function EngineerActivityFeed() {
@@ -48,63 +80,78 @@ export default function EngineerActivityFeed() {
   }));
 
   return (
-    <Card>
+    <Card className="border-white/10 bg-[#102969]/90">
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+        <CardTitle className="flex items-center gap-2">
+          <span className="w-9 h-9 rounded-2xl bg-emerald-500/15 border border-emerald-400/20 flex items-center justify-center">
+            <UserCheck className="w-4 h-4 text-emerald-300" />
+          </span>
           Live Engineer Activity
         </CardTitle>
+
+        <CardDescription>
+          Real-time status and field location visibility.
+        </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-3">
         {merged.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center py-4">
+          <p className="text-sm text-slate-300 text-center py-4">
             No engineers registered
           </p>
         )}
 
         {merged.map((eng) => {
-          const sc = statusConfig[eng.status || "offline"] || statusConfig.offline;
+          const sc =
+            statusConfig[eng.status || "offline"] ||
+            statusConfig.offline;
 
           return (
-            <div key={eng.email || eng.id} className="flex items-center gap-3">
+            <div
+              key={eng.email || eng.id}
+              className="flex items-center gap-3 rounded-2xl border border-white/5 bg-[#0b1f5e]/70 p-3 hover:border-[#ff5a00]/20 hover:bg-[#0b1f5e] transition-all"
+            >
               <div className="relative flex-shrink-0">
                 {eng.profile_photo ? (
                   <img
                     src={eng.profile_photo}
-                    className="w-9 h-9 rounded-full object-cover"
+                    className="w-11 h-11 rounded-2xl object-cover border border-white/10"
                     alt={eng.full_name || eng.email}
                   />
                 ) : (
-                  <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center">
-                    <span className="text-xs font-bold text-primary">
+                  <div className="w-11 h-11 rounded-2xl bg-[#ff5a00]/15 border border-[#ff5a00]/20 flex items-center justify-center">
+                    <span className="text-sm font-black text-[#ff5a00]">
                       {(eng.full_name || eng.email || "E")?.[0]}
                     </span>
                   </div>
                 )}
 
                 <span
-                  className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${sc.dot} ${
+                  className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[#102969] ${sc.dot} ${
                     sc.pulse ? "animate-pulse" : ""
                   }`}
                 />
               </div>
 
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold truncate">
+                <p className="text-sm font-semibold text-white truncate">
                   {eng.full_name || eng.email}
                 </p>
 
-                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-1.5 text-xs text-slate-300">
                   {eng.current_site_name ? (
                     <>
-                      <Navigation className="w-2.5 h-2.5" />
-                      <span className="truncate">{eng.current_site_name}</span>
+                      <Navigation className="w-3 h-3 text-[#ff5a00]" />
+                      <span className="truncate">
+                        {eng.current_site_name}
+                      </span>
                     </>
                   ) : eng.location_label ? (
                     <>
-                      <MapPin className="w-2.5 h-2.5" />
-                      <span className="truncate">{eng.location_label}</span>
+                      <MapPin className="w-3 h-3 text-[#ff5a00]" />
+                      <span className="truncate">
+                        {eng.location_label}
+                      </span>
                     </>
                   ) : (
                     <span>No location</span>
@@ -112,12 +159,9 @@ export default function EngineerActivityFeed() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <span className={`w-1.5 h-1.5 rounded-full ${sc.dot}`} />
-                <span className={`text-[10px] font-medium ${sc.text}`}>
-                  {sc.label}
-                </span>
-              </div>
+              <Badge variant={sc.badge}>
+                {sc.label}
+              </Badge>
             </div>
           );
         })}
