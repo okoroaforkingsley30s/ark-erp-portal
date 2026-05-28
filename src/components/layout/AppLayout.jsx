@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import Sidebar from './Sidebar';
 import MobileBottomNav from './MobileBottomNav';
@@ -17,12 +17,27 @@ export default function AppLayout() {
   const { user, isLoadingAuth, isAuthenticated } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
 
   const { dmUnreadCount, resetDMCount } = useDMNotifications(user);
 
   useInactivityLogout(!!user);
+
+  const playNotificationSound = (sound) => {
+    try {
+      const audio =
+        sound === 'click'
+          ? new Audio('/sounds/click.mp3')
+          : new Audio('/sounds/bell.mp3');
+
+      audio.volume = 0.65;
+      audio.play().catch(() => {});
+    } catch (err) {
+      console.error('Notification sound error:', err);
+    }
+  };
 
   useEffect(() => {
     const handleResize = () => {
@@ -68,7 +83,7 @@ export default function AppLayout() {
         .from('notifications')
         .select('*')
         .eq('user_email', user.email)
-        .eq('read', false)
+        .or('read.eq.false,is_read.eq.false')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -81,6 +96,50 @@ export default function AppLayout() {
     enabled: !!user?.email,
     initialData: [],
   });
+
+  useEffect(() => {
+    if (!user?.email) return;
+
+    const channel = supabase
+      .channel(`notifications-${user.email}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_email=eq.${user.email}`,
+        },
+        (payload) => {
+          const newNotification = payload.new;
+
+          queryClient.invalidateQueries({
+            queryKey: ['notifications'],
+          });
+
+          playNotificationSound(newNotification?.sound || 'bell');
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_email=eq.${user.email}`,
+        },
+        () => {
+          queryClient.invalidateQueries({
+            queryKey: ['notifications'],
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.email, queryClient]);
 
   useEffect(() => {
     if (!isLoadingAuth && !isAuthenticated) {
@@ -101,7 +160,11 @@ export default function AppLayout() {
     );
   }
 
-  if (!isAuthenticated || !user) return null;
+  useEffect(() => {
+  if (!isLoadingAuth && !isAuthenticated) {
+    navigate('/welcome', { replace: true });
+  }
+}, [isLoadingAuth, isAuthenticated, navigate]);
 
   if (!user.role) {
     return <PendingApproval user={user} />;

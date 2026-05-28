@@ -52,6 +52,8 @@ import {
 
 import { format } from 'date-fns';
 
+const MAIN_ADMIN_EMAIL = 'iamkizmith@gmail.com';
+
 const ALL_ROLES = [
   { value: 'admin', label: 'Administrator', icon: Shield, color: 'bg-red-100 text-red-700 border-red-200' },
   { value: 'ceo', label: 'CEO', icon: BadgeCheck, color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
@@ -84,7 +86,8 @@ export default function UserManagement() {
   const { user } = useOutletContext();
   const qc = useQueryClient();
 
-  const isAdmin = ['admin', 'super_admin'].includes(user?.role);
+  const isSuperAdmin = user?.email === MAIN_ADMIN_EMAIL;
+  const isAdmin = isSuperAdmin && ['admin', 'super_admin'].includes(user?.role);
 
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -134,64 +137,84 @@ export default function UserManagement() {
     ALL_ROLES.find((r) => r.value === role) || ALL_ROLES[ALL_ROLES.length - 1];
 
   const handleInvite = async () => {
-  setInviting(true);
-
-  try {
-    const cleanEmail = inviteEmail.trim().toLowerCase();
-
-    if (!cleanEmail) {
-      alert('Please enter an email address.');
+    if (!isAdmin) {
+      alert('Unauthorized. Only the main administrator can invite users.');
       return;
     }
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const accessToken = sessionData?.session?.access_token;
+    setInviting(true);
 
-    const response = await fetch(
-      'https://fryidzyhqhdenghyxjfp.functions.supabase.co/invite-user',
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          email: cleanEmail,
-          full_name: cleanEmail.split('@')[0],
-          role: inviteRole,
-          department: '',
-        }),
+    try {
+      const cleanEmail = inviteEmail.trim().toLowerCase();
+
+      if (!cleanEmail) {
+        alert('Please enter an email address.');
+        return;
       }
-    );
 
-    const result = await response.json();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const accessToken = sessionData?.session?.access_token;
 
-    if (!response.ok) {
-      alert(result?.error || 'Invite failed');
-      return;
+      const response = await fetch(
+        'https://fryidzyhqhdenghyxjfp.functions.supabase.co/invite-user',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            email: cleanEmail,
+            full_name: cleanEmail.split('@')[0],
+            role: inviteRole,
+            department: '',
+          }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        alert(result?.error || 'Invite failed');
+        return;
+      }
+
+      alert('Invitation email sent successfully.');
+
+      setInviteEmail('');
+      setInviteOpen(false);
+
+      qc.invalidateQueries({
+        queryKey: ['users'],
+      });
+    } catch (err) {
+      console.error(err);
+      alert('Unexpected invite error: ' + err.message);
+    } finally {
+      setInviting(false);
     }
-
-    alert('Invitation email sent successfully.');
-
-    setInviteEmail('');
-    setInviteOpen(false);
-
-    qc.invalidateQueries({
-      queryKey: ['users'],
-    });
-  } catch (err) {
-    console.error(err);
-    alert('Unexpected invite error: ' + err.message);
-  } finally {
-    setInviting(false);
-  }
-};
+  };
 
   const handleRoleChange = async (userId, newRole) => {
+    if (!isAdmin) {
+      alert('Unauthorized. Only the main administrator can change roles.');
+      return;
+    }
+
+    const targetUser = users.find((u) => u.id === userId);
+
+    if (targetUser?.email === MAIN_ADMIN_EMAIL && newRole !== 'admin') {
+      alert('Main administrator role cannot be changed.');
+      return;
+    }
+
     const { error } = await supabase
       .from('users')
       .update({
         role: newRole,
+        status: 'active',
+        approval_status: 'approved',
+        is_approved: true,
         updated_at: new Date().toISOString(),
       })
       .eq('id', userId);
@@ -202,9 +225,15 @@ export default function UserManagement() {
     }
 
     qc.invalidateQueries({ queryKey: ['users'] });
+    alert('Role updated successfully');
   };
 
   const handleForcePasswordReset = async (u) => {
+    if (!isAdmin) {
+      alert('Unauthorized');
+      return;
+    }
+
     if (!confirm(`Force ${u.full_name || u.email} to change their password on next login?`)) return;
 
     const { error } = await supabase
@@ -224,6 +253,11 @@ export default function UserManagement() {
   };
 
   const handleBulkForceReset = async () => {
+    if (!isAdmin) {
+      alert('Unauthorized');
+      return;
+    }
+
     if (!confirm(`Force ALL ${users.length} users to change passwords on next login?`)) return;
 
     const { error } = await supabase
@@ -243,6 +277,11 @@ export default function UserManagement() {
   };
 
   const openProfile = (u) => {
+    if (!isAdmin) {
+      alert('Unauthorized');
+      return;
+    }
+
     setSelectedUser(u);
 
     setProfile({
@@ -260,7 +299,17 @@ export default function UserManagement() {
   };
 
   const handleDelete = async () => {
+    if (!isAdmin) {
+      alert('Unauthorized');
+      return;
+    }
+
     if (!deleteConfirmUser) return;
+
+    if (deleteConfirmUser.email === MAIN_ADMIN_EMAIL) {
+      alert('Main administrator cannot be deleted.');
+      return;
+    }
 
     setDeleting(true);
 
@@ -304,7 +353,17 @@ export default function UserManagement() {
   };
 
   const saveProfile = async () => {
+    if (!isAdmin) {
+      alert('Unauthorized');
+      return;
+    }
+
     if (!selectedUser?.id) return;
+
+    if (selectedUser.email === MAIN_ADMIN_EMAIL && profile.account_status !== 'active') {
+      alert('Main administrator account must remain active.');
+      return;
+    }
 
     setSavingProfile(true);
 
@@ -320,6 +379,8 @@ export default function UserManagement() {
           account_status: profile.account_status,
           is_approved: profile.is_approved,
           must_change_password: profile.must_change_password,
+          status: profile.is_approved ? 'active' : 'pending',
+          approval_status: profile.is_approved ? 'approved' : 'pending',
           updated_at: new Date().toISOString(),
         })
         .eq('id', selectedUser.id);
@@ -344,7 +405,28 @@ export default function UserManagement() {
     return acc;
   }, {});
 
-  const pendingCount = users.filter((u) => !u.role || u.role === '').length;
+  const pendingCount = users.filter(
+    (u) =>
+      !u.role ||
+      u.role === '' ||
+      u.status === 'pending' ||
+      u.approval_status === 'pending' ||
+      u.is_approved === false
+  ).length;
+
+  if (!isAdmin) {
+    return (
+      <div className="max-w-xl mx-auto mt-16">
+        <Card className="p-6 text-center">
+          <Shield className="w-10 h-10 mx-auto mb-3 text-red-500" />
+          <h1 className="text-xl font-bold">Access Denied</h1>
+          <p className="text-sm text-muted-foreground mt-2">
+            Only the main administrator can manage users and roles.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
@@ -358,12 +440,10 @@ export default function UserManagement() {
         </div>
 
         <div className="flex gap-2">
-          {isAdmin && (
-            <Button variant="outline" onClick={handleBulkForceReset}>
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Reset All Passwords
-            </Button>
-          )}
+          <Button variant="outline" onClick={handleBulkForceReset}>
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Reset All Passwords
+          </Button>
 
           <Button onClick={() => setInviteOpen(true)}>
             <UserPlus className="w-4 h-4 mr-2" />
@@ -372,7 +452,7 @@ export default function UserManagement() {
         </div>
       </div>
 
-      {isAdmin && pendingCount > 0 && (
+      {pendingCount > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
           <PendingApprovalPanel />
         </div>
@@ -461,6 +541,15 @@ export default function UserManagement() {
                           Suspended
                         </Badge>
                       )}
+
+                      {(u.status === 'pending' || u.approval_status === 'pending' || u.is_approved === false) && (
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] bg-yellow-50 text-yellow-700 border-yellow-200"
+                        >
+                          Pending
+                        </Badge>
+                      )}
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2 mt-0.5">
@@ -496,7 +585,7 @@ export default function UserManagement() {
                     {rc.label}
                   </Badge>
 
-                  {isAdmin && u.email !== user.email && (
+                  {u.email !== user.email && (
                     <Select
                       value={u.role || ''}
                       onValueChange={(v) => handleRoleChange(u.id, v)}
@@ -514,29 +603,25 @@ export default function UserManagement() {
                     </Select>
                   )}
 
-                  {isAdmin && (
-                    <>
-                      <Button variant="outline" size="sm" onClick={() => openProfile(u)}>
-                        <UserCog className="w-3.5 h-3.5 mr-1" />
-                        Profile
-                      </Button>
+                  <Button variant="outline" size="sm" onClick={() => openProfile(u)}>
+                    <UserCog className="w-3.5 h-3.5 mr-1" />
+                    Profile
+                  </Button>
 
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={
-                          u.must_change_password
-                            ? 'text-amber-600 border-amber-300 bg-amber-50'
-                            : ''
-                        }
-                        onClick={() => handleForcePasswordReset(u)}
-                      >
-                        <KeyRound className="w-3.5 h-3.5" />
-                      </Button>
-                    </>
-                  )}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={
+                      u.must_change_password
+                        ? 'text-amber-600 border-amber-300 bg-amber-50'
+                        : ''
+                    }
+                    onClick={() => handleForcePasswordReset(u)}
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                  </Button>
 
-                  {isAdmin && u.email !== user.email && (
+                  {u.email !== user.email && u.email !== MAIN_ADMIN_EMAIL && (
                     <Button
                       variant="outline"
                       size="sm"

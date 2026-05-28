@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { Loader2, Upload } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import { createNotification } from '@/lib/createNotification';
 
 const STAFF_ROLES = [
   'admin',
@@ -46,6 +47,7 @@ const generateTicketId = () => {
 };
 
 const getDeviceBranch = (device) => device.branch_name || device.branch || device.location || '';
+
 const getDeviceTerminalId = (device) => (
   device.atm_terminal_id ||
   device.terminal_id ||
@@ -53,9 +55,21 @@ const getDeviceTerminalId = (device) => (
   device.id ||
   ''
 ).toString();
-const getDeviceName = (device) => device.device_name || device.machine_name || device.name || device.branch_name || 'Device';
+
+const getDeviceName = (device) =>
+  device.device_name ||
+  device.machine_name ||
+  device.name ||
+  device.branch_name ||
+  'Device';
+
 const getAssignedEngineer = (device, engineers) => {
-  const assigned = device.assigned_engineer_email || device.assigned_to || device.assigned_engineer || '';
+  const assigned =
+    device.assigned_engineer_email ||
+    device.assigned_to ||
+    device.assigned_engineer ||
+    '';
+
   if (!assigned) return null;
 
   const match = engineers.find((engineer) => (
@@ -72,9 +86,9 @@ const getAssignedEngineer = (device, engineers) => {
 
 export default function CreateTicketDialog({ open, onOpenChange, user }) {
   const [form, setForm] = useState(EMPTY_FORM);
-
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
+
   const queryClient = useQueryClient();
 
   const isStaff = STAFF_ROLES.includes(user?.role);
@@ -149,85 +163,115 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  if (!user?.email) {
-    alert('You must be logged in to create a ticket.');
-    return;
-  }
-
-  setSaving(true);
-
-  try {
-    const ticketNumber = generateTicketId();
-
-    const attachments = files.map(file => ({
-      name: file.name,
-      type: file.type,
-      size: file.size,
-    }));
-
-    const ticketData = {
-      title: form.title.trim(),
-      description: form.description.trim(),
-
-      category: form.category,
-      priority: form.priority,
-
-      ticket_id: ticketNumber,
-      ticket_number: ticketNumber,
-
-      client_email: user.email,
-      client_name: user.full_name || user.email,
-
-      status: form.assigned_to ? 'assigned' : 'new',
-
-      attachments,
-
-      department: user.department || '',
-
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
-
-    if (isStaff) {
-      ticketData.bank_name = form.bank_name || null;
-      ticketData.branch_name = form.branch_name || null;
-      ticketData.terminal_id = form.terminal_id || null;
-      ticketData.device_name = form.device_name || null;
-      ticketData.assigned_to_name = form.assigned_to_name || null;
-      ticketData.assigned_to = form.assigned_to || null;
-      ticketData.sla_level = form.sla_level || 'standard';
-    }
-
-    const { error } = await supabase
-      .from('tickets')
-      .insert(ticketData)
-      .select('id')
-      .single();
-
-    if (error) {
-      alert('Ticket creation failed: ' + error.message);
+    if (!user?.email) {
+      alert('You must be logged in to create a ticket.');
       return;
     }
 
-    queryClient.invalidateQueries({ queryKey: ['tickets'] });
-    queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-    queryClient.invalidateQueries({ queryKey: ['tickets-dashboard'] });
+    setSaving(true);
 
-    alert('Ticket created successfully');
+    try {
+      const ticketNumber = generateTicketId();
 
-    setForm(EMPTY_FORM);
-    setFiles([]);
-    onOpenChange(false);
+      const attachments = files.map(file => ({
+        name: file.name,
+        type: file.type,
+        size: file.size,
+      }));
 
-  } catch (err) {
-    console.error(err);
-    alert('Unexpected error creating ticket.');
-  } finally {
-    setSaving(false);
-  }
-};
+      const ticketData = {
+        title: form.title.trim(),
+        description: form.description.trim(),
+
+        category: form.category,
+        priority: form.priority,
+
+        ticket_id: ticketNumber,
+        ticket_number: ticketNumber,
+
+        client_email: user.email,
+        client_name: user.full_name || user.email,
+
+        status: form.assigned_to ? 'assigned' : 'new',
+
+        attachments,
+
+        department: user.department || '',
+
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      if (isStaff) {
+        ticketData.bank_name = form.bank_name || null;
+        ticketData.branch_name = form.branch_name || null;
+        ticketData.terminal_id = form.terminal_id || null;
+        ticketData.device_name = form.device_name || null;
+        ticketData.assigned_to_name = form.assigned_to_name || null;
+        ticketData.assigned_to = form.assigned_to || null;
+        ticketData.sla_level = form.sla_level || 'standard';
+      }
+
+      const { data: insertedTicket, error } = await supabase
+        .from('tickets')
+        .insert(ticketData)
+        .select()
+        .single();
+
+      if (error) {
+        alert('Ticket creation failed: ' + error.message);
+        return;
+      }
+
+      if (form.assigned_to) {
+        await createNotification({
+          userEmail: form.assigned_to,
+          title: 'New Ticket Assigned',
+          message: `You have been assigned ticket ${ticketNumber}.`,
+          type: 'ticket_assigned',
+          link: '/engineering',
+          sound: 'bell',
+          data: {
+            ticket_id: insertedTicket?.id,
+            ticket_number: ticketNumber,
+            bank_name: form.bank_name,
+            branch_name: form.branch_name,
+          },
+        });
+      }
+
+      await createNotification({
+        userEmail: user.email,
+        title: 'Ticket Created',
+        message: `Your support ticket ${ticketNumber} was created successfully.`,
+        type: 'ticket_created',
+        link: '/tickets',
+        sound: 'bell',
+        data: {
+          ticket_id: insertedTicket?.id,
+          ticket_number: ticketNumber,
+        },
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['tickets-dashboard'] });
+
+      alert('Ticket created successfully');
+
+      setForm(EMPTY_FORM);
+      setFiles([]);
+      onOpenChange(false);
+
+    } catch (err) {
+      console.error(err);
+      alert('Unexpected error creating ticket.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -258,6 +302,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                     <SelectTrigger>
                       <SelectValue placeholder="Select bank..." />
                     </SelectTrigger>
+
                     <SelectContent>
                       {banks.map((b) => (
                         <SelectItem key={b.id} value={b.bank_name}>
@@ -282,6 +327,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                     <SelectTrigger>
                       <SelectValue placeholder="Select branch..." />
                     </SelectTrigger>
+
                     <SelectContent>
                       {branches.map((b) => (
                         <SelectItem key={b.id} value={b.branch_name}>
@@ -313,6 +359,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                   <SelectTrigger>
                     <SelectValue placeholder="Select device..." />
                   </SelectTrigger>
+
                   <SelectContent>
                     {filteredDevices.map((d) => {
                       const value = getDeviceTerminalId(d);
@@ -358,6 +405,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
+
                 <SelectContent>
                   <SelectItem value="hardware">Hardware</SelectItem>
                   <SelectItem value="software">Software</SelectItem>
@@ -377,6 +425,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
+
                 <SelectContent>
                   <SelectItem value="low">Low</SelectItem>
                   <SelectItem value="medium">Medium</SelectItem>
@@ -402,6 +451,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                   <SelectTrigger>
                     <SelectValue placeholder="Select engineer..." />
                   </SelectTrigger>
+
                   <SelectContent>
                     {engineers.map((e) => (
                       <SelectItem key={e.id} value={e.email}>
@@ -418,6 +468,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
+
                   <SelectContent>
                     <SelectItem value="standard">Standard</SelectItem>
                     <SelectItem value="premium">Premium</SelectItem>
@@ -432,9 +483,13 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
             <Label>Attachments / Photos</Label>
             <label className="flex items-center gap-2 p-3 border-2 border-dashed rounded-lg cursor-pointer hover:border-primary/50 transition-colors">
               <Upload className="w-4 h-4 text-muted-foreground" />
+
               <span className="text-sm text-muted-foreground">
-                {files.length > 0 ? `${files.length} file(s) selected` : 'Click to upload files or photos'}
+                {files.length > 0
+                  ? `${files.length} file(s) selected`
+                  : 'Click to upload files or photos'}
               </span>
+
               <input
                 type="file"
                 multiple

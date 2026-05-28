@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+
 import {
   LayoutDashboard,
   Ticket,
   Users,
-  Settings,
+ Settings,
   Bell,
   BarChart3,
   Building2,
@@ -34,76 +35,409 @@ import {
   MessageCircle,
   FileText,
   Mail,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Calendar,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabaseClient';
 
-const roleMenus = {
-  admin: [
-    { section: 'Command Center' },
+import {
+  canAccess,
+  ROLE_LABELS,
+} from '@/lib/roleAccess';
 
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { label: 'SLA Analytics', icon: Activity, path: '/sla-analytics' },
-    { label: 'Live Map', icon: Map, path: '/live-map' },
-    { label: 'Tickets', icon: Ticket, path: '/tickets' },
-    { label: 'Site Monitor', icon: Radio, path: '/sites' },
-    { label: 'Engineer Board', icon: MapPin, path: '/engineers' },
-    { label: 'Field Operations', icon: Navigation, path: '/field-ops' },
+const ALL_MENUS = [
+  { section: 'Command Center', permission: 'dashboard' },
 
-    { section: 'Banking Operations' },
+  {
+    label: 'Dashboard',
+    icon: LayoutDashboard,
+    path: '/dashboard',
+    permission: 'dashboard',
+  },
 
-    { label: 'Ops Dashboard', icon: Activity, path: '/ops-dashboard' },
-    { label: 'Banks', icon: Landmark, path: '/banks' },
-    { label: 'Branches', icon: GitBranch, path: '/branches' },
-    { label: 'Bank Devices', icon: Cpu, path: '/bank-devices' },
-    { label: 'Device Status', icon: Activity, path: '/device-status' },
-    { label: 'Assignments', icon: UserCog, path: '/device-assignment' },
-    { label: 'Regional View', icon: Globe, path: '/regional-coverage' },
-    { label: 'Field Engineers', icon: Users2, path: '/engineers-ops' },
+  {
+    label: 'SLA Analytics',
+    icon: Activity,
+    path: '/sla-analytics',
+    permission: 'sla_analytics',
+  },
 
-    { section: 'Assets' },
+  {
+    label: 'Live Map',
+    icon: Map,
+    path: '/live-map',
+    permission: 'live_map',
+  },
 
-    { label: 'Assets', icon: Cpu, path: '/assets' },
-    { label: 'Inventory', icon: Boxes, path: '/spare-parts' },
+  {
+  label: 'My Jobs',
+  icon: Ticket,
+  path: '/tickets',
+  permission: 'my_jobs',
+},
 
-    { section: 'Business' },
+  {
+    label: 'Tickets',
+    icon: Ticket,
+    path: '/tickets',
+    permission: 'tickets',
+  },
 
-    { label: 'Finance', icon: DollarSign, path: '/finance' },
-    { label: 'Procurement', icon: ShoppingCart, path: '/procurement' },
-    { label: 'Purchase Orders', icon: FileText, path: '/procurement-lpo' },
-    { label: 'CRM', icon: TrendingUp, path: '/crm' },
-    { label: 'HR Portal', icon: UserCheck, path: '/hr' },
+  {
+    label: 'My Tickets',
+    icon: Ticket,
+    path: '/tickets',
+    permission: 'my_tickets',
+  },
 
-    { section: 'Administration' },
+  {
+    label: 'Assigned Tickets',
+    icon: Ticket,
+    path: '/tickets',
+    permission: 'assigned_tickets',
+  },
 
-    { label: 'Data Import', icon: FileSpreadsheet, path: '/data-import' },
-    { label: 'Users', icon: Users, path: '/users' },
-    { label: 'Staff Directory', icon: Users2, path: '/staff' },
-    { label: 'Departments', icon: Building2, path: '/departments' },
-    { label: 'Audit Logs', icon: Shield, path: '/audit-logs' },
-    { label: 'Reports', icon: BarChart3, path: '/reports' },
-    { label: 'Notifications', icon: Bell, path: '/notifications' },
-    { label: 'Settings', icon: Settings, path: '/settings' },
+  {
+    label: 'Repair Jobs',
+    icon: Ticket,
+    path: '/repair-jobs',
+    permission: 'repair_jobs',
+  },
 
-    { section: 'Communication' },
+  {
+    label: 'Site Monitor',
+    icon: Radio,
+    path: '/sites',
+    permission: 'site_monitor',
+  },
 
-    { label: 'Mail', icon: Mail, path: '/official-mail' },
-    { label: 'ARK Connect', icon: MessageCircle, path: '/ark-connect' },
-  ],
+  {
+    label: 'Engineer Board',
+    icon: MapPin,
+    path: '/engineers',
+    permission: 'engineering',
+  },
 
-  client: [
-    { label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-    { label: 'My Tickets', icon: Ticket, path: '/tickets' },
-    { label: 'Notifications', icon: Bell, path: '/notifications' },
-  ],
-};
+  {
+    label: 'Field Operations',
+    icon: Navigation,
+    path: '/field-ops',
+    permission: 'field_ops',
+  },
 
-const ROLE_LABELS = {
-  admin: 'Administrator',
-  client: 'Client',
-};
+  { section: 'Banking Operations', permission: 'operations' },
+
+  {
+    label: 'Ops Dashboard',
+    icon: Activity,
+    path: '/ops-dashboard',
+    permission: 'ops_dashboard',
+  },
+
+  {
+    label: 'Banks',
+    icon: Landmark,
+    path: '/banks',
+    permission: 'banks',
+  },
+
+  {
+    label: 'Branches',
+    icon: GitBranch,
+    path: '/branches',
+    permission: 'branches',
+  },
+
+  {
+    label: 'Bank Devices',
+    icon: Cpu,
+    path: '/bank-devices',
+    permission: 'devices',
+  },
+
+  {
+    label: 'Device Status',
+    icon: Activity,
+    path: '/device-status',
+    permission: 'device_status',
+  },
+
+  {
+    label: 'Assignments',
+    icon: UserCog,
+    path: '/device-assignment',
+    permission: 'assignments',
+  },
+
+  {
+    label: 'Regional View',
+    icon: Globe,
+    path: '/regional-coverage',
+    permission: 'regional_view',
+  },
+
+  {
+    label: 'Field Engineers',
+    icon: Users2,
+    path: '/engineers-ops',
+    permission: 'field_engineers',
+  },
+
+  { section: 'Assets', permission: 'assets_section' },
+
+  {
+    label: 'Assets',
+    icon: Cpu,
+    path: '/assets',
+    permission: 'assets',
+  },
+
+  {
+    label: 'Inventory',
+    icon: Boxes,
+    path: '/spare-parts',
+    permission: 'inventory',
+  },
+
+  {
+    label: 'Spare Parts',
+    icon: Boxes,
+    path: '/spare-parts',
+    permission: 'spare_parts',
+  },
+
+  {
+    label: 'Inventory Parts',
+    icon: Boxes,
+    path: '/inventory-parts',
+    permission: 'inventory_parts',
+  },
+
+  {
+    label: 'Stock Movement',
+    icon: Boxes,
+    path: '/stock-movement',
+    permission: 'stock_movement',
+  },
+
+  {
+  label: 'Request Parts',
+  icon: Boxes,
+  path: '/spare-parts',
+  permission: 'parts_request',
+},
+
+  { section: 'Business', permission: 'business' },
+
+  {
+    label: 'Finance',
+    icon: DollarSign,
+    path: '/finance',
+    permission: 'finance',
+  },
+
+  {
+    label: 'Invoices',
+    icon: FileText,
+    path: '/finance/invoices',
+    permission: 'invoices',
+  },
+
+  {
+    label: 'Payments',
+    icon: DollarSign,
+    path: '/finance/payments',
+    permission: 'payments',
+  },
+
+  {
+    label: 'Payroll Summary',
+    icon: DollarSign,
+    path: '/finance/payroll',
+    permission: 'payroll_summary',
+  },
+
+  {
+    label: 'Loans Finance',
+    icon: DollarSign,
+    path: '/finance/loans',
+    permission: 'loans_finance',
+  },
+
+  {
+    label: 'Procurement',
+    icon: ShoppingCart,
+    path: '/procurement',
+    permission: 'procurement',
+  },
+
+  {
+    label: 'Purchase Orders',
+    icon: FileText,
+    path: '/procurement-lpo',
+    permission: 'purchase_orders',
+  },
+
+  {
+    label: 'Vendors',
+    icon: Building2,
+    path: '/vendors',
+    permission: 'vendors',
+  },
+
+  {
+    label: 'Purchase Requests',
+    icon: FileText,
+    path: '/purchase-requests',
+    permission: 'purchase_requests',
+  },
+
+  {
+    label: 'CRM',
+    icon: TrendingUp,
+    path: '/crm',
+    permission: 'crm',
+  },
+
+  {
+    label: 'Clients',
+    icon: Users2,
+    path: '/clients',
+    permission: 'clients',
+  },
+
+  {
+    label: 'Marketing',
+    icon: TrendingUp,
+    path: '/marketing',
+    permission: 'marketing',
+  },
+
+  {
+    label: 'HR Portal',
+    icon: UserCheck,
+    path: '/hr',
+    permission: 'hr',
+  },
+
+  {
+    label: 'Staff Directory',
+    icon: Users2,
+    path: '/staff',
+    permission: 'staff_directory',
+  },
+
+  {
+    label: 'Attendance',
+    icon: UserCheck,
+    path: '/attendance',
+    permission: 'attendance',
+  },
+
+  {
+    label: 'Leave',
+    icon: FileText,
+    path: '/leave',
+    permission: 'leave',
+  },
+
+  {
+    label: 'Loans',
+    icon: DollarSign,
+    path: '/loans',
+    permission: 'loans',
+  },
+
+  {
+    label: 'Training',
+    icon: UserCheck,
+    path: '/training',
+    permission: 'training',
+  },
+
+  {
+    label: 'Performance',
+    icon: Activity,
+    path: '/performance',
+    permission: 'performance',
+  },
+
+  {
+    label: 'Holidays',
+    icon: Calendar,
+    path: '/holidays',
+    permission: 'holidays',
+  },
+
+  { section: 'Administration', permission: 'admin' },
+
+  {
+    label: 'Data Import',
+    icon: FileSpreadsheet,
+    path: '/data-import',
+    permission: 'admin',
+  },
+
+  {
+    label: 'Users',
+    icon: Users,
+    path: '/users',
+    permission: 'admin',
+  },
+
+  {
+    label: 'Departments',
+    icon: Building2,
+    path: '/departments',
+    permission: 'admin',
+  },
+
+  {
+    label: 'Audit Logs',
+    icon: Shield,
+    path: '/audit-logs',
+    permission: 'admin',
+  },
+
+  {
+    label: 'Reports',
+    icon: BarChart3,
+    path: '/reports',
+    permission: 'reports',
+  },
+
+  {
+    label: 'Notifications',
+    icon: Bell,
+    path: '/notifications',
+    permission: 'notifications',
+  },
+
+  {
+    label: 'Settings',
+    icon: Settings,
+    path: '/settings',
+    permission: 'admin',
+  },
+
+  { section: 'Communication', permission: 'communication' },
+
+  {
+    label: 'Mail',
+    icon: Mail,
+    path: '/official-mail',
+    permission: 'communication',
+  },
+
+  {
+    label: 'ARK Connect',
+    icon: MessageCircle,
+    path: '/ark-connect',
+    permission: 'ark_connect',
+  },
+];
 
 export default function Sidebar({
   user,
@@ -114,27 +448,12 @@ export default function Sidebar({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const location = useLocation();
+  const role = user?.role || '';
 
-  const rawRole = user?.role || 'client';
-
-  const ADMIN_VARIANTS = [
-    'super_admin',
-    'administrator',
-    'Administrator',
-    'ADMIN',
-    'Super Admin',
-    'SUPER_ADMIN',
-    'admin',
-  ];
-
-  const role = ADMIN_VARIANTS.includes(rawRole)
-    ? 'admin'
-    : rawRole;
-
-  const menu =
-    roleMenus[role] ||
-    roleMenus.admin ||
-    roleMenus.client;
+  const filteredMenu = ALL_MENUS.filter((item) => {
+    if (role === 'admin') return true;
+    return canAccess(role, item.permission);
+  });
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -144,7 +463,10 @@ export default function Sidebar({
   const NavContent = () => (
     <div className="flex flex-col h-full">
       <div className="p-4 border-b border-[#ff5a00]/20">
-        <Link to="/dashboard" className="flex items-center gap-3">
+        <Link
+          to="/dashboard"
+          className="flex items-center gap-3"
+        >
           <div className="w-11 h-11 rounded-xl bg-[#ff5a00]/10 border border-[#ff5a00]/30 flex items-center justify-center shadow-[0_0_20px_rgba(255,90,0,0.2)] flex-shrink-0">
             <img
               src="/logo.png"
@@ -168,7 +490,7 @@ export default function Sidebar({
       </div>
 
       <nav className="flex-1 p-2 overflow-y-auto">
-        {menu.map((item, idx) => {
+        {filteredMenu.map((item, idx) => {
           if (item.section) {
             if (collapsed) return null;
 
@@ -315,7 +637,9 @@ export default function Sidebar({
       <aside
         className={cn(
           'hidden lg:flex flex-col bg-gradient-to-b from-[#08153d] via-[#0b1f5e] to-[#102969] border-r border-[#ff5a00]/20 h-screen sticky top-0 transition-all duration-300',
-          collapsed ? 'w-[60px]' : 'w-60'
+          collapsed
+            ? 'w-[60px]'
+            : 'w-60'
         )}
       >
         <NavContent />

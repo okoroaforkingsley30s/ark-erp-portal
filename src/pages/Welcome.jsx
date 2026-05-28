@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  CircleDot,
   Shield,
   Cpu,
   Radio,
@@ -17,6 +16,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabaseClient';
+
+const ADMIN_EMAIL = 'okoroaforkingsley30s@gmail.com';
 
 const stats = [
   { label: 'Devices Monitored', value: '2,400+' },
@@ -62,9 +63,55 @@ export default function Welcome() {
     }
   };
 
+  const createAdminApprovalNotification = async ({
+    userId,
+    userEmail,
+    userName,
+  }) => {
+    const displayName = userName || userEmail;
+
+    const notificationPayload = {
+      user_email: ADMIN_EMAIL,
+      recipient_email: ADMIN_EMAIL,
+
+      title: 'New User Awaiting Approval',
+      message: `${displayName} just registered and is awaiting admin approval.`,
+
+      type: 'user_approval',
+      read: false,
+      is_read: false,
+
+      related_user_id: userId,
+      related_user_email: userEmail,
+
+      data: {
+        user_id: userId,
+        email: userEmail,
+        full_name: userName,
+        approval_status: 'pending',
+      },
+
+      created_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('notifications')
+      .insert(notificationPayload);
+
+    if (error) {
+      console.error('Admin notification error:', error);
+      throw error;
+    }
+  };
+
   const handleAuth = async () => {
     if (!email || !password) {
       alert('Please enter email and password.');
+      return;
+    }
+
+    if (authMode === 'register' && !fullName.trim()) {
+      alert('Please enter your full name.');
       return;
     }
 
@@ -72,24 +119,62 @@ export default function Welcome() {
 
     try {
       if (authMode === 'signin') {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
+        const cleanEmail = email.trim().toLowerCase();
+
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
           password,
         });
 
         if (error) throw error;
+
+        const userId = data?.user?.id;
+
+        if (userId) {
+          const { data: profile, error: profileError } = await supabase
+            .from('users')
+            .select('status, role, approval_status, is_approved')
+            .eq('id', userId)
+            .maybeSingle();
+
+          if (profileError) throw profileError;
+
+          const isPending =
+            profile?.status === 'pending' ||
+            profile?.approval_status === 'pending' ||
+            profile?.is_approved === false ||
+            !profile?.role;
+
+          if (isPending) {
+            await supabase.auth.signOut();
+            setAuthMode('pending');
+            return;
+          }
+
+          if (
+            profile?.status === 'rejected' ||
+            profile?.approval_status === 'rejected'
+          ) {
+            await supabase.auth.signOut();
+            alert('Your account approval was rejected. Please contact admin.');
+            return;
+          }
+        }
 
         navigate('/dashboard');
         return;
       }
 
       if (authMode === 'register') {
+        const cleanEmail = email.trim().toLowerCase();
+        const cleanName = fullName.trim();
+
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: cleanEmail,
           password,
           options: {
             data: {
-              full_name: fullName,
+              full_name: cleanName,
             },
           },
         });
@@ -97,33 +182,45 @@ export default function Welcome() {
         if (error) throw error;
 
         if (data?.user) {
-          await supabase.from('users').upsert({
+          const pendingUserPayload = {
             id: data.user.id,
-            email,
-            full_name: fullName,
+            email: cleanEmail,
+            full_name: cleanName,
+
             role: null,
             status: 'pending',
-            department: null,
-          });
+            approval_status: 'pending',
+            is_approved: false,
 
-          await supabase.from('notifications').insert({
-            title: 'New User Registration',
-            message: `${fullName || email} just registered and is waiting for admin approval.`,
-            type: 'user_registration',
-            read: false,
-            user_email: 'admin',
+            department: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          const { error: userError } = await supabase
+            .from('users')
+            .upsert(pendingUserPayload, { onConflict: 'id' });
+
+          if (userError) {
+            console.error('User profile creation error:', userError);
+            throw userError;
+          }
+
+          await createAdminApprovalNotification({
+            userId: data.user.id,
+            userEmail: cleanEmail,
+            userName: cleanName,
           });
         }
 
         setEmail('');
         setPassword('');
         setFullName('');
-
         setAuthMode('pending');
-
         return;
       }
     } catch (err) {
+      console.error('Authentication error:', err);
       alert(err?.message || 'Authentication failed.');
     } finally {
       setLoading(false);
@@ -168,10 +265,10 @@ export default function Welcome() {
         <div className="flex items-center justify-center gap-4 mb-10">
           <div className="w-16 h-16 rounded-2xl bg-[#ff5a00] flex items-center justify-center shadow-[0_0_40px_rgba(245,184,0,0.4)]">
             <img
-  src="/logo.png"
-  alt="ARK Logo"
-  className="w-12 h-12 object-contain"
-/>
+              src="/logo.png"
+              alt="ARK Logo"
+              className="w-12 h-12 object-contain"
+            />
           </div>
 
           <div className="text-left">

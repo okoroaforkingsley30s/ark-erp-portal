@@ -112,9 +112,13 @@ export default function PendingApprovalPanel() {
   });
 
   // pending users
-  const pendingUsers = users.filter(
-    u => !u.role || u.role === ''
-  );
+ const pendingUsers = users.filter(
+  u =>
+    u.approval_status === 'pending' ||
+    u.is_approved === false ||
+    !u.role ||
+    u.role === ''
+);
 
   const getProfile = (email) =>
     profiles.find(

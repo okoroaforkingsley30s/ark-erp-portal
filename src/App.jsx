@@ -47,6 +47,7 @@ import OfficialMailInbox from '@/pages/OfficialMailInbox';
 import ProcurementLPO from '@/pages/ProcurementLPO';
 import ChangePassword from '@/pages/ChangePassword';
 import DataImport from '@/pages/DataImport';
+import RepairRefurbish from '@/pages/RepairRefurbish';
 
 const AuthenticatedApp = () => {
   const {
@@ -132,6 +133,10 @@ const AuthenticatedApp = () => {
         <Route path="/official-mail" element={<OfficialMailInbox />} />
         <Route path="/procurement-lpo" element={<ProcurementLPO />} />
         <Route path="/data-import" element={<DataImport />} />
+
+        {/* Repair & Refurbish */}
+        <Route path="/repair-refurbish" element={<RepairRefurbish />} />
+        <Route path="/repair-jobs" element={<RepairRefurbish />} />
       </Route>
 
       {/* 404 */}

@@ -275,24 +275,46 @@ export default function HRPortal() {
   };
 
   return (
-    <div className="flex h-full min-h-screen">
-      <nav className="hidden md:flex flex-col w-48 flex-shrink-0 border-r bg-card py-4 gap-1 pr-2">
-        <p className="text-xs font-semibold text-muted-foreground uppercase px-3 mb-2">HR Portal</p>
-        {NAV.map(n => {
-          const badge = n.key === 'leave' && pendingLeave > 0 ? pendingLeave : null;
-          return (
-            <button
-              key={n.key}
-              onClick={() => setActiveTab(n.key)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left ${activeTab === n.key ? 'bg-primary text-primary-foreground' : 'hover:bg-muted text-foreground'}`}
-            >
-              <n.icon className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">{n.label}</span>
-              {badge && <span className="bg-destructive text-destructive-foreground text-[10px] rounded-full w-4 h-4 flex items-center justify-center">{badge}</span>}
-            </button>
-          );
-        })}
-      </nav>
+   <div className="flex h-full min-h-screen">
+  <nav className="hidden md:flex flex-col w-48 flex-shrink-0 border-r border-white/10 bg-[#102969]/90 py-4 gap-1 pr-2 text-white">
+    <p className="text-xs font-semibold text-slate-300 uppercase px-3 mb-2">
+      HR Portal
+    </p>
+
+    {NAV.map((n) => {
+      const badge =
+        n.key === 'leave' && pendingLeave > 0
+          ? pendingLeave
+          : null;
+
+      const isActive = activeTab === n.key;
+
+      return (
+        <button
+          key={n.key}
+          type="button"
+          onClick={() => setActiveTab(n.key)}
+          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
+            isActive
+              ? 'bg-[#ff5a00] text-white shadow-sm'
+              : 'text-slate-200 hover:bg-white/10 hover:text-white'
+          }`}
+        >
+          <n.icon className="w-4 h-4 flex-shrink-0" />
+
+          <span className="flex-1">
+            {n.label}
+          </span>
+
+          {badge && (
+            <span className="bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+              {badge}
+            </span>
+          )}
+        </button>
+      );
+    })}
+  </nav>
 
       <div className="md:hidden w-full absolute top-0 left-0 z-10">
         <div className="flex gap-1 overflow-x-auto p-2 bg-card border-b">

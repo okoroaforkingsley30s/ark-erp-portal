@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { createNotification } from '@/lib/createNotification';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -199,16 +200,46 @@ export default function ArkConnect() {
     setSending(true);
 
     try {
-      const { error } = await supabase
-        .from('chat_messages')
-        .insert({
-          sender_id: user.email,
-          sender_name: user.full_name || user.email,
-          sender_role: user.role,
-          channel_name: activeChannel,
-          message_type: 'channel',
-          message_body: msgInput.trim(),
-        });
+      const messageText = msgInput.trim();
+
+const { error } = await supabase
+  .from('chat_messages')
+  .insert({
+    sender_id: user.email,
+    sender_name: user.full_name || user.email,
+    sender_role: user.role,
+
+    recipient_id: dmRecipient.email,
+    recipient_name: dmRecipient.full_name,
+
+    message_type: 'dm',
+
+    message_body: messageText,
+  });
+
+if (error) throw error;
+
+// GLOBAL NOTIFICATION
+await createNotification({
+  userEmail: dmRecipient.email,
+
+  title: 'New ARK Connect Message',
+
+  message: `${
+    user.full_name || user.email
+  } sent you a private message.`,
+
+  type: 'ark_connect',
+
+  link: '/ark-connect',
+
+  sound: 'click',
+
+  data: {
+    sender_email: user.email,
+    sender_name: user.full_name,
+  },
+});
 
       if (error) throw error;
 
@@ -222,32 +253,76 @@ export default function ArkConnect() {
   };
 
   const sendDM = async () => {
-    if (!msgInput.trim() || !dmRecipient || sending || !user?.email) return;
-    setSending(true);
+  if (!msgInput.trim() || !dmRecipient || sending || !user?.email) return;
 
-    try {
-      const { error } = await supabase
-        .from('chat_messages')
-        .insert({
-          sender_id: user.email,
-          sender_name: user.full_name || user.email,
-          sender_role: user.role,
-          recipient_id: dmRecipient.email,
-          recipient_name: dmRecipient.full_name,
-          message_type: 'dm',
-          message_body: msgInput.trim(),
-        });
+  setSending(true);
 
-      if (error) throw error;
+  try {
 
-      setMsgInput('');
-      qc.invalidateQueries({ queryKey: ['chat-dm', user.email, dmRecipient.email] });
-    } catch (err) {
-      toast.error('Failed to send: ' + (err?.message || 'Unknown error'));
-    } finally {
-      setSending(false);
-    }
-  };
+    const messageText = msgInput.trim();
+
+    const { error } = await supabase
+      .from('chat_messages')
+      .insert({
+        sender_id: user.email,
+        sender_name: user.full_name || user.email,
+        sender_role: user.role,
+
+        recipient_id: dmRecipient.email,
+        recipient_name: dmRecipient.full_name,
+
+        message_type: 'dm',
+
+        message_body: messageText,
+      });
+
+    if (error) throw error;
+
+    // CREATE GLOBAL NOTIFICATION
+    await createNotification({
+      userEmail: dmRecipient.email,
+
+      title: 'New ARK Connect Message',
+
+      message: `${
+        user.full_name || user.email
+      } sent you a private message.`,
+
+      type: 'ark_connect',
+
+      link: '/ark-connect',
+
+      sound: 'click',
+
+      data: {
+        sender_email: user.email,
+        sender_name: user.full_name,
+      },
+    });
+
+    setMsgInput('');
+
+    // REFRESH CHAT
+    qc.invalidateQueries({
+      queryKey: [
+        'chat-dm',
+        user.email,
+        dmRecipient.email
+      ]
+    });
+
+  } catch (err) {
+
+    toast.error(
+      'Failed to send: ' +
+      (err?.message || 'Unknown error')
+    );
+
+  } finally {
+
+    setSending(false);
+  }
+};
 
   const sendBot = () => {
     if (!msgInput.trim()) return;
