@@ -57,65 +57,83 @@ export default function ChangePassword() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const setupInviteSession = async () => {
-      try {
-        const hash = window.location.hash;
+  const setupInviteSession = async () => {
+    try {
+      const hash = window.location.hash;
 
-        if (hash) {
-          const params = new URLSearchParams(
-            hash.replace('#', '')
+      if (hash) {
+        const params = new URLSearchParams(hash.replace('#', ''));
+
+        const access_token = params.get('access_token');
+        const refresh_token = params.get('refresh_token');
+
+        if (access_token && refresh_token) {
+          const { error } = await supabase.auth.setSession({
+            access_token,
+            refresh_token,
+          });
+
+          if (error) throw error;
+
+          window.history.replaceState(
+            {},
+            document.title,
+            '/create-password'
           );
-
-          const access_token = params.get('access_token');
-          const refresh_token = params.get('refresh_token');
-
-          if (access_token && refresh_token) {
-            await supabase.auth.setSession({
-              access_token,
-              refresh_token,
-            });
-
-            window.history.replaceState(
-              {},
-              document.title,
-              '/create-password'
-            );
-          }
         }
-
-        const {
-          data: { session }
-        } = await supabase.auth.getSession();
-
-        if (!session?.user) {
-          navigate('/welcome');
-          return;
-        }
-
-        const { data } = await supabase
-          .from('users')
-          .select('*')
-          .eq('email', session.user.email)
-          .single();
-
-        const profile = data || session.user;
-
-        setUser(profile);
-
-        setFullName(profile?.full_name || '');
-        setPhone(profile?.phone || '');
-        setStaffId(profile?.employee_id || '');
-
-      } catch (err) {
-        console.error(err);
-        setError('Invalid or expired invitation link.');
-      } finally {
-        setLoadingSession(false);
       }
-    };
 
-    setupInviteSession();
-  }, [navigate]);
+      const searchParams = new URLSearchParams(window.location.search);
+      const code = searchParams.get('code');
+
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+
+        if (error) {
+          console.error('Code exchange error:', error);
+          throw error;
+        }
+
+        window.history.replaceState(
+          {},
+          document.title,
+          '/create-password'
+        );
+      }
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        setError('Invalid or expired invitation link. Please request a new invite.');
+        setLoadingSession(false);
+        return;
+      }
+
+      const { data } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', session.user.email)
+        .maybeSingle();
+
+      const profile = data || session.user;
+
+      setUser(profile);
+
+      setFullName(profile?.full_name || session.user.user_metadata?.full_name || '');
+      setPhone(profile?.phone || '');
+      setStaffId(profile?.employee_id || '');
+    } catch (err) {
+      console.error(err);
+      setError('Invalid or expired invitation link.');
+    } finally {
+      setLoadingSession(false);
+    }
+  };
+
+  setupInviteSession();
+}, [navigate]);
 
   const handleSubmit = async () => {
     setError('');

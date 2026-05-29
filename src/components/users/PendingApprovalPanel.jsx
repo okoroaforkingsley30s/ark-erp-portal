@@ -137,16 +137,36 @@ export default function PendingApprovalPanel() {
     try {
       setSaving(true);
 
-      const now = new Date().toISOString();
+      const { data: sessionData } = await supabase.auth.getSession();
+const accessToken = sessionData?.session?.access_token;
 
-      const { error: userErr } = await supabase.rpc('approve_ark_user', {
-  target_user_id: selectedUser.id,
-  new_role: assignRole,
-  new_department: assignDept || null,
-  new_employee_id: assignEmpId || null,
-});
+if (!accessToken) {
+  throw new Error('Admin session expired. Please sign in again.');
+}
 
-if (userErr) throw userErr;
+const inviteResponse = await fetch(
+  'https://fryidzyhqhdenghyxjfp.functions.supabase.co/invite-user',
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      email: selectedUser.email,
+      full_name: selectedUser.full_name || selectedUser.email,
+      role: assignRole,
+      department: assignDept || 'General',
+      employee_id: assignEmpId || null,
+    }),
+  }
+);
+
+const inviteResult = await inviteResponse.json();
+
+if (!inviteResponse.ok) {
+  throw new Error(inviteResult?.error || 'User approved but invite email failed.');
+}
 
       const existing = getProfile(selectedUser.email);
 

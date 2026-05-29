@@ -16,6 +16,8 @@ import TrainingModule from '@/components/hr/TrainingModule';
 import PerformanceModule from '@/components/hr/PerformanceModule';
 import HolidayModule from '@/components/hr/HolidayModule';
 
+const MAIN_ADMIN_EMAIL = 'iamkizmith@gmail.com';
+
 const EMPTY_EMP = {
   full_name: '', staff_id: '', title: '', phone_number: '', marital_status: '', gender: '',
   date_of_birth: '', home_address: '', job_title: '', current_level: '', department: '',
@@ -180,8 +182,63 @@ export default function HRPortal() {
         ...employeeData
       } = cleanForm;
 
-      employeeData.user_account_email = create_login ? login_email : employeeData.user_account_email || null;
-      employeeData.access_role = create_login ? login_role : employeeData.access_role || null;
+      const cleanLoginEmail = login_email?.trim().toLowerCase();
+
+      employeeData.user_account_email = create_login && cleanLoginEmail
+        ? cleanLoginEmail
+        : employeeData.user_account_email || null;
+
+      employeeData.access_role = create_login && login_role
+        ? login_role
+        : employeeData.access_role || null;
+
+      employeeData.updated_at = new Date().toISOString();
+
+      if (create_login && cleanLoginEmail) {
+        const { error: pendingError } = await supabase
+          .from('users')
+          .upsert({
+            email: cleanLoginEmail,
+            full_name: employeeData.full_name,
+            role: null,
+            status: 'pending',
+            approval_status: 'pending',
+            is_approved: false,
+            account_status: 'active',
+            department: employeeData.department || 'General',
+            employee_id: employeeData.staff_id || null,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: 'email',
+          });
+
+        if (pendingError) {
+          console.error('Pending user creation failed:', pendingError);
+          throw pendingError;
+        }
+
+        await supabase
+          .from('notifications')
+          .insert({
+            title: 'New User Approval Request',
+            message: `${employeeData.full_name} requires login access approval as ${login_role}.`,
+            type: 'approval',
+            user_email: MAIN_ADMIN_EMAIL,
+            recipient_email: MAIN_ADMIN_EMAIL,
+            read: false,
+            is_read: false,
+            data: {
+              email: cleanLoginEmail,
+              full_name: employeeData.full_name,
+              role: login_role,
+              department: employeeData.department || 'General',
+              employee_id: employeeData.staff_id || null,
+            },
+            link: '/users',
+            sound: 'bell',
+            created_at: new Date().toISOString(),
+          });
+      }
 
       if (editingEmp) {
         const { error } = await supabase
@@ -193,12 +250,16 @@ export default function HRPortal() {
       } else {
         const { error } = await supabase
           .from('employees')
-          .insert([employeeData]);
+          .insert([{
+            ...employeeData,
+            created_at: new Date().toISOString(),
+          }]);
 
         if (error) throw error;
       }
 
       qc.invalidateQueries({ queryKey: ['hr-employees'] });
+      qc.invalidateQueries({ queryKey: ['users'] });
 
       setEmpFormOpen(false);
       setEditingEmp(null);
@@ -206,9 +267,41 @@ export default function HRPortal() {
 
       alert('Employee saved successfully');
     } catch (err) {
+      console.error('Error saving employee:', err);
       alert('Error saving employee: ' + (err?.message || 'Unknown error. Please try again.'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteEmployee = async (emp) => {
+    if (!canManage) {
+      alert('Unauthorized.');
+      return;
+    }
+
+    if (!emp?.id) return;
+
+    const ok = confirm(
+      `Delete employee record for ${emp.full_name || emp.email_address || 'this employee'}?`
+    );
+
+    if (!ok) return;
+
+    try {
+      const { error } = await supabase
+        .from('employees')
+        .delete()
+        .eq('id', emp.id);
+
+      if (error) throw error;
+
+      qc.invalidateQueries({ queryKey: ['hr-employees'] });
+
+      alert('Employee deleted successfully.');
+    } catch (err) {
+      console.error('Delete employee failed:', err);
+      alert('Delete failed: ' + (err?.message || 'Unknown error'));
     }
   };
 
@@ -275,46 +368,46 @@ export default function HRPortal() {
   };
 
   return (
-   <div className="flex h-full min-h-screen">
-  <nav className="hidden md:flex flex-col w-48 flex-shrink-0 border-r border-white/10 bg-[#102969]/90 py-4 gap-1 pr-2 text-white">
-    <p className="text-xs font-semibold text-slate-300 uppercase px-3 mb-2">
-      HR Portal
-    </p>
+    <div className="flex h-full min-h-screen">
+      <nav className="hidden md:flex flex-col w-48 flex-shrink-0 border-r border-white/10 bg-[#102969]/90 py-4 gap-1 pr-2 text-white">
+        <p className="text-xs font-semibold text-slate-300 uppercase px-3 mb-2">
+          HR Portal
+        </p>
 
-    {NAV.map((n) => {
-      const badge =
-        n.key === 'leave' && pendingLeave > 0
-          ? pendingLeave
-          : null;
+        {NAV.map((n) => {
+          const badge =
+            n.key === 'leave' && pendingLeave > 0
+              ? pendingLeave
+              : null;
 
-      const isActive = activeTab === n.key;
+          const isActive = activeTab === n.key;
 
-      return (
-        <button
-          key={n.key}
-          type="button"
-          onClick={() => setActiveTab(n.key)}
-          className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
-            isActive
-              ? 'bg-[#ff5a00] text-white shadow-sm'
-              : 'text-slate-200 hover:bg-white/10 hover:text-white'
-          }`}
-        >
-          <n.icon className="w-4 h-4 flex-shrink-0" />
+          return (
+            <button
+              key={n.key}
+              type="button"
+              onClick={() => setActiveTab(n.key)}
+              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left ${
+                isActive
+                  ? 'bg-[#ff5a00] text-white shadow-sm'
+                  : 'text-slate-200 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <n.icon className="w-4 h-4 flex-shrink-0" />
 
-          <span className="flex-1">
-            {n.label}
-          </span>
+              <span className="flex-1">
+                {n.label}
+              </span>
 
-          {badge && (
-            <span className="bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
-              {badge}
-            </span>
-          )}
-        </button>
-      );
-    })}
-  </nav>
+              {badge && (
+                <span className="bg-red-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">
+                  {badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
       <div className="md:hidden w-full absolute top-0 left-0 z-10">
         <div className="flex gap-1 overflow-x-auto p-2 bg-card border-b">
@@ -351,7 +444,15 @@ export default function HRPortal() {
                   </Button>
                 </div>
               )}
-              <EmployeeTable employees={employees} canManage={canManage} onEdit={handleEdit} onView={emp => setViewEmp(emp)} onAdd={handleAdd} />
+
+              <EmployeeTable
+                employees={employees}
+                canManage={canManage}
+                onEdit={handleEdit}
+                onView={emp => setViewEmp(emp)}
+                onAdd={handleAdd}
+                onDelete={handleDeleteEmployee}
+              />
             </div>
           )}
 
