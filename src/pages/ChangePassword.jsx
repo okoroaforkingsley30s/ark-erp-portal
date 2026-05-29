@@ -56,49 +56,58 @@ export default function ChangePassword() {
 
   const [error, setError] = useState('');
 
-  useEffect(() => {
+useEffect(() => {
   const setupInviteSession = async () => {
     try {
-      const hash = window.location.hash;
+      setError('');
 
-      if (hash) {
-        const params = new URLSearchParams(hash.replace('#', ''));
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
 
-        const access_token = params.get('access_token');
-        const refresh_token = params.get('refresh_token');
+      const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
+      const searchParams = new URLSearchParams(search.replace(/^\?/, ''));
 
-        if (access_token && refresh_token) {
-          const { error } = await supabase.auth.setSession({
-            access_token,
-            refresh_token,
-          });
+      const errorCode =
+        hashParams.get('error_code') ||
+        searchParams.get('error_code');
 
-          if (error) throw error;
+      const errorDescription =
+        hashParams.get('error_description') ||
+        searchParams.get('error_description');
 
-          window.history.replaceState(
-            {},
-            document.title,
-            '/create-password'
-          );
-        }
+      if (errorCode) {
+        setError(errorDescription || 'Invalid or expired invitation link.');
+        setLoadingSession(false);
+        return;
       }
 
-      const searchParams = new URLSearchParams(window.location.search);
-      const code = searchParams.get('code');
+      const accessToken =
+        hashParams.get('access_token') ||
+        searchParams.get('access_token');
+
+      const refreshToken =
+        hashParams.get('refresh_token') ||
+        searchParams.get('refresh_token');
+
+      const code = searchParams.get('code') || hashParams.get('code');
+
+      if (accessToken && refreshToken) {
+        const { error } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+
+        if (error) throw error;
+
+        window.history.replaceState({}, document.title, '/create-password');
+      }
 
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-        if (error) {
-          console.error('Code exchange error:', error);
-          throw error;
-        }
+        if (error) throw error;
 
-        window.history.replaceState(
-          {},
-          document.title,
-          '/create-password'
-        );
+        window.history.replaceState({}, document.title, '/create-password');
       }
 
       const {
@@ -106,27 +115,33 @@ export default function ChangePassword() {
       } = await supabase.auth.getSession();
 
       if (!session?.user) {
-        setError('Invalid or expired invitation link. Please request a new invite.');
+        setError('Auth session missing. Please open the newest invite email link once, or request a new invite.');
         setLoadingSession(false);
         return;
       }
 
-      const { data } = await supabase
+      const { data: profile } = await supabase
         .from('users')
         .select('*')
         .eq('email', session.user.email)
         .maybeSingle();
 
-      const profile = data || session.user;
+      const currentUser = profile || {
+        id: session.user.id,
+        email: session.user.email,
+        full_name: session.user.user_metadata?.full_name || '',
+        phone: '',
+        employee_id: '',
+        role: session.user.user_metadata?.role || null,
+      };
 
-      setUser(profile);
-
-      setFullName(profile?.full_name || session.user.user_metadata?.full_name || '');
-      setPhone(profile?.phone || '');
-      setStaffId(profile?.employee_id || '');
+      setUser(currentUser);
+      setFullName(currentUser?.full_name || '');
+      setPhone(currentUser?.phone || '');
+      setStaffId(currentUser?.employee_id || '');
     } catch (err) {
-      console.error(err);
-      setError('Invalid or expired invitation link.');
+      console.error('Invite/session setup failed:', err);
+      setError(err?.message || 'Invalid or expired invitation link.');
     } finally {
       setLoadingSession(false);
     }
