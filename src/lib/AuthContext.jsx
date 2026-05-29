@@ -3,11 +3,22 @@ import { supabase } from "../integrations/supabase/client";
 
 const AuthContext = createContext();
 
+const ADMIN_EMAIL = "okoroaforkingsley30s@gmail.com";
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
+
+  const signOutAndBlock = async (message) => {
+    console.warn(message);
+    await supabase.auth.signOut();
+    setUser(null);
+    setIsAuthenticated(false);
+    setAuthError(message);
+    setIsLoadingAuth(false);
+  };
 
   const loadUserProfile = async (authUser) => {
     if (!authUser) {
@@ -18,26 +29,60 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
+      const cleanEmail = authUser.email?.trim().toLowerCase();
+
       const { data: profile, error } = await supabase
         .from("users")
         .select("*")
-        .eq("id", authUser.id)
+        .or(`id.eq.${authUser.id},email.eq.${cleanEmail}`)
         .maybeSingle();
 
       if (error) {
-        console.warn("Profile load warning:", error.message);
+        console.error("Profile load failed:", error.message);
+        await signOutAndBlock("Unable to load your user profile. Please contact admin.");
+        return;
+      }
+
+      if (!profile) {
+        await signOutAndBlock("Your user profile was not found. Please contact admin.");
+        return;
+      }
+
+      const isMainAdmin = cleanEmail === ADMIN_EMAIL;
+
+      const approvalStatus = profile.approval_status || profile.status;
+      const isApproved =
+        isMainAdmin ||
+        profile.is_approved === true ||
+        approvalStatus === "approved";
+
+      const hasRole = Boolean(profile.role);
+
+      if (!isApproved || !hasRole) {
+        await signOutAndBlock("Your account is pending admin approval.");
+        return;
+      }
+
+      if (
+        profile.status === "rejected" ||
+        profile.approval_status === "rejected"
+      ) {
+        await signOutAndBlock("Your account approval was rejected. Please contact admin.");
+        return;
       }
 
       setUser({
         id: authUser.id,
-        email: authUser.email,
+        email: cleanEmail,
         full_name:
-          profile?.full_name ||
+          profile.full_name ||
           authUser.user_metadata?.full_name ||
-          authUser.email,
-        role: profile?.role || "admin",
-        status: profile?.status || "approved",
-        department: profile?.department || "IT",
+          cleanEmail,
+        role: isMainAdmin ? profile.role || "admin" : profile.role,
+        status: profile.status || "approved",
+        approval_status: profile.approval_status || "approved",
+        is_approved: true,
+        department: profile.department || null,
         ...profile,
       });
 
@@ -45,17 +90,7 @@ export const AuthProvider = ({ children }) => {
       setAuthError(null);
     } catch (error) {
       console.error("Profile load failed:", error);
-
-      setUser({
-        id: authUser.id,
-        email: authUser.email,
-        full_name: authUser.user_metadata?.full_name || authUser.email,
-        role: "admin",
-        status: "approved",
-        department: "IT",
-      });
-
-      setIsAuthenticated(true);
+      await signOutAndBlock("Authentication failed. Please contact admin.");
     } finally {
       setIsLoadingAuth(false);
     }

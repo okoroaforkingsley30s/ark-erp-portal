@@ -47,12 +47,14 @@ export default function Welcome() {
   }, []);
 
   const handleForgotPassword = async () => {
-    if (!email) {
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!cleanEmail) {
       alert('Please enter your email address first.');
       return;
     }
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
       redirectTo: `${window.location.origin}/change-password`,
     });
 
@@ -91,6 +93,9 @@ export default function Welcome() {
         approval_status: 'pending',
       },
 
+      link: '/users',
+      sound: 'bell',
+
       created_at: new Date().toISOString(),
     };
 
@@ -100,17 +105,19 @@ export default function Welcome() {
 
     if (error) {
       console.error('Admin notification error:', error);
-      throw error;
     }
   };
 
   const handleAuth = async () => {
-    if (!email || !password) {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = fullName.trim();
+
+    if (!cleanEmail || !password) {
       alert('Please enter email and password.');
       return;
     }
 
-    if (authMode === 'register' && !fullName.trim()) {
+    if (authMode === 'register' && !cleanName) {
       alert('Please enter your full name.');
       return;
     }
@@ -119,8 +126,6 @@ export default function Welcome() {
 
     try {
       if (authMode === 'signin') {
-        const cleanEmail = email.trim().toLowerCase();
-
         const { data, error } = await supabase.auth.signInWithPassword({
           email: cleanEmail,
           password,
@@ -134,7 +139,7 @@ export default function Welcome() {
           const { data: profile, error: profileError } = await supabase
             .from('users')
             .select('status, role, approval_status, is_approved')
-            .eq('id', userId)
+            .or(`id.eq.${userId},email.eq.${cleanEmail}`)
             .maybeSingle();
 
           if (profileError) throw profileError;
@@ -166,9 +171,6 @@ export default function Welcome() {
       }
 
       if (authMode === 'register') {
-        const cleanEmail = email.trim().toLowerCase();
-        const cleanName = fullName.trim();
-
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
@@ -181,9 +183,13 @@ export default function Welcome() {
 
         if (error) throw error;
 
-        if (data?.user) {
+        const authUserId = data?.user?.id;
+
+        if (authUserId) {
+          const now = new Date().toISOString();
+
           const pendingUserPayload = {
-            id: data.user.id,
+            id: authUserId,
             email: cleanEmail,
             full_name: cleanName,
 
@@ -193,21 +199,22 @@ export default function Welcome() {
             is_approved: false,
 
             department: null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
+            updated_at: now,
           };
 
           const { error: userError } = await supabase
             .from('users')
-            .upsert(pendingUserPayload, { onConflict: 'id' });
+            .upsert(pendingUserPayload, {
+              onConflict: 'email',
+            });
 
           if (userError) {
-            console.error('User profile creation error:', userError);
+            console.error('User profile upsert error:', userError);
             throw userError;
           }
 
           await createAdminApprovalNotification({
-            userId: data.user.id,
+            userId: authUserId,
             userEmail: cleanEmail,
             userName: cleanName,
           });
@@ -221,7 +228,15 @@ export default function Welcome() {
       }
     } catch (err) {
       console.error('Authentication error:', err);
-      alert(err?.message || 'Authentication failed.');
+
+      if (
+        err?.message?.toLowerCase().includes('already registered') ||
+        err?.message?.toLowerCase().includes('duplicate key')
+      ) {
+        alert('This email already exists. Please sign in or use forgot password.');
+      } else {
+        alert(err?.message || 'Authentication failed.');
+      }
     } finally {
       setLoading(false);
     }
