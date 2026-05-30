@@ -130,25 +130,63 @@ export default function TicketDetail() {
   };
 
   const handleAssign = async (engineerEmail) => {
-    const eng = engineers.find((e) => e.email === engineerEmail);
+  if (!engineerEmail) {
+    alert('No engineer selected.');
+    return;
+  }
 
+  if (!ticket?.id && !id) {
+    alert('Ticket ID not found.');
+    return;
+  }
+
+  const eng = engineers.find((e) => e.email === engineerEmail);
+  const ticketTitle = ticket?.title || ticket?.ticket_id || 'Untitled Ticket';
+  const ticketLink = `/tickets/${id}`;
+
+  try {
     await updateTicket({
       assigned_to: engineerEmail,
       assigned_to_name: eng?.full_name || engineerEmail,
       status: 'assigned',
     });
 
-    await supabase.from('notifications').insert({
-      user_email: engineerEmail,
-      title: 'New Ticket Assigned',
-      message: `You have been assigned ticket: ${ticket.title}`,
-      type: 'ticket_assigned',
-      related_id: id,
-      related_type: 'ticket',
-      read: false,
-      created_at: new Date().toISOString(),
+    const { data: notifyData, error: notifyError } = await supabase
+      .from('notifications')
+      .insert({
+        user_email: engineerEmail,
+        title: 'New Ticket Assigned',
+        message: `You have been assigned ticket: ${ticketTitle}`,
+        type: 'ticket_assigned',
+        link: ticketLink,
+        sound: 'bell',
+        read: false,
+        created_at: new Date().toISOString(),
+      })
+      .select();
+
+    console.log('Ticket assignment notification result:', {
+      notifyData,
+      notifyError,
+      engineerEmail,
+      ticketId: id,
     });
-  };
+
+    if (notifyError) {
+      alert('Ticket notification failed: ' + notifyError.message);
+      return;
+    }
+
+    alert(`Ticket assigned and notification sent to ${engineerEmail}`);
+
+    queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    queryClient.invalidateQueries({ queryKey: ['ticket', id] });
+    queryClient.invalidateQueries({ queryKey: ['tickets'] });
+  } catch (error) {
+    console.error('Ticket assignment failed:', error);
+    alert('Ticket assignment failed: ' + (error?.message || 'Unknown error'));
+  }
+};
 
   const handleStatusChange = async (newStatus) => {
     const data = { status: newStatus };

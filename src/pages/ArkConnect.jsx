@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
 
 import { Button } from '@/components/ui/button';
@@ -94,7 +94,9 @@ function getBotAnswer(msg) {
   const lower = msg.toLowerCase();
 
   for (const { kw, answer } of BOT_ANSWERS) {
-    if (kw.some((k) => lower.includes(k))) return answer;
+    if (kw.some((k) => lower.includes(k))) {
+      return answer;
+    }
   }
 
   return 'I am not sure about that. Please contact the relevant department.';
@@ -181,6 +183,7 @@ function BotBubble({ text }) {
 export default function ArkConnect() {
   const { user } = useOutletContext();
   const qc = useQueryClient();
+  const [searchParams] = useSearchParams();
 
   const [view, setView] = useState('channel');
   const [activeChannel, setActiveChannel] = useState('General');
@@ -269,6 +272,31 @@ export default function ArkConnect() {
       }));
   }, [employees, user]);
 
+  useEffect(() => {
+    const targetView = searchParams.get('view');
+    const targetUser = searchParams.get('user');
+    const targetChannel = searchParams.get('channel');
+
+    if (targetView === 'channel' && targetChannel) {
+      setView('channel');
+      setActiveChannel(targetChannel);
+      setDmRecipient(null);
+      return;
+    }
+
+    if (targetView === 'dm' && targetUser && allContacts.length > 0) {
+      const contact = allContacts.find(
+        (c) =>
+          c.email?.toLowerCase() === targetUser.toLowerCase()
+      );
+
+      if (contact) {
+        setView('dm');
+        setDmRecipient(contact);
+      }
+    }
+  }, [searchParams, allContacts]);
+
   const filteredContacts = allContacts.filter(
     (c) =>
       !staffSearch ||
@@ -352,13 +380,10 @@ export default function ArkConnect() {
           sender_id: user.email,
           sender_name: user.full_name || user.email,
           sender_role: user.role,
-
           recipient_id: null,
           recipient_name: null,
-
           message_type: 'channel',
           channel_name: activeChannel,
-
           message_body: messageText,
         });
 
@@ -379,7 +404,9 @@ export default function ArkConnect() {
               user.full_name || user.email
             } posted in ${activeChannel}.`,
             type: 'ark_connect_channel',
-            link: '/ark-connect',
+            link: `/ark-connect?view=channel&channel=${encodeURIComponent(
+              activeChannel
+            )}`,
             sound: 'click',
           })
         )
@@ -419,13 +446,10 @@ export default function ArkConnect() {
           sender_id: user.email,
           sender_name: user.full_name || user.email,
           sender_role: user.role,
-
           recipient_id: dmRecipient.email,
           recipient_name: dmRecipient.full_name,
-
           message_type: 'dm',
           channel_name: null,
-
           message_body: messageText,
         });
 
@@ -433,12 +457,14 @@ export default function ArkConnect() {
 
       await createArkNotification({
         userEmail: dmRecipient.email,
-        title: 'New ARK Connect Message',
+        title: 'New Private Message',
         message: `${
           user.full_name || user.email
         } sent you a private message.`,
         type: 'ark_connect_dm',
-        link: '/ark-connect',
+        link: `/ark-connect?view=dm&user=${encodeURIComponent(
+          user.email
+        )}`,
         sound: 'click',
       });
 
@@ -499,7 +525,13 @@ export default function ArkConnect() {
   const navTo = (newView, channel = null) => {
     setView(newView);
 
-    if (channel) setActiveChannel(channel);
+    if (newView !== 'dm') {
+      setDmRecipient(null);
+    }
+
+    if (channel) {
+      setActiveChannel(channel);
+    }
 
     setSidebarOpen(false);
   };

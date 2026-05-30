@@ -456,7 +456,7 @@ export default function UserManagement() {
       </div>
 
       {pendingCount > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-5">
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/15 text-white/50 p-5">
           <PendingApprovalPanel />
         </div>
       )}

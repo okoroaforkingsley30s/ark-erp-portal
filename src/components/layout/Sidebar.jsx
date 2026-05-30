@@ -6,7 +6,7 @@ import {
   LayoutDashboard,
   Ticket,
   Users,
- Settings,
+  Settings,
   Bell,
   BarChart3,
   Building2,
@@ -33,10 +33,9 @@ import {
   UserCog,
   Globe,
   MessageCircle,
-  FileText,
+   FileText,
   Mail,
   FileSpreadsheet,
-  Calendar,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -56,70 +55,42 @@ const ALL_MENUS = [
     path: '/dashboard',
     permission: 'dashboard',
   },
-
   {
     label: 'SLA Analytics',
     icon: Activity,
     path: '/sla-analytics',
     permission: 'sla_analytics',
   },
-
   {
     label: 'Live Map',
     icon: Map,
     path: '/live-map',
     permission: 'live_map',
   },
-
-  {
-  label: 'My Jobs',
-  icon: Ticket,
-  path: '/tickets',
-  permission: 'my_jobs',
-},
-
   {
     label: 'Tickets',
     icon: Ticket,
     path: '/tickets',
     permission: 'tickets',
   },
-
-  {
-    label: 'My Tickets',
-    icon: Ticket,
-    path: '/tickets',
-    permission: 'my_tickets',
-  },
-
-  {
-    label: 'Assigned Tickets',
-    icon: Ticket,
-    path: '/tickets',
-    permission: 'assigned_tickets',
-  },
-
   {
     label: 'Repair Jobs',
     icon: Ticket,
     path: '/repair-jobs',
     permission: 'repair_jobs',
   },
-
   {
     label: 'Site Monitor',
     icon: Radio,
     path: '/sites',
     permission: 'site_monitor',
   },
-
   {
     label: 'Engineer Board',
     icon: MapPin,
     path: '/engineers',
     permission: 'engineering',
   },
-
   {
     label: 'Field Operations',
     icon: Navigation,
@@ -135,49 +106,42 @@ const ALL_MENUS = [
     path: '/ops-dashboard',
     permission: 'ops_dashboard',
   },
-
   {
     label: 'Banks',
     icon: Landmark,
     path: '/banks',
     permission: 'banks',
   },
-
   {
     label: 'Branches',
     icon: GitBranch,
     path: '/branches',
     permission: 'branches',
   },
-
   {
     label: 'Bank Devices',
     icon: Cpu,
     path: '/bank-devices',
     permission: 'devices',
   },
-
   {
     label: 'Device Status',
     icon: Activity,
     path: '/device-status',
     permission: 'device_status',
   },
-
   {
     label: 'Assignments',
     icon: UserCog,
     path: '/device-assignment',
     permission: 'assignments',
   },
-
   {
     label: 'Regional View',
     icon: Globe,
     path: '/regional-coverage',
     permission: 'regional_view',
   },
-
   {
     label: 'Field Engineers',
     icon: Users2,
@@ -193,41 +157,18 @@ const ALL_MENUS = [
     path: '/assets',
     permission: 'assets',
   },
-
   {
     label: 'Inventory',
     icon: Boxes,
     path: '/spare-parts',
     permission: 'inventory',
   },
-
   {
-    label: 'Spare Parts',
+    label: 'Request Parts',
     icon: Boxes,
     path: '/spare-parts',
-    permission: 'spare_parts',
+    permission: 'parts_request',
   },
-
-  {
-    label: 'Inventory Parts',
-    icon: Boxes,
-    path: '/inventory-parts',
-    permission: 'inventory_parts',
-  },
-
-  {
-    label: 'Stock Movement',
-    icon: Boxes,
-    path: '/stock-movement',
-    permission: 'stock_movement',
-  },
-
-  {
-  label: 'Request Parts',
-  icon: Boxes,
-  path: '/spare-parts',
-  permission: 'parts_request',
-},
 
   { section: 'Business', permission: 'business' },
 
@@ -237,84 +178,24 @@ const ALL_MENUS = [
     path: '/finance',
     permission: 'finance',
   },
-
-  {
-    label: 'Invoices',
-    icon: FileText,
-    path: '/finance/invoices',
-    permission: 'invoices',
-  },
-
-  {
-    label: 'Payments',
-    icon: DollarSign,
-    path: '/finance/payments',
-    permission: 'payments',
-  },
-
-  {
-    label: 'Payroll Summary',
-    icon: DollarSign,
-    path: '/finance/payroll',
-    permission: 'payroll_summary',
-  },
-
-  {
-    label: 'Loans Finance',
-    icon: DollarSign,
-    path: '/finance/loans',
-    permission: 'loans_finance',
-  },
-
   {
     label: 'Procurement',
     icon: ShoppingCart,
     path: '/procurement',
     permission: 'procurement',
   },
-
   {
     label: 'Purchase Orders',
     icon: FileText,
     path: '/procurement-lpo',
     permission: 'purchase_orders',
   },
-
-  {
-    label: 'Vendors',
-    icon: Building2,
-    path: '/vendors',
-    permission: 'vendors',
-  },
-
-  {
-    label: 'Purchase Requests',
-    icon: FileText,
-    path: '/purchase-requests',
-    permission: 'purchase_requests',
-  },
-
   {
     label: 'CRM',
     icon: TrendingUp,
     path: '/crm',
     permission: 'crm',
   },
-
-  {
-  label: 'Clients / Banks',
-  icon: Users2,
-  path: '/banks',
-  permission: 'clients',
-},
-
-  {
-    label: 'Marketing',
-    icon: TrendingUp,
-    path: '/marketing',
-    permission: 'marketing',
-  },
-
   {
     label: 'HR Portal',
     icon: UserCheck,
@@ -322,64 +203,56 @@ const ALL_MENUS = [
     permission: 'hr',
   },
 
+  { section: 'Administration', permission: 'users' },
+
+  {
+    label: 'Users',
+    icon: Users,
+    path: '/users',
+    permission: 'users',
+  },
   {
     label: 'Staff Directory',
     icon: Users2,
     path: '/staff',
     permission: 'staff_directory',
   },
-
-  { section: 'Administration', permission: 'admin' },
-
-  {
-  label: 'Users',
-  icon: Users,
-  path: '/users',
-  permission: 'users',
-},
-
-  {
-    label: 'Users',
-    icon: Users,
-    path: '/users',
-    permission: 'admin',
-  },
-
   {
     label: 'Departments',
     icon: Building2,
     path: '/departments',
-    permission: 'admin',
+    permission: 'departments',
   },
-
   {
     label: 'Audit Logs',
     icon: Shield,
     path: '/audit-logs',
-    permission: 'admin',
+    permission: 'audit_logs',
   },
-
   {
     label: 'Reports',
     icon: BarChart3,
     path: '/reports',
     permission: 'reports',
   },
-
   {
     label: 'Notifications',
     icon: Bell,
     path: '/notifications',
     permission: 'notifications',
   },
-
   {
-    label: 'Settings',
-    icon: Settings,
-    path: '/settings',
-    permission: 'admin',
-  },
-
+  label: 'Data Import',
+  icon: FileSpreadsheet,
+  path: '/data-import',
+  permission: 'data_import',
+},
+{
+  label: 'Settings',
+  icon: Settings,
+  path: '/settings',
+  permission: 'settings',
+},
   { section: 'Communication', permission: 'communication' },
 
   {
@@ -388,7 +261,6 @@ const ALL_MENUS = [
     path: '/official-mail',
     permission: 'communication',
   },
-
   {
     label: 'ARK Connect',
     icon: MessageCircle,
@@ -409,8 +281,8 @@ export default function Sidebar({
   const role = user?.role || '';
 
   const filteredMenu = ALL_MENUS.filter((item) => {
-  return canAccess(role, item.permission);
-});
+    return canAccess(role, item.permission);
+  });
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -461,7 +333,9 @@ export default function Sidebar({
             );
           }
 
-          const isActive = location.pathname === item.path;
+          const isActive =
+            location.pathname === item.path ||
+            location.pathname.startsWith(`${item.path}/`);
 
           return (
             <Link

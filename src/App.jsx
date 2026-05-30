@@ -35,6 +35,7 @@ import ManagerDashboard from '@/pages/ManagerDashboard';
 import LiveMap from '@/pages/LiveMap';
 import BanksPage from '@/pages/BanksPage';
 import BranchesPage from '@/pages/BranchesPage';
+import BranchDevices from '@/pages/BranchDevices';
 import EngineersPage from '@/pages/EngineersPage';
 import DevicesPage from '@/pages/DevicesPage';
 import DeviceStatusBoard from '@/pages/DeviceStatusBoard';
@@ -83,22 +84,19 @@ const AuthenticatedApp = () => {
 
   return (
     <Routes>
-      {/* PUBLIC ROUTES */}
       <Route path="/" element={<Welcome />} />
       <Route path="/welcome" element={<Welcome />} />
       <Route path="/login" element={<Welcome />} />
       <Route path="/signin" element={<Welcome />} />
       <Route path="/register" element={<Welcome />} />
       <Route path="/signup" element={<Welcome />} />
-
-      {/* PUBLIC INVITE ONBOARDING ROUTE */}
       <Route path="/create-password" element={<ChangePassword />} />
 
-      {/* PROTECTED APP ROUTES */}
       <Route element={<AppLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/tickets" element={<Tickets />} />
         <Route path="/tickets/:id" element={<TicketDetail />} />
+
         <Route path="/users" element={<UserManagement />} />
         <Route path="/departments" element={<Departments />} />
         <Route path="/workflows" element={<Workflows />} />
@@ -106,6 +104,7 @@ const AuthenticatedApp = () => {
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/audit-logs" element={<AuditLogs />} />
         <Route path="/settings" element={<Settings />} />
+
         <Route path="/machines" element={<Machines />} />
         <Route path="/assets" element={<Assets />} />
         <Route path="/staff" element={<StaffDirectory />} />
@@ -114,32 +113,36 @@ const AuthenticatedApp = () => {
         <Route path="/spare-parts" element={<SparePartsInventory />} />
         <Route path="/field-ops" element={<FieldOperations />} />
         <Route path="/devices" element={<DeviceManagement />} />
+
         <Route path="/hr" element={<HRPortal />} />
         <Route path="/finance" element={<FinancePortal />} />
         <Route path="/crm" element={<CRMPortal />} />
         <Route path="/procurement" element={<ProcurementPortal />} />
         <Route path="/manager" element={<ManagerDashboard />} />
+
         <Route path="/live-map" element={<LiveMap />} />
+        <Route path="/sla-analytics" element={<SLAAnalytics />} />
+
+        <Route path="/ops-dashboard" element={<OperationsDashboard />} />
         <Route path="/banks" element={<BanksPage />} />
         <Route path="/branches" element={<BranchesPage />} />
+        <Route path="/branches/:id/devices" element={<BranchDevices />} />
         <Route path="/engineers-ops" element={<EngineersPage />} />
         <Route path="/bank-devices" element={<DevicesPage />} />
         <Route path="/device-status" element={<DeviceStatusBoard />} />
         <Route path="/device-assignment" element={<DeviceAssignment />} />
         <Route path="/regional-coverage" element={<RegionalCoverage />} />
-        <Route path="/ops-dashboard" element={<OperationsDashboard />} />
+
         <Route path="/ark-connect" element={<ArkConnect />} />
-        <Route path="/sla-analytics" element={<SLAAnalytics />} />
         <Route path="/official-mail" element={<OfficialMailInbox />} />
+
         <Route path="/procurement-lpo" element={<ProcurementLPO />} />
         <Route path="/data-import" element={<DataImport />} />
 
-        {/* Repair & Refurbish */}
         <Route path="/repair-refurbish" element={<RepairRefurbish />} />
         <Route path="/repair-jobs" element={<RepairRefurbish />} />
       </Route>
 
-      {/* 404 */}
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );

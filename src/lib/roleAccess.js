@@ -1,57 +1,59 @@
 export const ROLE_ACCESS = {
   admin: [
-  'dashboard',
-  'sla_analytics',
-  'live_map',
+    'dashboard',
+    'sla_analytics',
+    'live_map',
+    'tickets',
+    'repair_jobs',
+    'site_monitor',
+    'engineering',
+    'field_ops',
 
-  'tickets',
-  'site_monitor',
-  'engineering',
-  'field_ops',
+    'operations',
+    'ops_dashboard',
+    'banks',
+    'branches',
+    'devices',
+    'device_status',
+    'assignments',
+    'regional_view',
+    'field_engineers',
 
-  'ops_dashboard',
-  'banks',
-  'branches',
-  'devices',
-  'device_status',
-  'assignments',
-  'regional_view',
-  'field_engineers',
+    'assets_section',
+    'assets',
+    'inventory',
+    'parts_request',
 
-  'assets_section',
-  'assets',
-  'inventory',
+    'business',
+    'finance',
+    'procurement',
+    'purchase_orders',
+    'crm',
+    'hr',
 
-  'finance',
-  'procurement',
-  'purchase_orders',
-  'crm',
-  'hr',
+    'users',
+    'staff_directory',
+    'departments',
+    'audit_logs',
+'reports',
+'notifications',
+'data_import',
+'settings',
 
-  'users',
-  'staff_directory',
-  'departments',
-
-  'audit_logs',
-  'reports',
-  'notifications',
-  'settings',
-
-  'communication',
-  'official_mail',
-  'ark_connect'
-],
+    'communication',
+    'official_mail',
+    'ark_connect',
+  ],
 
   ceo: [
     'dashboard',
     'live_map',
-    'ceo_dashboard',
-    'business_overview',
+    'business',
     'finance',
     'reports',
-    'manager_dashboard',
     'tickets',
     'site_monitor',
+    'assets_section',
     'assets',
     'notifications',
     'communication',
@@ -71,22 +73,29 @@ export const ROLE_ACCESS = {
   agm: [
     'dashboard',
     'live_map',
-    'manager_dashboard',
     'tickets',
     'site_monitor',
     'engineering',
     'field_ops',
+
     'operations',
     'ops_dashboard',
     'banks',
+    'branches',
     'devices',
     'device_status',
+    'assignments',
     'regional_view',
+    'field_engineers',
+
     'assets_section',
     'assets',
     'inventory',
+
+    'business',
     'finance',
     'hr',
+
     'reports',
     'notifications',
     'communication',
@@ -97,22 +106,30 @@ export const ROLE_ACCESS = {
   manager: [
     'dashboard',
     'live_map',
-    'manager_dashboard',
     'tickets',
     'site_monitor',
     'engineering',
     'field_ops',
+    'data_import',
+
     'operations',
     'ops_dashboard',
     'banks',
+    'branches',
     'devices',
     'device_status',
+    'assignments',
     'regional_view',
+    'field_engineers',
+
     'assets_section',
     'assets',
     'inventory',
+
+    'business',
     'finance',
     'hr',
+
     'reports',
     'notifications',
     'communication',
@@ -128,14 +145,21 @@ export const ROLE_ACCESS = {
     'site_monitor',
     'engineering',
     'field_ops',
+
     'operations',
     'ops_dashboard',
     'banks',
+    'branches',
     'devices',
     'device_status',
+    'assignments',
+    'regional_view',
+    'field_engineers',
+
     'assets_section',
     'assets',
     'inventory',
+
     'reports',
     'notifications',
     'communication',
@@ -145,121 +169,108 @@ export const ROLE_ACCESS = {
 
   engineer: [
     'dashboard',
-    'my_jobs',
+    'tickets',
     'field_ops',
+    'engineering',
+
     'assets_section',
     'assets',
     'parts_request',
-    'team',
-    'engineering',
-    'communication',
+
     'notifications',
+    'communication',
+    'official_mail',
     'ark_connect',
   ],
 
- repair_head: [
-  'dashboard',
+  repair_head: [
+    'dashboard',
+    'repair_jobs',
+    'tickets',
 
-  // Repair Operations
-  'repair_jobs',
-  'tickets',
+    'assets_section',
+    'inventory',
+    'parts_request',
 
-  // Inventory
-  'spare_parts',
-
-  // Management
-  'reports',
-  'notifications',
-
-  // Communication
-  'communication',
-  'official_mail',
-  'ark_connect',
-],
+    'reports',
+    'notifications',
+    'communication',
+    'official_mail',
+    'ark_connect',
+  ],
 
   repair_technician: [
-  'dashboard',
+    'dashboard',
+    'repair_jobs',
+    'parts_request',
 
-  // Repair Work
-  'repair_jobs',
-  'parts_request',
-
-  // Communication
-  'communication',
-  'notifications',
-  'official_mail',
-  'ark_connect',
-],
+    'notifications',
+    'communication',
+    'official_mail',
+    'ark_connect',
+  ],
 
   hr: [
     'dashboard',
     'hr',
     'staff_directory',
-    'attendance',
-    'leave',
-    'loans',
-    'training',
-    'performance',
-    'holidays',
-    'communication',
+
     'notifications',
+    'communication',
     'official_mail',
     'ark_connect',
   ],
 
   inventory: [
     'dashboard',
+
+    'assets_section',
     'inventory',
-    'spare_parts',
-    'stock_movement',
     'parts_request',
-    'communication',
+
     'notifications',
+    'communication',
     'official_mail',
     'ark_connect',
   ],
 
   finance: [
     'dashboard',
+    'business',
     'finance',
-    'invoices',
-    'payments',
-    'payroll_summary',
-    'loans_finance',
-    'communication',
+
     'notifications',
+    'communication',
     'official_mail',
     'ark_connect',
   ],
 
   procurement: [
     'dashboard',
+    'business',
     'procurement',
     'purchase_orders',
-    'vendors',
-    'purchase_requests',
-    'inventory_parts',
-    'communication',
+
     'notifications',
+    'communication',
     'official_mail',
     'ark_connect',
   ],
 
   crm: [
     'dashboard',
+    'business',
     'crm',
-    'clients',
-    'marketing',
-    'communication',
+
     'notifications',
+    'communication',
     'official_mail',
     'ark_connect',
   ],
 
   client: [
     'dashboard',
-    'my_tickets',
-    'communication',
+    'tickets',
     'notifications',
     'ark_connect',
   ],

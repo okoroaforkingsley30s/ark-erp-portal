@@ -45,7 +45,7 @@ const STATUS_CFG = {
     dot: 'bg-green-500',
     border: 'border-green-200',
     light:
-      'bg-green-50 text-green-700',
+      'bg-green-500/15 text-green-300',
     borderLeft: '#22c55e',
   },
 
@@ -54,7 +54,7 @@ const STATUS_CFG = {
     dot: 'bg-red-500',
     border: 'border-red-200',
     light:
-      'bg-red-50 text-red-700',
+      'bg-red-500/15 text-red-300',
     borderLeft: '#ef4444',
   },
 
@@ -63,7 +63,7 @@ const STATUS_CFG = {
     dot: 'bg-amber-400',
     border: 'border-amber-200',
     light:
-      'bg-amber-50 text-amber-700',
+      'bg-amber-500/15 text-amber-300',
     borderLeft: '#f59e0b',
   },
 
@@ -72,7 +72,7 @@ const STATUS_CFG = {
     dot: 'bg-slate-400',
     border: 'border-slate-200',
     light:
-      'bg-slate-50 text-slate-600',
+      'bg-slate-500/15 text-slate-300',
     borderLeft: '#94a3b8',
   },
 
@@ -461,7 +461,7 @@ export default function SiteMonitor() {
             label: 'Active Sites',
             icon: CheckCircle2,
             cls:
-              'border-green-200 bg-green-50',
+              'border-green-500/30 bg-green-500/15 text-white',
           },
 
           {
@@ -469,7 +469,7 @@ export default function SiteMonitor() {
             label: 'Faulty',
             icon: AlertTriangle,
             cls:
-              'border-red-200 bg-red-50',
+              'border-red-500/30 bg-red-500/15 text-white',
           },
 
           {
@@ -477,7 +477,7 @@ export default function SiteMonitor() {
             label: 'Maintenance',
             icon: Wrench,
             cls:
-              'border-amber-200 bg-amber-50',
+              'border-amber-500/30 bg-amber-500/15 text-white',
           },
 
           {
@@ -485,7 +485,7 @@ export default function SiteMonitor() {
             label: 'Inactive',
             icon: Activity,
             cls:
-              'border-slate-200 bg-slate-50',
+              'border-slate-500/30 bg-slate-500/15 text-white',
           },
         ].map(
           ({

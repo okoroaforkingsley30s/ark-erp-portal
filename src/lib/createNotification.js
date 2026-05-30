@@ -7,29 +7,28 @@ export async function createNotification({
   type = 'system',
   link = '/notifications',
   sound = 'bell',
-  data = {},
 }) {
-  if (!userEmail) return;
+  if (!userEmail) return null;
 
-  const { error } = await supabase.from('notifications').insert({
-    user_email: userEmail,
-    recipient_email: userEmail,
-
-    title,
-    message,
-    type,
-
-    link,
-    sound,
-
-    read: false,
-    is_read: false,
-
-    data,
-    created_at: new Date().toISOString(),
-  });
+  const { data, error } = await supabase
+    .from('notifications')
+    .insert({
+      user_email: userEmail,
+      title,
+      message,
+      type,
+      link,
+      sound,
+      read: false,
+      created_at: new Date().toISOString(),
+    })
+    .select()
+    .single();
 
   if (error) {
     console.error('Create notification failed:', error);
+    return null;
   }
+
+  return data;
 }

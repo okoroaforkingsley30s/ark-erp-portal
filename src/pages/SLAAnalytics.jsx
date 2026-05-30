@@ -486,7 +486,7 @@ export default function SLAAnalytics() {
             value: summary.breached,
             icon: AlertTriangle,
             color: 'text-red-600',
-            bg: 'bg-red-50 border-red-200',
+            bg: 'bg-red-500/15 border-red-500/30 text-white',
           },
 
           {
@@ -494,7 +494,7 @@ export default function SLAAnalytics() {
             value: summary.critical,
             icon: Zap,
             color: 'text-orange-600',
-            bg: 'bg-orange-50 border-orange-200',
+            bg: 'bg-orange-500/15 border-orange-500/30 text-white',
           },
 
           {
@@ -502,7 +502,7 @@ export default function SLAAnalytics() {
             value: summary.warning,
             icon: Clock,
             color: 'text-yellow-700',
-            bg: 'bg-yellow-50 border-yellow-200',
+            bg: 'bg-yellow-500/15 border-yellow-500/30 text-white',
           },
 
           {
@@ -510,7 +510,7 @@ export default function SLAAnalytics() {
             value: summary.safe,
             icon: CheckCircle,
             color: 'text-green-700',
-            bg: 'bg-green-50 border-green-200',
+            bg: 'bg-green-500/15 border-green-500/30 text-white',
           },
 
         ].map(({
@@ -536,9 +536,9 @@ export default function SLAAnalytics() {
                   {value}
                 </p>
 
-                <p className="text-xs text-muted-foreground">
-                  {label}
-                </p>
+                <p className="text-xs text-slate-300">
+  {label}
+</p>
               </div>
             </CardContent>
           </Card>
