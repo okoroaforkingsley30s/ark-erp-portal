@@ -60,8 +60,11 @@ const ALL_ROLES = [
   { value: 'ceo_pa', label: 'CEO PA', icon: UserCog, color: 'bg-yellow-50 text-yellow-600 border-yellow-100' },
   { value: 'agm', label: 'Asst. General Manager', icon: BarChart3, color: 'bg-purple-100 text-purple-700 border-purple-200' },
   { value: 'manager', label: 'Operational Manager', icon: BarChart3, color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
-  { value: 'repair_head', label: 'Head of Repair & Refurb.', icon: Wrench, color: 'bg-orange-100 text-orange-700 border-orange-200' },
-  { value: 'helpdesk', label: 'Help Desk', icon: Headphones, color: 'bg-blue-100 text-blue-700 border-blue-200' },
+ { value: 'repair_head', label: 'Head of Repair & Refurb.', icon: Wrench, color: 'bg-orange-100 text-orange-700 border-orange-200' },
+
+{ value: 'repair_technician', label: 'Repair Technician', icon: Wrench, color: 'bg-orange-50 text-orange-600 border-orange-100' },
+
+{ value: 'helpdesk', label: 'Help Desk', icon: Headphones, color: 'bg-blue-100 text-blue-700 border-blue-200' },
   { value: 'engineer', label: 'Field Engineer', icon: Wrench, color: 'bg-amber-100 text-amber-700 border-amber-200' },
   { value: 'hr', label: 'Human Resources', icon: UserCheck, color: 'bg-pink-100 text-pink-700 border-pink-200' },
   { value: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-100 text-green-700 border-green-200' },

@@ -302,11 +302,11 @@ const ALL_MENUS = [
   },
 
   {
-    label: 'Clients',
-    icon: Users2,
-    path: '/clients',
-    permission: 'clients',
-  },
+  label: 'Clients / Banks',
+  icon: Users2,
+  path: '/banks',
+  permission: 'clients',
+},
 
   {
     label: 'Marketing',
@@ -329,56 +329,14 @@ const ALL_MENUS = [
     permission: 'staff_directory',
   },
 
-  {
-    label: 'Attendance',
-    icon: UserCheck,
-    path: '/attendance',
-    permission: 'attendance',
-  },
-
-  {
-    label: 'Leave',
-    icon: FileText,
-    path: '/leave',
-    permission: 'leave',
-  },
-
-  {
-    label: 'Loans',
-    icon: DollarSign,
-    path: '/loans',
-    permission: 'loans',
-  },
-
-  {
-    label: 'Training',
-    icon: UserCheck,
-    path: '/training',
-    permission: 'training',
-  },
-
-  {
-    label: 'Performance',
-    icon: Activity,
-    path: '/performance',
-    permission: 'performance',
-  },
-
-  {
-    label: 'Holidays',
-    icon: Calendar,
-    path: '/holidays',
-    permission: 'holidays',
-  },
-
   { section: 'Administration', permission: 'admin' },
 
   {
-    label: 'Data Import',
-    icon: FileSpreadsheet,
-    path: '/data-import',
-    permission: 'admin',
-  },
+  label: 'Users',
+  icon: Users,
+  path: '/users',
+  permission: 'users',
+},
 
   {
     label: 'Users',
@@ -451,9 +409,8 @@ export default function Sidebar({
   const role = user?.role || '';
 
   const filteredMenu = ALL_MENUS.filter((item) => {
-    if (role === 'admin') return true;
-    return canAccess(role, item.permission);
-  });
+  return canAccess(role, item.permission);
+});
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

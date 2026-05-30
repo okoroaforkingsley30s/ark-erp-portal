@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import Sidebar from './Sidebar';
 import MobileBottomNav from './MobileBottomNav';
@@ -15,29 +14,54 @@ import { supabase } from '@/lib/supabaseClient';
 
 export default function AppLayout() {
   const { user, isLoadingAuth, isAuthenticated } = useAuth();
+
   const location = useLocation();
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
 
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [notifications, setNotifications] = useState([]);
+
+  const previousNotifCountRef = useRef(0);
 
   const { dmUnreadCount, resetDMCount } = useDMNotifications(user);
 
   useInactivityLogout(!!user);
 
-  const playNotificationSound = (sound) => {
+  const playNotificationSound = useCallback((sound = 'bell') => {
     try {
-      const audio =
-        sound === 'click'
-          ? new Audio('/sounds/click.mp3')
-          : new Audio('/sounds/bell.mp3');
+      const audio = new Audio(
+        sound === 'click' ? '/sounds/click.mp3' : '/sounds/bell.mp3'
+      );
 
       audio.volume = 0.65;
-      audio.play().catch(() => {});
+      audio.play().catch((err) => {
+        console.warn('Notification sound blocked:', err);
+      });
     } catch (err) {
       console.error('Notification sound error:', err);
     }
-  };
+  }, []);
+
+  const fetchUnreadNotifications = useCallback(async () => {
+    if (!user?.email) {
+      setNotifications([]);
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_email', user.email)
+      .eq('read', false)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Notifications fetch error:', error);
+      return;
+    }
+
+    setNotifications(data || []);
+  }, [user?.email]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -62,7 +86,8 @@ export default function AppLayout() {
   useEffect(() => {
     if (
       user?.must_change_password &&
-      !location.pathname.includes('/change-password')
+      !location.pathname.includes('/change-password') &&
+      !location.pathname.includes('/create-password')
     ) {
       navigate('/change-password');
     }
@@ -74,28 +99,19 @@ export default function AppLayout() {
     }
   }, [location.pathname, resetDMCount]);
 
-  const { data: notifications = [] } = useQuery({
-    queryKey: ['notifications', 'unread', user?.email],
-    queryFn: async () => {
-      if (!user?.email) return [];
+  useEffect(() => {
+    if (!isLoadingAuth && !isAuthenticated) {
+      navigate('/welcome', { replace: true });
+    }
+  }, [isLoadingAuth, isAuthenticated, navigate]);
 
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_email', user.email)
-        .or('read.eq.false,is_read.eq.false')
-        .order('created_at', { ascending: false });
+  useEffect(() => {
+    fetchUnreadNotifications();
 
-      if (error) {
-        console.error('Notifications fetch error:', error);
-        return [];
-      }
+    const interval = setInterval(fetchUnreadNotifications, 5000);
 
-      return data || [];
-    },
-    enabled: !!user?.email,
-    initialData: [],
-  });
+    return () => clearInterval(interval);
+  }, [fetchUnreadNotifications]);
 
   useEffect(() => {
     if (!user?.email) return;
@@ -111,13 +127,8 @@ export default function AppLayout() {
           filter: `user_email=eq.${user.email}`,
         },
         (payload) => {
-          const newNotification = payload.new;
-
-          queryClient.invalidateQueries({
-            queryKey: ['notifications'],
-          });
-
-          playNotificationSound(newNotification?.sound || 'bell');
+          fetchUnreadNotifications();
+          playNotificationSound(payload?.new?.sound || 'bell');
         }
       )
       .on(
@@ -129,23 +140,34 @@ export default function AppLayout() {
           filter: `user_email=eq.${user.email}`,
         },
         () => {
-          queryClient.invalidateQueries({
-            queryKey: ['notifications'],
-          });
+          fetchUnreadNotifications();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Notification realtime status:', status);
+      });
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.email, queryClient]);
+  }, [user?.email, fetchUnreadNotifications, playNotificationSound]);
+
+  const notifCount = notifications?.length || 0;
 
   useEffect(() => {
-    if (!isLoadingAuth && !isAuthenticated) {
-      navigate('/welcome', { replace: true });
+    if (!user?.email) return;
+
+    if (previousNotifCountRef.current === 0) {
+      previousNotifCountRef.current = notifCount;
+      return;
     }
-  }, [isLoadingAuth, isAuthenticated, navigate]);
+
+    if (notifCount > previousNotifCountRef.current) {
+      playNotificationSound('bell');
+    }
+
+    previousNotifCountRef.current = notifCount;
+  }, [notifCount, user?.email, playNotificationSound]);
 
   if (isLoadingAuth) {
     return (
@@ -160,21 +182,17 @@ export default function AppLayout() {
     );
   }
 
-  useEffect(() => {
-  if (!isLoadingAuth && !isAuthenticated) {
-    navigate('/welcome', { replace: true });
+  if (!user) {
+    return null;
   }
-}, [isLoadingAuth, isAuthenticated, navigate]);
 
-  if (!user.role) {
+  if (!user?.role) {
     return <PendingApproval user={user} />;
   }
 
   const isMobileHome =
     isMobile &&
     (location.pathname === '/' || location.pathname === '/dashboard');
-
-  const notifCount = notifications?.length || 0;
 
   return (
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] text-white">

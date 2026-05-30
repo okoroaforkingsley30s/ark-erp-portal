@@ -42,17 +42,21 @@ const ALL_ROLES = [
   { value: 'ceo_pa', label: 'CEO Personal Assistant' },
   { value: 'agm', label: 'Asst. General Manager' },
   { value: 'manager', label: 'Operational Manager' },
+
   { value: 'repair_head', label: 'Head of Repair & Refurb.' },
+  { value: 'repair_technician', label: 'Repair Technician' },
+
   { value: 'helpdesk', label: 'Help Desk' },
   { value: 'engineer', label: 'Field Engineer' },
+
   { value: 'hr', label: 'Human Resources' },
   { value: 'finance', label: 'Finance' },
   { value: 'inventory', label: 'Inventory' },
   { value: 'procurement', label: 'Procurement' },
   { value: 'crm', label: 'CRM / Marketing' },
+
   { value: 'client', label: 'Client / Bank' },
 ];
-
 const safeDate = (value) => {
   if (!value) return 'No date';
   const d = new Date(value);
