@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
@@ -33,7 +33,7 @@ import {
   UserCog,
   Globe,
   MessageCircle,
-   FileText,
+  FileText,
   Mail,
   FileSpreadsheet,
 } from 'lucide-react';
@@ -278,7 +278,22 @@ export default function Sidebar({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const location = useLocation();
+  const navRef = useRef(null);
   const role = user?.role || '';
+
+  useEffect(() => {
+    const savedScroll = sessionStorage.getItem('ark_sidebar_scroll');
+
+    if (!savedScroll) return;
+
+    const timer = setTimeout(() => {
+      if (navRef.current) {
+        navRef.current.scrollTop = Number(savedScroll);
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [location.pathname, collapsed]);
 
   const filteredMenu = ALL_MENUS.filter((item) => {
     return canAccess(role, item.permission);
@@ -318,7 +333,17 @@ export default function Sidebar({
         </Link>
       </div>
 
-      <nav className="flex-1 p-2 overflow-y-auto">
+      <nav
+        ref={navRef}
+        className="flex-1 p-2 overflow-y-auto"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+        onScroll={(e) => {
+          sessionStorage.setItem(
+            'ark_sidebar_scroll',
+            String(e.currentTarget.scrollTop)
+          );
+        }}
+      >
         {filteredMenu.map((item, idx) => {
           if (item.section) {
             if (collapsed) return null;
