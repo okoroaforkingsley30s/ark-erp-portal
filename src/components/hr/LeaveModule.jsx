@@ -33,10 +33,10 @@ import {
 } from 'date-fns';
 
 const STATUS_COLOR = {
-  Pending: 'bg-amber-50 text-amber-700',
+  Pending: 'bg-amber-500/15 text-amber-300',
   'HR Reviewed': 'bg-blue-50 text-blue-700',
-  Approved: 'bg-green-50 text-green-700',
-  Rejected: 'bg-red-50 text-red-700'
+  Approved: 'bg-green-500/15 text-green-300',
+  Rejected: 'bg-red-500/15 text-red-300'
 };
 
 const EMPTY = {

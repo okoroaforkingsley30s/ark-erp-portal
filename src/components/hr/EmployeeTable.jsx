@@ -6,9 +6,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Search, Pencil, Eye, Plus, Trash2 } from 'lucide-react';
 
 const STATUS_COLOR = {
-  Active: 'bg-green-50 text-green-700',
-  'On Leave': 'bg-amber-50 text-amber-700',
-  Suspended: 'bg-red-50 text-red-700',
+  Active: 'bg-green-500/15 text-green-300',
+  'On Leave': 'bg-amber-500/15 text-amber-300',
+  Suspended: 'bg-red-500/15 text-red-300',
   Terminated: 'bg-gray-100 text-gray-600',
   Resigned: 'bg-gray-100 text-gray-600',
 };

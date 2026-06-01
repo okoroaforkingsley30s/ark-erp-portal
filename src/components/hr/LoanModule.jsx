@@ -34,15 +34,15 @@ import {
 } from 'lucide-react';
 
 const STATUS_COLOR = {
-  Pending: 'bg-amber-50 text-amber-700',
-  Approved: 'bg-green-50 text-green-700',
-  Rejected: 'bg-red-50 text-red-700'
+  Pending: 'bg-amber-500/15 text-amber-300',
+  Approved: 'bg-green-500/15 text-green-300',
+  Rejected: 'bg-red-500/15 text-red-300'
 };
 
 const CLEAR_COLOR = {
   Active: 'bg-blue-50 text-blue-700',
-  Cleared: 'bg-green-50 text-green-700',
-  Defaulted: 'bg-red-50 text-red-700'
+  Cleared: 'bg-green-500/15 text-green-300',
+  Defaulted: 'bg-red-500/15 text-red-300'
 };
 
 const EMPTY = {

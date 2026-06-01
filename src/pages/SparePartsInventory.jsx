@@ -96,14 +96,14 @@ const stockClass = (item) => {
   const m = item.minimum_stock_level || 2;
 
   if (q === 0) {
-    return 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950 dark:text-red-300';
+    return 'bg-red-500/15 text-red-300 border-red-200 dark:bg-red-950 dark:text-red-300';
   }
 
   if (q <= m) {
-    return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950 dark:text-amber-300';
+    return 'bg-amber-500/15 text-amber-300 border-amber-200 dark:bg-amber-950 dark:text-amber-300';
   }
 
-  return 'bg-green-50 text-green-700 border-green-200 dark:bg-green-950 dark:text-green-300';
+  return 'bg-green-500/15 text-green-300 border-green-200 dark:bg-green-950 dark:text-green-300';
 };
 
 const mvtClass = (t) =>
@@ -623,9 +623,9 @@ export default function SparePartsInventory() {
   };
 
   const REQ_STATUS = {
-    pending: { label: 'Pending', color: 'bg-amber-50 text-amber-700' },
-    approved: { label: 'Approved', color: 'bg-green-50 text-green-700' },
-    rejected: { label: 'Rejected', color: 'bg-red-50 text-red-700' },
+    pending: { label: 'Pending', color: 'bg-amber-500/15 text-amber-300' },
+    approved: { label: 'Approved', color: 'bg-green-500/15 text-green-300' },
+    rejected: { label: 'Rejected', color: 'bg-red-500/15 text-red-300' },
     dispatched: { label: 'Dispatched', color: 'bg-blue-50 text-blue-700' },
     received: { label: 'Received', color: 'bg-purple-50 text-purple-700' },
   };
@@ -633,8 +633,8 @@ export default function SparePartsInventory() {
   const URGENCY = {
     low: 'bg-slate-100 text-slate-600',
     medium: 'bg-blue-50 text-blue-700',
-    high: 'bg-amber-50 text-amber-700',
-    critical: 'bg-red-50 text-red-700',
+    high: 'bg-amber-500/15 text-amber-300',
+    critical: 'bg-red-500/15 text-red-300',
   };
 
   return (

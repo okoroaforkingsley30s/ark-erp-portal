@@ -621,7 +621,7 @@ export default function DataImport() {
 
       {rawCount > 0 && devices.length === 0 && (
 
-        <Card className="p-4 border-amber-200 bg-amber-50">
+        <Card className="p-4 border-amber-500/30 bg-amber-500/15 text-white">
 
           <p className="text-amber-700 text-sm">
 
@@ -635,8 +635,8 @@ export default function DataImport() {
         <Card
           className={`p-4 ${
             result.success
-              ? 'border-green-200 bg-green-50'
-              : 'border-red-200 bg-red-50'
+              ? 'border-green-500/30 bg-green-500/15 text-white'
+              : 'border-red-500/30 bg-red-500/15 text-white'
           }`}
         >
 

@@ -54,8 +54,8 @@ const COUNTRIES = [
 const TYPE_COLOR = {
   'Public Holiday': 'bg-blue-50 text-blue-700',
   'Company Holiday': 'bg-purple-50 text-purple-700',
-  'Religious Holiday': 'bg-amber-50 text-amber-700',
-  'Regional Holiday': 'bg-green-50 text-green-700'
+  'Religious Holiday': 'bg-amber-500/15 text-amber-300',
+  'Regional Holiday': 'bg-green-500/15 text-green-300'
 };
 
 const EMPTY = {

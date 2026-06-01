@@ -23,17 +23,17 @@ import { Plus, Search } from "lucide-react";
 import { format } from "date-fns";
 
 const STATUS_COLOR = {
-  Present: "bg-green-50 text-green-700",
-  Absent: "bg-red-50 text-red-700",
-  "Half Day": "bg-amber-50 text-amber-700",
+  Present: "bg-green-500/15 text-green-300",
+  Absent: "bg-red-500/15 text-red-300",
+  "Half Day": "bg-amber-500/15 text-amber-300",
   "On Leave": "bg-blue-50 text-blue-700",
   Holiday: "bg-purple-50 text-purple-700",
 };
 
 const PUNCT_COLOR = {
-  "On Time": "bg-green-50 text-green-700",
-  Late: "bg-amber-50 text-amber-700",
-  "Very Late": "bg-red-50 text-red-700",
+  "On Time": "bg-green-500/15 text-green-300",
+  Late: "bg-amber-500/15 text-amber-300",
+  "Very Late": "bg-red-500/15 text-red-300",
 };
 
 const COUNTRIES = [

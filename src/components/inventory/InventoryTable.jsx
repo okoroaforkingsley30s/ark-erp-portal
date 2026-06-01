@@ -13,13 +13,13 @@ import { useQueryClient } from '@tanstack/react-query';
 
 const STATUS_STYLE = {
   'AVAILABLE':
-    'bg-green-50 text-green-700 border-green-200',
+    'bg-green-500/15 text-green-300 border-green-200',
 
   'LOW STOCK':
-    'bg-amber-50 text-amber-700 border-amber-200',
+    'bg-amber-500/15 text-amber-300 border-amber-200',
 
   'OUT OF STOCK':
-    'bg-red-50 text-red-700 border-red-200',
+    'bg-red-500/15 text-red-300 border-red-200',
 };
 
 export default function InventoryTable({
@@ -189,7 +189,7 @@ export default function InventoryTable({
 
                   className={`text-[10px] whitespace-nowrap ${
                     STATUS_STYLE[item.stock_status]
-                    || 'bg-slate-50 text-slate-600'
+                    || 'bg-slate-500/15 text-slate-300'
                   }`}
                 >
                   {item.stock_status || 'UNKNOWN'}

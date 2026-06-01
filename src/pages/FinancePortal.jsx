@@ -50,10 +50,10 @@ import {
 } from 'recharts';
 
 const INV_STATUS = {
-  draft: { label: 'Draft', color: 'bg-slate-50 text-slate-600 border-slate-200' },
+  draft: { label: 'Draft', color: 'bg-slate-500/15 text-slate-300 border-slate-200' },
   sent: { label: 'Sent', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  paid: { label: 'Paid', color: 'bg-green-50 text-green-700 border-green-200' },
-  overdue: { label: 'Overdue', color: 'bg-red-50 text-red-700 border-red-200' },
+  paid: { label: 'Paid', color: 'bg-green-500/15 text-green-300 border-green-200' },
+  overdue: { label: 'Overdue', color: 'bg-red-500/15 text-red-300 border-red-200' },
   cancelled: { label: 'Cancelled', color: 'bg-gray-50 text-gray-500 border-gray-200' },
 };
 
@@ -93,9 +93,9 @@ const PAYMENT_METHODS = [
 ];
 
 const APPROVAL_STATUS = {
-  pending: { label: 'Pending', color: 'bg-amber-50 text-amber-700 border-amber-200' },
-  approved: { label: 'Approved', color: 'bg-green-50 text-green-700 border-green-200' },
-  rejected: { label: 'Rejected', color: 'bg-red-50 text-red-700 border-red-200' },
+  pending: { label: 'Pending', color: 'bg-amber-500/15 text-amber-300 border-amber-200' },
+  approved: { label: 'Approved', color: 'bg-green-500/15 text-green-300 border-green-200' },
+  rejected: { label: 'Rejected', color: 'bg-red-500/15 text-red-300 border-red-200' },
 };
 
 const EMPTY_EXP = {

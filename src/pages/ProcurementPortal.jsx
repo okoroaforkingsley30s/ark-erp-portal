@@ -44,19 +44,19 @@ const REQ_STATUS = {
   pending: {
     label: 'Pending',
     color:
-      'bg-amber-50 text-amber-700 border-amber-200',
+      'bg-amber-500/15 text-amber-300 border-amber-200',
   },
 
   approved: {
     label: 'Approved',
     color:
-      'bg-green-50 text-green-700 border-green-200',
+      'bg-green-500/15 text-green-300 border-green-200',
   },
 
   rejected: {
     label: 'Rejected',
     color:
-      'bg-red-50 text-red-700 border-red-200',
+      'bg-red-500/15 text-red-300 border-red-200',
   },
 
   ordered: {
@@ -73,16 +73,16 @@ const REQ_STATUS = {
 };
 
 const PRIORITY = {
-  low: 'bg-slate-50 text-slate-600',
+  low: 'bg-slate-500/15 text-slate-300',
 
   medium:
     'bg-blue-50 text-blue-700',
 
   high:
-    'bg-amber-50 text-amber-700',
+    'bg-amber-500/15 text-amber-300',
 
   critical:
-    'bg-red-50 text-red-700',
+    'bg-red-500/15 text-red-300',
 };
 
 const EMPTY = {

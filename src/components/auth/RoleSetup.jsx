@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 
 const roles = [
   // Executive Management
-  { value: 'admin',       label: 'Administrator',           icon: Shield,      desc: 'Full system control and management',                   color: 'border-red-200 bg-red-50',      activeColor: 'border-red-500',    group: 'Administration' },
+  { value: 'admin',       label: 'Administrator',           icon: Shield,      desc: 'Full system control and management',                   color: 'border-red-500/30 bg-red-500/15 text-white',      activeColor: 'border-red-500',    group: 'Administration' },
   { value: 'ceo',         label: 'CEO',                     icon: Crown,       desc: 'Executive visibility and company-wide analytics',      color: 'border-yellow-200 bg-yellow-50',activeColor: 'border-yellow-500', group: 'Executive Management' },
   { value: 'ceo_pa',      label: 'CEO Personal Assistant',  icon: Star,        desc: 'Executive reporting and schedule coordination',         color: 'border-yellow-100 bg-yellow-50',activeColor: 'border-yellow-400', group: 'Executive Management' },
   { value: 'agm',         label: 'Asst. General Manager',   icon: BarChart3,   desc: 'Operational oversight and department coordination',     color: 'border-purple-200 bg-purple-50',activeColor: 'border-purple-500', group: 'Executive Management' },
@@ -14,15 +14,15 @@ const roles = [
   { value: 'manager',     label: 'Operational Manager',     icon: BarChart3,   desc: 'Approve assignments, monitor engineers, review SLA',    color: 'border-indigo-200 bg-indigo-50',activeColor: 'border-indigo-500', group: 'Operations' },
   { value: 'repair_head', label: 'Head of Repair & Refurb.',icon: HardHat,     desc: 'Manage repair center workflow and refurbishment ops',   color: 'border-orange-200 bg-orange-50',activeColor: 'border-orange-500', group: 'Operations' },
   { value: 'helpdesk',    label: 'Help Desk',               icon: Headphones,  desc: 'Ticket management, engineer dispatch and client support',color: 'border-blue-200 bg-blue-50',    activeColor: 'border-blue-500',   group: 'Operations' },
-  { value: 'engineer',    label: 'Field Engineer',           icon: Wrench,      desc: 'Field operations, site check-in and device maintenance',color: 'border-amber-200 bg-amber-50',  activeColor: 'border-amber-500',  group: 'Operations' },
+  { value: 'engineer',    label: 'Field Engineer',           icon: Wrench,      desc: 'Field operations, site check-in and device maintenance',color: 'border-amber-500/30 bg-amber-500/15 text-white',  activeColor: 'border-amber-500',  group: 'Operations' },
   // Administration
   { value: 'hr',          label: 'Human Resources',         icon: UserCheck,   desc: 'Staff management, leave approval and onboarding',       color: 'border-pink-200 bg-pink-50',    activeColor: 'border-pink-500',   group: 'Administration' },
-  { value: 'finance',     label: 'Finance',                 icon: DollarSign,  desc: 'Income, expenses and financial reporting',              color: 'border-green-200 bg-green-50',  activeColor: 'border-green-500',  group: 'Administration' },
+  { value: 'finance',     label: 'Finance',                 icon: DollarSign,  desc: 'Income, expenses and financial reporting',              color: 'border-green-500/30 bg-green-500/15 text-white',  activeColor: 'border-green-500',  group: 'Administration' },
   // Supply Chain
   { value: 'inventory',   label: 'Inventory',               icon: Boxes,       desc: 'Stock management, part dispatch and supply chain',      color: 'border-teal-200 bg-teal-50',    activeColor: 'border-teal-500',   group: 'Supply Chain' },
   { value: 'procurement', label: 'Procurement',             icon: ShoppingCart,desc: 'Purchase orders, vendor tracking and procurement',      color: 'border-cyan-200 bg-cyan-50',    activeColor: 'border-cyan-500',   group: 'Supply Chain' },
   { value: 'crm',         label: 'CRM / Marketing',         icon: TrendingUp,  desc: 'Lead management and client relations',                  color: 'border-violet-200 bg-violet-50',activeColor: 'border-violet-500', group: 'Administration' },
-  { value: 'client',      label: 'Client / Bank',           icon: User,        desc: 'Submit tickets and track your services',                color: 'border-slate-200 bg-slate-50',  activeColor: 'border-slate-400',  group: 'External' },
+  { value: 'client',      label: 'Client / Bank',           icon: User,        desc: 'Submit tickets and track your services',                color: 'border-slate-500/30 bg-slate-500/15 text-white',  activeColor: 'border-slate-400',  group: 'External' },
 ];
 
 const groups = ['Executive Management', 'Operations', 'Administration', 'Supply Chain', 'External'];

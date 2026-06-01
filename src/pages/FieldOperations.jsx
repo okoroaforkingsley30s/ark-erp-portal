@@ -521,7 +521,7 @@ export default function FieldOperations() {
                     </span>
 
                     {eng.faultyDevices.length > 0 && (
-                      <span className="flex items-center gap-1 bg-red-50 text-red-700 px-2 py-1 rounded border border-red-200">
+                      <span className="flex items-center gap-1 bg-red-500/15 text-red-300 px-2 py-1 rounded border border-red-200">
                         <AlertTriangle className="w-3 h-3" />
                         {eng.faultyDevices.length} faulty
                       </span>

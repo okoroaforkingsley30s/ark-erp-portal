@@ -7,15 +7,15 @@ import { CheckCircle2, XCircle, Package } from 'lucide-react';
 const REQ_STATUS = {
   pending: {
     label: 'Pending',
-    color: 'bg-amber-50 text-amber-700 border-amber-200',
+    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
   },
   approved: {
     label: 'Approved',
-    color: 'bg-green-50 text-green-700 border-green-200',
+    color: 'bg-green-500/15 text-green-300 border-green-200',
   },
   rejected: {
     label: 'Rejected',
-    color: 'bg-red-50 text-red-700 border-red-200',
+    color: 'bg-red-500/15 text-red-300 border-red-200',
   },
   dispatched: {
     label: 'Dispatched',
@@ -30,8 +30,8 @@ const REQ_STATUS = {
 const URGENCY = {
   low: 'bg-slate-100 text-slate-600',
   medium: 'bg-blue-50 text-blue-700',
-  high: 'bg-amber-50 text-amber-700',
-  critical: 'bg-red-50 text-red-700',
+  high: 'bg-amber-500/15 text-amber-300',
+  critical: 'bg-red-500/15 text-red-300',
 };
 
 export default function RequestsPanel({

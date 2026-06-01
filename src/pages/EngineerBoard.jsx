@@ -68,22 +68,34 @@ export default function EngineerBoard() {
   });
 
   const { data: engineers = [], refetch } = useQuery({
-    queryKey: ['engineers-board'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('engineers')
-        .select('*')
-        .order('engineer_name', { ascending: true });
+  queryKey: ['engineers-board'],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('role', 'engineer')
+      .order('full_name', { ascending: true });
 
-      if (error) {
-        console.error(error);
-        return [];
-      }
+    if (error) {
+      console.error('Engineer users fetch error:', error);
+      return [];
+    }
 
-      return data || [];
-    },
-    refetchInterval: 30000,
-  });
+    return (data || []).map((u) => ({
+      id: u.id,
+      engineer_name: u.full_name || u.email,
+      engineer_email: u.email,
+      email: u.email,
+      phone_number: u.phone || '',
+      region: u.region || 'SW',
+      assigned_location: u.assigned_location || '',
+      status: 'active',
+      online_status: 'offline',
+      profile_photo: '',
+    }));
+  },
+  refetchInterval: 30000,
+});
 
   const { data: devices = [] } = useQuery({
     queryKey: ['devices'],

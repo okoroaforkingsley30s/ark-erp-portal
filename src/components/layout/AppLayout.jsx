@@ -5,6 +5,7 @@ import Sidebar from './Sidebar';
 import MobileBottomNav from './MobileBottomNav';
 import PendingApproval from '@/components/auth/PendingApproval';
 import MobileHomeScreen from '@/components/mobile/MobileHomeScreen';
+import FieldEngineerMobileApp from '@/components/mobile/FieldEngineerMobileApp';
 
 import { useAuth } from '@/lib/AuthContext';
 import useDMNotifications from '@/hooks/useDMNotifications';
@@ -18,7 +19,11 @@ export default function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth < 768;
+  });
+
   const [notifications, setNotifications] = useState([]);
 
   const previousNotifCountRef = useRef(0);
@@ -188,6 +193,25 @@ export default function AppLayout() {
 
   if (!user?.role) {
     return <PendingApproval user={user} />;
+  }
+
+  const role = user?.role?.toLowerCase?.() || '';
+
+  const isEngineerMobile =
+    isMobile &&
+    (
+      role === 'engineer' ||
+      role === 'field engineer'
+    );
+
+  if (isEngineerMobile) {
+    return (
+      <FieldEngineerMobileApp
+        user={user}
+        notifCount={notifCount}
+        dmCount={dmUnreadCount}
+      />
+    );
   }
 
   const isMobileHome =

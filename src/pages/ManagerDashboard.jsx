@@ -255,7 +255,7 @@ export default function ManagerDashboard() {
           !['resolved', 'closed'].includes(t.status)
       ).length,
       icon: AlertTriangle,
-      cls: 'border-red-200 bg-red-50',
+      cls: 'border-red-500/30 bg-red-500/15 text-white',
       vCls: 'text-red-700',
     },
 
@@ -263,7 +263,7 @@ export default function ManagerDashboard() {
       label: 'Active Engineers',
       value: `${activeEngineers}/${engineers.length}`,
       icon: Users,
-      cls: 'border-green-200 bg-green-50',
+      cls: 'border-green-500/30 bg-green-500/15 text-white',
       vCls: 'text-green-700',
     },
 
@@ -273,7 +273,7 @@ export default function ManagerDashboard() {
         (s) => s.status === 'down'
       ).length,
       icon: MapPin,
-      cls: 'border-amber-200 bg-amber-50',
+      cls: 'border-amber-500/30 bg-amber-500/15 text-white',
       vCls: 'text-amber-700',
     },
 
@@ -289,7 +289,7 @@ export default function ManagerDashboard() {
       label: 'Resolution Rate',
       value: `${slaRate}%`,
       icon: Target,
-      cls: 'border-green-200 bg-green-50',
+      cls: 'border-green-500/30 bg-green-500/15 text-white',
       vCls: 'text-green-700',
     },
 

@@ -33,9 +33,9 @@ import {
 
 const STATUS_COLOR = {
   Scheduled: 'bg-blue-50 text-blue-700',
-  Completed: 'bg-green-50 text-green-700',
-  Cancelled: 'bg-red-50 text-red-700',
-  Postponed: 'bg-amber-50 text-amber-700'
+  Completed: 'bg-green-500/15 text-green-300',
+  Cancelled: 'bg-red-500/15 text-red-300',
+  Postponed: 'bg-amber-500/15 text-amber-300'
 };
 
 const COUNTRIES = [
@@ -310,7 +310,7 @@ export default function TrainingModule({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="text-xs bg-green-50 text-green-700"
+                    className="text-xs bg-green-500/15 text-green-300"
                     onClick={() =>
                       updateStatus(
                         t,

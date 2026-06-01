@@ -54,13 +54,32 @@ export default function EngineersPage() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const { data: engineers = [] } = useQuery({
-    queryKey: ['engineers'],
-    queryFn: async () => {
-      const { data, error } = await supabase.from('engineers').select('*').order('engineer_name', { ascending: true });
-      if (error) return [];
-      return data || [];
-    },
-  });
+  queryKey: ['engineers-from-users'],
+  queryFn: async () => {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('role', 'engineer')
+      .order('full_name', { ascending: true });
+
+    if (error) {
+      console.error('Engineers from users error:', error);
+      return [];
+    }
+
+    return (data || []).map((u) => ({
+      id: u.id,
+      engineer_name: u.full_name || u.email,
+      email: u.email,
+      phone_number: u.phone || u.phone_number || '',
+      region: u.region || 'SW',
+      assigned_location: u.assigned_location || u.location || '',
+      status: u.status || 'active',
+      online_status: 'offline',
+      notes: '',
+    }));
+  },
+});
 
   const { data: engineerStatuses = [] } = useQuery({
     queryKey: ['engineer-statuses'],

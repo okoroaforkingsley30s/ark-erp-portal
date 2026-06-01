@@ -55,7 +55,7 @@ const LEAD_STATUS = {
   },
   proposal: {
     label: 'Proposal',
-    color: 'bg-amber-50 text-amber-700 border-amber-200'
+    color: 'bg-amber-500/15 text-amber-300 border-amber-200'
   },
   negotiation: {
     label: 'Negotiation',
@@ -63,11 +63,11 @@ const LEAD_STATUS = {
   },
   won: {
     label: 'Won',
-    color: 'bg-green-50 text-green-700 border-green-200'
+    color: 'bg-green-500/15 text-green-300 border-green-200'
   },
   lost: {
     label: 'Lost',
-    color: 'bg-red-50 text-red-700 border-red-200'
+    color: 'bg-red-500/15 text-red-300 border-red-200'
   },
 };
 

@@ -1,0 +1,3072 @@
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  Home,
+  ClipboardList,
+  Ticket,
+  Package,
+  MessageCircle,
+  User,
+  Bell,
+  AlertTriangle,
+  XCircle,
+  MapPin,
+  RefreshCw,
+  PlayCircle,
+  CheckCircle,
+  Navigation,
+  Bot,
+  X,
+  Send,
+  History,
+  Calendar,
+  UserCheck,
+  LogOut,
+  Radio,
+  Upload,
+  Image,
+  Video,
+  FileText,
+} from 'lucide-react';
+
+import { supabase } from '@/lib/supabaseClient';
+
+const EVIDENCE_BUCKET = 'ticket-evidence';
+
+export default function FieldEngineerMobileApp({
+  user,
+  notifCount = 0,
+  dmCount = 0,
+}) {
+  const [activeTab, setActiveTab] = useState('home');
+  const [tickets, setTickets] = useState([]);
+  const [devices, setDevices] = useState([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [loadingTickets, setLoadingTickets] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [mails, setMails] = useState([]);
+  const [loadingMails, setLoadingMails] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [loadingChat, setLoadingChat] = useState(false);
+  const [assistantMessage, setAssistantMessage] = useState('');
+  const [assistantReplies, setAssistantReplies] = useState([
+    {
+      from: 'assistant',
+      text:
+        'Hello, I am ARK Assistant. Tell me the ATM issue you are facing on site. Example: card reader error, dispenser fault, cash jam, receipt printer, communication down, power issue, or supervisor mode error.',
+    },
+  ]);
+
+  const fetchMails = useCallback(async () => {
+    if (!user?.email) return;
+
+    setLoadingMails(true);
+
+    const { data, error } = await supabase
+      .from('email_messages')
+      .select('*')
+      .or(
+        `recipient_email.eq.${user.email},assigned_staff.eq.${user.email},assigned_to.eq.${user.email}`
+      )
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error('Mobile mail fetch error:', error);
+      setMails([]);
+    } else {
+      setMails(data || []);
+    }
+
+    setLoadingMails(false);
+  }, [user?.email]);
+
+  const fetchChatMessages = useCallback(async () => {
+    if (!user?.email) return;
+
+    setLoadingChat(true);
+
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .select('*')
+      .or(
+        `recipient_id.eq.${user.email},sender_id.eq.${user.email},channel_name.in.(General,Engineers,Helpdesk,Operations)`
+      )
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error('Mobile chat fetch error:', error);
+      setChatMessages([]);
+    } else {
+      setChatMessages(data || []);
+    }
+
+    setLoadingChat(false);
+  }, [user?.email]);
+
+  const fetchAssignedTickets = useCallback(async () => {
+    if (!user?.email) return;
+
+    setLoadingTickets(true);
+
+    const { data, error } = await supabase
+  .from('tickets')
+  .select('*')
+  .or(
+    `assigned_engineer_email.eq.${user.email},assigned_to.eq.${user.email},assigned_to_name.eq.${user.full_name || user.name || ''}`
+  )
+  .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Mobile assigned tickets error:', error);
+      setTickets([]);
+      setLoadingTickets(false);
+      return;
+    }
+
+    setTickets(data || []);
+    setLoadingTickets(false);
+  }, [user?.email]);
+
+  const fetchNotifications = useCallback(async () => {
+    if (!user?.email) return;
+
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_email', user.email)
+      .order('created_at', { ascending: false })
+      .limit(30);
+
+    if (error) {
+      console.error('Mobile notifications error:', error);
+      return;
+    }
+
+    setNotifications(data || []);
+  }, [user?.email]);
+
+  useEffect(() => {
+    fetchAssignedTickets();
+    fetchNotifications();
+    fetchMails();
+    fetchChatMessages();
+  }, [fetchAssignedTickets, fetchNotifications, fetchMails, fetchChatMessages]);
+
+  useEffect(() => {
+    const handleMobileTab = (event) => {
+      const tab = event?.detail?.tab;
+
+      if (tab) {
+        setActiveTab(tab);
+      }
+    };
+
+    window.addEventListener('field-mobile-tab', handleMobileTab);
+
+    return () => {
+      window.removeEventListener('field-mobile-tab', handleMobileTab);
+    };
+  }, []);
+
+  useEffect(() => {
+  fetchAssignedDevices();
+}, [user?.email]);
+
+  const fetchAssignedDevices = async () => {
+  if (!user?.email) return;
+
+  setLoadingDevices(true);
+
+  const engineerName = user?.full_name || user?.name || '';
+
+  let query = supabase
+    .from('devices')
+    .select('*')
+    .order('updated_at', { ascending: false });
+
+  if (engineerName) {
+    query = query.or(
+      `assigned_engineer_email.eq.${user.email},assigned_engineer.eq.${user.email},assigned_engineer_name.eq.${engineerName}`
+    );
+  } else {
+    query = query.or(
+      `assigned_engineer_email.eq.${user.email},assigned_engineer.eq.${user.email}`
+    );
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    console.error('Assigned devices error:', error);
+    setDevices([]);
+  } else {
+    setDevices(data || []);
+  }
+
+  setLoadingDevices(false);
+};
+
+  const updateTicketStatus = async (ticketId, status) => {
+  const now = new Date().toISOString();
+
+  const statusTimeMap = {
+    accepted: { accepted_at: now },
+    traveling: { started_at: now },
+    arrived_on_site: { arrived_at: now },
+    in_progress: { started_at: now },
+    pending_review: { submitted_review_at: now },
+  };
+
+  const { error } = await supabase
+    .from('tickets')
+    .update({
+      status,
+      updated_at: now,
+      ...(statusTimeMap[status] || {}),
+    })
+    .eq('id', ticketId);
+
+    if (error) {
+      console.error('Ticket status update error:', error);
+      alert('Could not update ticket status.');
+      return;
+    }
+
+    fetchAssignedTickets();
+  };
+
+  const openGoogleMaps = (ticket) => {
+    const location =
+      ticket?.branch_name ||
+      ticket?.branch ||
+      ticket?.site_name ||
+      ticket?.bank_name ||
+      '';
+
+    if (!location) {
+      alert('No branch/location found for this ticket.');
+      return;
+    }
+
+    window.open(
+      `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`,
+      '_blank'
+    );
+  };
+
+  const sendSupportRequest = async (team, note = '') => {
+    const teamEmailMap = {
+      Helpdesk: 'helpdesk@arktechnologiesgroup.com',
+      Operations: 'operations@arktechnologiesgroup.com',
+      Inventory: 'inventory@arktechnologiesgroup.com',
+    };
+
+    const { error } = await supabase.from('notifications').insert({
+      user_email: teamEmailMap[team],
+      title: `Mobile Support Request - ${team}`,
+      message: `${user?.full_name || user?.email} needs ${team} support. ${note}`,
+      read: false,
+      type: 'mobile_support',
+      sound: 'bell',
+      link: '/ark-connect',
+    });
+
+    if (error) {
+      console.error('Support request error:', error);
+      alert('Could not send support request. Check notification policy.');
+      return;
+    }
+
+    alert(`${team} support request sent.`);
+  };
+
+  const sendAssistantMessage = () => {
+    const cleanMessage = assistantMessage.trim();
+    if (!cleanMessage) return;
+
+    const reply = getAssistantReply(cleanMessage, tickets);
+
+    setAssistantReplies((prev) => [
+      ...prev,
+      { from: 'user', text: cleanMessage },
+      { from: 'assistant', text: reply },
+    ]);
+
+    setAssistantMessage('');
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/welcome';
+  };
+
+  return (
+    <div
+      className="fixed inset-0 bg-slate-950 text-white overflow-hidden"
+      style={{
+        height: '100svh',
+        maxHeight: '100svh',
+      }}
+    >
+      {activeTab === 'profile' ? (
+        <header className="sticky top-0 z-50 bg-slate-950/95 backdrop-blur border-b border-slate-900 px-4 py-3">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setActiveTab('home')}
+              className="h-10 w-10 rounded-xl text-3xl leading-none text-white flex items-center justify-center"
+              aria-label="Menu"
+            >
+              ☰
+            </button>
+
+            <h1 className="text-xl font-bold text-white">Profile</h1>
+
+            <button
+              type="button"
+              onClick={() => {
+                fetchNotifications();
+                setNotificationsOpen(true);
+              }}
+              className="relative h-10 w-10 rounded-xl text-white flex items-center justify-center"
+              aria-label="Notifications"
+            >
+              <Bell size={26} />
+              {notifCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-[10px] min-w-5 h-5 rounded-full flex items-center justify-center px-1">
+                  {notifCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+      ) : (
+        <header className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-800 px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-lg font-bold">ARK ONE Field</h1>
+              <p className="text-xs text-slate-400">
+                Welcome {user?.full_name || user?.name || user?.email || 'Engineer'}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                fetchNotifications();
+                setNotificationsOpen(true);
+              }}
+              className="relative rounded-full bg-slate-800 p-2"
+            >
+              <Bell size={22} />
+              {notifCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-[10px] min-w-5 h-5 rounded-full flex items-center justify-center px-1">
+                  {notifCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+      )}
+
+      <main
+        className={
+          activeTab === 'profile'
+            ? 'h-[calc(100svh-112px)] overflow-y-auto overflow-x-hidden px-3 pt-3 pb-24'
+            : 'h-[calc(100svh-124px)] overflow-y-auto overflow-x-hidden p-4 pb-28'
+        }
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {activeTab === 'home' && (
+          <HomeScreen
+            notifCount={notifCount}
+            dmCount={dmCount}
+            tickets={tickets}
+            loadingTickets={loadingTickets}
+            onRefresh={fetchAssignedTickets}
+            onTabChange={setActiveTab}
+            onSelectTicket={setSelectedTicket}
+            onNavigate={openGoogleMaps}
+          />
+        )}
+
+        {activeTab === 'jobs' && (
+          <JobsScreen
+            tickets={tickets}
+            loadingTickets={loadingTickets}
+            onRefresh={fetchAssignedTickets}
+            onUpdateStatus={updateTicketStatus}
+            onNavigate={openGoogleMaps}
+            onSelectTicket={setSelectedTicket}
+          />
+        )}
+
+        {activeTab === 'tickets' && (
+          <TicketsScreen
+            tickets={tickets}
+            loadingTickets={loadingTickets}
+            onRefresh={fetchAssignedTickets}
+            onSelectTicket={setSelectedTicket}
+          />
+        )}
+
+        {activeTab === 'parts' && <PartsScreen tickets={tickets} user={user} />}
+
+        {activeTab === 'connect' && (
+          <ConnectScreen
+            user={user}
+            dmCount={dmCount}
+            mails={mails}
+            loadingMails={loadingMails}
+            chatMessages={chatMessages}
+            loadingChat={loadingChat}
+            onRefreshMails={fetchMails}
+            onRefreshChat={fetchChatMessages}
+            onSupportRequest={sendSupportRequest}
+          />
+        )}
+
+        {activeTab === 'profile' && (
+          <ProfileScreen
+            user={user}
+            tickets={tickets}
+            devices={devices}
+            loadingDevices={loadingDevices}
+            onLogout={logout}
+            onTabChange={setActiveTab}
+          />
+        )}
+      </main>
+
+      <button
+        type="button"
+        onClick={() => setAssistantOpen(true)}
+        className="fixed right-4 z-50 h-14 w-14 rounded-full bg-orange-500 shadow-xl flex items-center justify-center"
+        style={{
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)',
+        }}
+      >
+        <Bot size={26} />
+      </button>
+
+      {selectedTicket && (
+        <TicketDetailsModal
+          ticket={selectedTicket}
+          user={user}
+          onClose={() => setSelectedTicket(null)}
+          onNavigate={openGoogleMaps}
+          onUpdateStatus={updateTicketStatus}
+          onCompleted={() => {
+            setSelectedTicket(null);
+            fetchAssignedTickets();
+          }}
+        />
+      )}
+
+      {notificationsOpen && (
+        <NotificationsModal
+          notifications={notifications}
+          onClose={() => setNotificationsOpen(false)}
+          onRefresh={fetchNotifications}
+        />
+      )}
+
+      {assistantOpen && (
+        <AssistantModal
+          replies={assistantReplies}
+          message={assistantMessage}
+          setMessage={setAssistantMessage}
+          onSend={sendAssistantMessage}
+          onClose={() => setAssistantOpen(false)}
+        />
+      )}
+
+      <nav
+        className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 border-t border-slate-800 grid grid-cols-6 pt-2"
+        style={{
+          paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
+        }}
+      >
+        <BottomItem icon={<Home size={20} />} label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
+        <BottomItem icon={<ClipboardList size={20} />} label="Jobs" active={activeTab === 'jobs'} badge={tickets.length} onClick={() => setActiveTab('jobs')} />
+        <BottomItem icon={<Ticket size={20} />} label="Tickets" active={activeTab === 'tickets'} onClick={() => setActiveTab('tickets')} />
+        <BottomItem icon={<Package size={20} />} label="Parts" active={activeTab === 'parts'} onClick={() => setActiveTab('parts')} />
+        <BottomItem icon={<MessageCircle size={20} />} label="Connect" active={activeTab === 'connect'} badge={dmCount} onClick={() => setActiveTab('connect')} />
+        <BottomItem icon={<User size={20} />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
+      </nav>
+    </div>
+  );
+}
+
+function HomeScreen({
+  notifCount,
+  dmCount,
+  tickets,
+  loadingTickets,
+  onRefresh,
+  onTabChange,
+  onSelectTicket,
+  onNavigate,
+}) {
+  const urgentTickets = tickets.filter(
+    (ticket) =>
+      ticket?.priority?.toLowerCase() === 'high' ||
+      ticket?.priority?.toLowerCase() === 'critical' ||
+      ticket?.sla_status?.toLowerCase() === 'breached'
+  );
+
+  const pendingReview = tickets.filter(
+    (ticket) =>
+      ticket.status === 'pending_review' ||
+      ticket.completion_status === 'pending'
+  );
+
+  const completed = tickets.filter((ticket) =>
+    ['approved', 'closed', 'completed'].includes(ticket.status)
+  );
+
+  const firstTicket = tickets[0];
+
+  const HomeStat = ({ title, value, icon, tone = 'orange', onClick }) => {
+    const tones = {
+      orange: 'text-orange-400 border-orange-500/30 bg-orange-500/10',
+      blue: 'text-blue-400 border-blue-500/30 bg-blue-500/10',
+      green: 'text-green-400 border-green-500/30 bg-green-500/10',
+      red: 'text-red-400 border-red-500/30 bg-red-500/10',
+    };
+
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-2xl bg-slate-900 border border-slate-800 p-3 text-left active:scale-[0.98]"
+      >
+        <div className={`w-10 h-10 rounded-full border flex items-center justify-center mb-3 ${tones[tone]}`}>
+          {icon}
+        </div>
+
+        <p className="text-2xl font-bold text-white leading-none">
+          {value}
+        </p>
+
+        <p className="text-xs text-slate-400 mt-1">
+          {title}
+        </p>
+      </button>
+    );
+  };
+
+  const QuickAction = ({ icon, label, onClick }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-2xl bg-slate-900 border border-slate-800 p-3 min-h-[76px] flex flex-col items-center justify-center gap-1 active:scale-[0.98]"
+    >
+      <span className="text-orange-400">{icon}</span>
+      <span className="text-[11px] text-slate-200 font-medium text-center">
+        {label}
+      </span>
+    </button>
+  );
+
+  return (
+    <div className="space-y-3 pb-2">
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <p className="text-xs text-orange-400 font-semibold">
+          Today&apos;s Field Summary
+        </p>
+
+        <h2 className="text-2xl font-bold text-white mt-1">
+          Your work dashboard
+        </h2>
+
+        <p className="text-sm text-slate-400 mt-2">
+          Jobs, SLA alerts, navigation and support in one place.
+        </p>
+
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          <div className="rounded-xl bg-slate-950 border border-slate-800 p-3 text-center">
+            <p className="text-2xl font-bold text-white">{tickets.length}</p>
+            <p className="text-[11px] text-slate-400">Jobs</p>
+          </div>
+
+          <div className="rounded-xl bg-slate-950 border border-slate-800 p-3 text-center">
+            <p className="text-2xl font-bold text-orange-400">{urgentTickets.length}</p>
+            <p className="text-[11px] text-slate-400">SLA Alerts</p>
+          </div>
+
+          <div className="rounded-xl bg-slate-950 border border-slate-800 p-3 text-center">
+            <p className="text-2xl font-bold text-green-400">{completed.length}</p>
+            <p className="text-[11px] text-slate-400">Done</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-2 gap-3">
+        <HomeStat
+          title="Assigned Jobs"
+          value={tickets.length}
+          icon={<ClipboardList size={21} />}
+          tone="blue"
+          onClick={() => onTabChange('jobs')}
+        />
+
+        <HomeStat
+          title="Tickets"
+          value={tickets.length}
+          icon={<Ticket size={21} />}
+          tone="orange"
+          onClick={() => onTabChange('tickets')}
+        />
+
+        <HomeStat
+          title="Pending Review"
+          value={pendingReview.length}
+          icon={<Upload size={21} />}
+          tone="green"
+          onClick={() => onTabChange('jobs')}
+        />
+
+        <HomeStat
+          title="Alerts"
+          value={notifCount + urgentTickets.length}
+          icon={<AlertTriangle size={21} />}
+          tone="red"
+          onClick={() => onTabChange('tickets')}
+        />
+      </div>
+
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-base text-white">Next Job</h3>
+
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="text-xs text-orange-400 font-semibold flex items-center gap-1"
+          >
+            <RefreshCw size={13} />
+            {loadingTickets ? 'Refreshing' : 'Refresh'}
+          </button>
+        </div>
+
+        {firstTicket ? (
+          <button
+            type="button"
+            onClick={() => onSelectTicket(firstTicket)}
+            className="w-full text-left rounded-2xl bg-slate-950 border border-slate-800 p-4 active:scale-[0.99]"
+          >
+            <p className="text-xs text-orange-400">
+              {firstTicket.ticket_number || firstTicket.ticket_id || 'Ticket'}
+            </p>
+
+            <h3 className="font-semibold text-white mt-1">
+              {firstTicket.title || firstTicket.category || 'Assigned Job'}
+            </h3>
+
+            <p className="text-xs text-slate-400 mt-1">
+              {firstTicket.bank_name || firstTicket.client_name || 'Bank'} •{' '}
+              {firstTicket.branch_name || firstTicket.branch || 'Branch'}
+            </p>
+
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNavigate(firstTicket);
+                }}
+                className="rounded-xl bg-orange-500 py-3 text-sm font-semibold flex items-center justify-center gap-2"
+              >
+                <Navigation size={16} />
+                Direction
+              </button>
+
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTabChange('jobs');
+                }}
+                className="rounded-xl bg-slate-800 border border-slate-700 py-3 text-sm font-semibold"
+              >
+                Open Jobs
+              </button>
+            </div>
+          </button>
+        ) : (
+          <EmptyText text="No assigned job yet." />
+        )}
+      </section>
+
+      <section>
+        <h3 className="font-bold text-base mb-2">Quick Actions</h3>
+
+        <div className="grid grid-cols-4 gap-2">
+          <QuickAction
+            icon={<ClipboardList size={25} />}
+            label="Jobs"
+            onClick={() => onTabChange('jobs')}
+          />
+
+          <QuickAction
+            icon={<Ticket size={25} />}
+            label="Tickets"
+            onClick={() => onTabChange('tickets')}
+          />
+
+          <QuickAction
+            icon={<MessageCircle size={25} />}
+            label="Connect"
+            onClick={() => onTabChange('connect')}
+          />
+
+          <QuickAction
+            icon={<Package size={25} />}
+            label="Parts"
+            onClick={() => onTabChange('parts')}
+          />
+        </div>
+      </section>
+
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <h3 className="font-bold text-base mb-3 text-white">SLA Alerts</h3>
+
+        {urgentTickets.length === 0 ? (
+          <EmptyText text="No urgent SLA alert yet." />
+        ) : (
+          <div className="space-y-2">
+            {urgentTickets.slice(0, 3).map((ticket) => (
+              <button
+                key={ticket.id}
+                type="button"
+                onClick={() => onSelectTicket(ticket)}
+                className="w-full text-left rounded-xl bg-red-950/30 border border-red-900 p-3"
+              >
+                <p className="text-sm font-semibold text-red-200">
+                  {ticket.ticket_number || ticket.ticket_id || 'Ticket'}
+                </p>
+
+                <p className="text-xs text-red-300 mt-1">
+                  {ticket.sla_status || ticket.priority || 'Urgent'}
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function JobsScreen({
+  tickets,
+  loadingTickets,
+  onRefresh,
+  onUpdateStatus,
+  onNavigate,
+  onSelectTicket,
+}) {
+  const [selectedGroup, setSelectedGroup] = useState(null);
+
+  const closedCalls = tickets.filter((t) =>
+    ['closed', 'completed', 'approved'].includes(
+      String(t.status || '').toLowerCase()
+    )
+  );
+
+  const pendingReview = tickets.filter((t) =>
+    String(t.status || '').toLowerCase() === 'pending_review' ||
+    String(t.completion_status || '').toLowerCase() === 'pending'
+  );
+
+  const pendingParts = tickets.filter((t) =>
+    String(t.status || '').toLowerCase().includes('part') ||
+    String(t.completion_status || '').toLowerCase().includes('part') ||
+    String(t.category || '').toLowerCase().includes('part')
+  );
+
+  const rejectedCalls = tickets.filter((t) => {
+  const status = String(t.status || '').toLowerCase();
+  const completionStatus = String(t.completion_status || '').toLowerCase();
+  const reviewStatus = String(t.review_status || '').toLowerCase();
+
+  return (
+    status === 'rejected' ||
+    completionStatus === 'rejected' ||
+    reviewStatus === 'rejected'
+  );
+});
+
+  const openCalls = tickets.filter((t) => {
+  const status = String(t.status || '').toLowerCase();
+  const completionStatus = String(t.completion_status || '').toLowerCase();
+
+  return (
+    ![
+      'closed',
+      'completed',
+      'approved',
+      'pending_review',
+      'rejected',
+    ].includes(status) &&
+    completionStatus !== 'pending' &&
+    completionStatus !== 'rejected' &&
+    !status.includes('part')
+  );
+});
+
+  const groups = [
+    {
+      key: 'open',
+      title: 'Open Calls',
+      subtitle: 'Jobs requiring field action',
+      count: openCalls.length,
+      color: 'text-blue-400',
+      border: 'border-blue-500/40',
+      bg: 'bg-blue-500/10',
+      icon: <ClipboardList size={28} />,
+      items: openCalls,
+    },
+    {
+      key: 'review',
+      title: 'Pending Review',
+      subtitle: 'Completed jobs awaiting approval',
+      count: pendingReview.length,
+      color: 'text-orange-400',
+      border: 'border-orange-500/40',
+      bg: 'bg-orange-500/10',
+      icon: <Upload size={28} />,
+      items: pendingReview,
+    },
+    {
+  key: 'rejected',
+  title: 'Rejected Calls',
+  subtitle: 'Jobs returned for correction',
+  count: rejectedCalls.length,
+  color: 'text-red-400',
+  border: 'border-red-500/40',
+  bg: 'bg-red-500/10',
+  icon: <XCircle size={28} />,
+  items: rejectedCalls,
+},
+    {
+      key: 'parts',
+      title: 'Pending on Parts',
+      subtitle: 'Jobs waiting for inventory support',
+      count: pendingParts.length,
+      color: 'text-yellow-400',
+      border: 'border-yellow-500/40',
+      bg: 'bg-yellow-500/10',
+      icon: <Package size={28} />,
+      items: pendingParts,
+    },
+    {
+      key: 'closed',
+      title: 'Closed Calls',
+      subtitle: 'Completed and approved jobs',
+      count: closedCalls.length,
+      color: 'text-green-400',
+      border: 'border-green-500/40',
+      bg: 'bg-green-500/10',
+      icon: <CheckCircle size={28} />,
+      items: closedCalls,
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs text-orange-400 font-semibold">
+              Field Operations
+            </p>
+
+            <h2 className="text-2xl font-bold text-white mt-1">
+              Jobs
+            </h2>
+
+            <p className="text-sm text-slate-400 mt-1">
+              Calls grouped by current job status.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-xs flex items-center gap-2"
+          >
+            <RefreshCw size={14} />
+            {loadingTickets ? 'Loading' : 'Refresh'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-5 gap-2 mt-4">
+          {groups.map((group) => (
+            <div
+              key={group.key}
+              className="rounded-xl bg-slate-950 border border-slate-800 p-2 text-center"
+            >
+              <p className={`text-xl font-bold ${group.color}`}>
+                {group.count}
+              </p>
+              <p className="text-[10px] text-slate-400 leading-tight">
+                {group.title}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div className="grid grid-cols-2 gap-3">
+        {groups.map((group) => (
+          <button
+            key={group.key}
+            type="button"
+            onClick={() => setSelectedGroup(group)}
+            className={`rounded-2xl bg-slate-900 border ${group.border} p-4 text-left active:scale-[0.98]`}
+          >
+            <div
+              className={`w-12 h-12 rounded-full ${group.bg} ${group.color} border ${group.border} flex items-center justify-center mb-4`}
+            >
+              {group.icon}
+            </div>
+
+            <p className={`text-3xl font-bold ${group.color}`}>
+              {group.count}
+            </p>
+
+            <h3 className="font-bold text-white mt-1">
+              {group.title}
+            </h3>
+
+            <p className="text-xs text-slate-400 mt-1">
+              {group.subtitle}
+            </p>
+
+            <p className="text-xs text-orange-400 font-semibold mt-3">
+              Tap to view list
+            </p>
+          </button>
+        ))}
+      </div>
+
+      {selectedGroup && (
+        <JobGroupModal
+          group={selectedGroup}
+          onClose={() => setSelectedGroup(null)}
+          onUpdateStatus={onUpdateStatus}
+          onNavigate={onNavigate}
+          onSelectTicket={onSelectTicket}
+        />
+      )}
+    </div>
+  );
+}
+
+function JobGroupModal({
+  group,
+  onClose,
+  onUpdateStatus,
+  onNavigate,
+  onSelectTicket,
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[85] bg-slate-950 text-white overflow-hidden"
+      style={{ height: '100svh', maxHeight: '100svh' }}
+    >
+      <div className="h-[72px] bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-lg">
+            {group.title}
+          </h2>
+
+          <p className="text-xs text-slate-400">
+            {group.count} job{group.count !== 1 ? 's' : ''}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-slate-800 p-2"
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      <div
+        className="h-[calc(100svh-72px)] overflow-y-auto overflow-x-hidden p-4 space-y-3 pb-28"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {group.items.length === 0 ? (
+          <EmptyText text={`No ${group.title.toLowerCase()} found.`} />
+        ) : (
+          group.items.map((ticket) => (
+            <section
+              key={ticket.id}
+              className="rounded-2xl bg-slate-900 border border-slate-800 p-4"
+            >
+              <button
+                type="button"
+                onClick={() => onSelectTicket(ticket)}
+                className="w-full text-left"
+              >
+                <p className="text-xs text-orange-400">
+                  {ticket.ticket_number || ticket.ticket_id || 'Ticket'}
+                </p>
+
+                <h3 className="font-semibold text-white mt-1">
+                  {ticket.title || ticket.category || 'Assigned Job'}
+                </h3>
+
+                <p className="text-xs text-slate-400 mt-1">
+                  {ticket.bank_name || ticket.client_name || 'Bank'} •{' '}
+                  {ticket.branch_name || ticket.branch || 'Branch'}
+                </p>
+
+                <p className="text-xs text-slate-500 mt-2">
+                  Status: {ticket.status || 'open'}
+                </p>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2 mt-4">
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus(ticket.id, 'accepted')}
+                  className="rounded-xl bg-blue-500/10 border border-blue-500/20 py-3 text-xs font-semibold text-blue-300"
+                >
+                  Accept
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus(ticket.id, 'traveling')}
+                  className="rounded-xl bg-purple-500/10 border border-purple-500/20 py-3 text-xs font-semibold text-purple-300"
+                >
+                  Start Trip
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus(ticket.id, 'arrived_on_site')}
+                  className="rounded-xl bg-yellow-500/10 border border-yellow-500/20 py-3 text-xs font-semibold text-yellow-300"
+                >
+                  Arrived
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onNavigate(ticket)}
+                  className="rounded-xl bg-orange-500 py-3 text-xs font-semibold text-white"
+                >
+                  Navigate
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onUpdateStatus(ticket.id, 'in_progress')}
+                  className="rounded-xl bg-green-500/10 border border-green-500/20 py-3 text-xs font-semibold text-green-300"
+                >
+                  Start Work
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onSelectTicket(ticket)}
+                  className="rounded-xl bg-slate-800 border border-slate-700 py-3 text-xs font-semibold text-white"
+                >
+                  Complete Report
+                </button>
+              </div>
+            </section>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TicketsScreen({ tickets, loadingTickets, onRefresh, onSelectTicket }) {
+  return (
+    <div className="space-y-4">
+      <PageTitle title="Tickets" subtitle="Ticket information, fault details and work history." />
+
+      <button type="button" onClick={onRefresh} className="w-full rounded-xl bg-slate-800 border border-slate-700 py-3 text-sm flex items-center justify-center gap-2">
+        <RefreshCw size={16} />
+        {loadingTickets ? 'Loading tickets...' : 'Refresh Tickets'}
+      </button>
+
+      {tickets.length === 0 ? (
+        <SectionCard title="Open Tickets">
+          <EmptyText text="No open ticket found." />
+        </SectionCard>
+      ) : (
+        <div className="space-y-4">
+          {tickets.map((ticket) => (
+            <TicketInfoCard key={ticket.id} ticket={ticket} onSelectTicket={onSelectTicket} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TicketInfoCard({ ticket, onSelectTicket }) {
+  return (
+    <button type="button" onClick={() => onSelectTicket(ticket)} className="w-full text-left bg-slate-900 rounded-2xl p-4 border border-slate-800 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs text-slate-500">{ticket.ticket_number || ticket.ticket_id || 'Ticket'}</p>
+          <h3 className="font-semibold text-base mt-1">{ticket.title || ticket.category || 'Ticket Details'}</h3>
+        </div>
+        <span className="text-[11px] px-2 py-1 rounded-full bg-slate-800 text-orange-300 border border-slate-700">
+          {ticket.priority || 'normal'}
+        </span>
+      </div>
+
+      <p className="text-sm text-slate-400 line-clamp-3">
+        {ticket.description || 'No fault description provided.'}
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+        <Info label="Terminal" value={ticket.terminal_id} />
+        <Info label="Device" value={ticket.device_name} />
+        <Info label="SLA" value={ticket.sla_status || ticket.sla_level} />
+        <Info label="Updated" value={formatDate(ticket.updated_at)} />
+      </div>
+    </button>
+  );
+}
+
+function TicketDetailsModal({
+  ticket,
+  user,
+  onClose,
+  onNavigate,
+  onUpdateStatus,
+  onCompleted,
+}) {
+  const [completionNote, setCompletionNote] = useState(ticket?.completion_note || '');
+  const [beforeFiles, setBeforeFiles] = useState([]);
+  const [afterFiles, setAfterFiles] = useState([]);
+  const [videoFiles, setVideoFiles] = useState([]);
+  const [uploading, setUploading] = useState(false);
+
+  const existingBeforePhotos = Array.isArray(ticket?.before_photos)
+    ? ticket.before_photos
+    : [];
+
+  const existingAfterPhotos = Array.isArray(ticket?.after_photos)
+    ? ticket.after_photos
+    : [];
+
+  const existingVideos = Array.isArray(ticket?.evidence_videos)
+    ? ticket.evidence_videos
+    : [];
+
+  const rejectionLog =
+    ticket?.attachments?.rejection_log &&
+    Array.isArray(ticket.attachments.rejection_log)
+      ? ticket.attachments.rejection_log
+      : [];
+
+  const uploadEvidenceFiles = async (files, type) => {
+    const uploaded = [];
+
+    for (const file of files) {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = `${ticket.id}/${type}/${Date.now()}-${safeName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from(EVIDENCE_BUCKET)
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from(EVIDENCE_BUCKET)
+        .getPublicUrl(filePath);
+
+      uploaded.push({
+        name: file.name,
+        path: filePath,
+        url: publicUrlData?.publicUrl,
+        type,
+        uploaded_at: new Date().toISOString(),
+      });
+    }
+
+    return uploaded;
+  };
+
+  const submitForReview = async () => {
+    if (!completionNote.trim()) {
+      alert('Please enter completion report before submitting.');
+      return;
+    }
+
+    if (existingBeforePhotos.length === 0 && beforeFiles.length === 0) {
+      alert('Please upload at least one BEFORE repair photo.');
+      return;
+    }
+
+    if (existingAfterPhotos.length === 0 && afterFiles.length === 0) {
+      alert('Please upload at least one AFTER repair photo.');
+      return;
+    }
+
+    setUploading(true);
+
+    try {
+      const now = new Date().toISOString();
+
+      const uploadedBeforePhotos = await uploadEvidenceFiles(
+        beforeFiles,
+        'before-photos'
+      );
+
+      const uploadedAfterPhotos = await uploadEvidenceFiles(
+        afterFiles,
+        'after-photos'
+      );
+
+      const uploadedVideos = await uploadEvidenceFiles(
+        videoFiles,
+        'videos'
+      );
+
+      const allBeforePhotos = [
+        ...existingBeforePhotos,
+        ...uploadedBeforePhotos,
+      ];
+
+      const allAfterPhotos = [
+        ...existingAfterPhotos,
+        ...uploadedAfterPhotos,
+      ];
+
+      const allVideos = [
+        ...existingVideos,
+        ...uploadedVideos,
+      ];
+
+      const { error } = await supabase
+        .from('tickets')
+        .update({
+          status: 'pending_review',
+          completion_status: 'pending',
+          completion_note: completionNote.trim(),
+          completed_by: user?.full_name || user?.email,
+          before_photos: allBeforePhotos,
+          after_photos: allAfterPhotos,
+          evidence_photos: [...allBeforePhotos, ...allAfterPhotos],
+          evidence_videos: allVideos,
+          submitted_review_at: now,
+          updated_at: now,
+          resolved_date: now,
+        })
+        .eq('id', ticket.id);
+
+      if (error) {
+        throw error;
+      }
+
+      alert('Job submitted for Helpdesk/Operations review.');
+      onCompleted();
+    } catch (err) {
+      console.error('Evidence submission error:', err);
+      alert(`Could not submit job: ${err.message || 'Unknown error'}`);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] bg-slate-950 text-white overflow-y-auto overflow-x-hidden"
+      style={{ WebkitOverflowScrolling: 'touch' }}
+    >
+      <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-lg">Ticket Details</h2>
+          <p className="text-xs text-slate-400">
+            {ticket.ticket_number || ticket.ticket_id || ticket.id}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-slate-800 p-2"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4 pb-36">
+        <SectionCard title="Fault Description">
+          <h3 className="font-semibold">
+            {ticket.title || ticket.category || 'Assigned Job'}
+          </h3>
+
+          <p className="text-sm text-slate-400 mt-2">
+            {ticket.description || 'No fault description provided.'}
+          </p>
+        </SectionCard>
+
+        <SectionCard title="Branch & Device">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <Info label="Bank" value={ticket.bank_name || ticket.client_name} />
+            <Info label="Branch" value={ticket.branch_name || ticket.branch} />
+            <Info label="Site" value={ticket.site_name} />
+            <Info label="Terminal" value={ticket.terminal_id} />
+            <Info label="Device" value={ticket.device_name} />
+            <Info label="Department" value={ticket.department} />
+          </div>
+        </SectionCard>
+
+        {ticket?.completion_status === 'rejected' && rejectionLog.length > 0 && (
+          <SectionCard title="Rejected Completion">
+            <div className="space-y-3">
+              {rejectionLog.map((item, index) => (
+                <div
+                  key={`${item.rejected_at}-${index}`}
+                  className="rounded-xl bg-red-950/40 border border-red-800 p-3"
+                >
+                  <p className="text-sm text-red-300 font-semibold">
+                    Rejected by {item.rejected_by || 'Reviewer'}
+                  </p>
+
+                  <p className="text-xs text-red-400 mt-1">
+                    {formatDate(item.rejected_at)}
+                  </p>
+
+                  <p className="text-sm text-slate-200 mt-2">
+                    {item.reason}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </SectionCard>
+        )}
+
+        <SectionCard title="Work History">
+          <TimelineItem
+            icon={<Calendar size={15} />}
+            label="Created"
+            value={formatDate(ticket.created_at)}
+          />
+
+          <TimelineItem
+            icon={<UserCheck size={15} />}
+            label="Assigned To"
+            value={
+              ticket.assigned_to_name ||
+              ticket.assigned_engineer_email ||
+              ticket.assigned_to
+            }
+          />
+
+          <TimelineItem
+            icon={<CheckCircle size={15} />}
+            label="Accepted"
+            value={formatDate(ticket.accepted_at)}
+          />
+
+          <TimelineItem
+            icon={<PlayCircle size={15} />}
+            label="Started Trip / Work"
+            value={formatDate(ticket.started_at)}
+          />
+
+          <TimelineItem
+            icon={<MapPin size={15} />}
+            label="Arrived On Site"
+            value={formatDate(ticket.arrived_at)}
+          />
+
+          <TimelineItem
+            icon={<History size={15} />}
+            label="Current Status"
+            value={ticket.status}
+          />
+
+          <TimelineItem
+            icon={<AlertTriangle size={15} />}
+            label="Completion Status"
+            value={ticket.completion_status || 'pending'}
+          />
+
+          <TimelineItem
+            icon={<AlertTriangle size={15} />}
+            label="SLA"
+            value={ticket.sla_status || ticket.sla_level}
+          />
+
+          <TimelineItem
+            icon={<Calendar size={15} />}
+            label="SLA Deadline"
+            value={formatDate(ticket.sla_deadline)}
+          />
+
+          <TimelineItem
+            icon={<Upload size={15} />}
+            label="Submitted Review"
+            value={formatDate(ticket.submitted_review_at)}
+          />
+
+          <TimelineItem
+            icon={<Calendar size={15} />}
+            label="Updated"
+            value={formatDate(ticket.updated_at)}
+          />
+        </SectionCard>
+
+        <SectionCard title="Before Repair Photos">
+          <div className="space-y-3">
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              onChange={(e) => setBeforeFiles(Array.from(e.target.files || []))}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+            />
+
+            {beforeFiles.length > 0 && (
+              <p className="text-xs text-green-400">
+                {beforeFiles.length} before photo(s) selected.
+              </p>
+            )}
+
+            {existingBeforePhotos.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">
+                  Existing Before Photos:
+                </p>
+
+                {existingBeforePhotos.map((item, index) => (
+                  <a
+                    key={`${item.url}-${index}`}
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block text-xs text-blue-400 underline"
+                  >
+                    View before photo {index + 1}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="After Repair Photos">
+          <div className="space-y-3">
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              multiple
+              onChange={(e) => setAfterFiles(Array.from(e.target.files || []))}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+            />
+
+            {afterFiles.length > 0 && (
+              <p className="text-xs text-green-400">
+                {afterFiles.length} after photo(s) selected.
+              </p>
+            )}
+
+            {existingAfterPhotos.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">
+                  Existing After Photos:
+                </p>
+
+                {existingAfterPhotos.map((item, index) => (
+                  <a
+                    key={`${item.url}-${index}`}
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block text-xs text-blue-400 underline"
+                  >
+                    View after photo {index + 1}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Video Evidence Optional">
+          <div className="space-y-3">
+            <input
+              type="file"
+              accept="video/*"
+              capture="environment"
+              multiple
+              onChange={(e) => setVideoFiles(Array.from(e.target.files || []))}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+            />
+
+            {videoFiles.length > 0 && (
+              <p className="text-xs text-green-400">
+                {videoFiles.length} video(s) selected.
+              </p>
+            )}
+
+            {existingVideos.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-400">Existing Videos:</p>
+
+                {existingVideos.map((item, index) => (
+                  <a
+                    key={`${item.url}-${index}`}
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block text-xs text-blue-400 underline"
+                  >
+                    View video {index + 1}
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Completion Report">
+          <textarea
+            value={completionNote}
+            onChange={(e) => setCompletionNote(e.target.value)}
+            placeholder="Describe what you did on site, parts changed, test result, customer confirmation, and final ATM status."
+            rows={6}
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+          />
+
+          <p className="text-xs text-slate-500 mt-2">
+            Before photo, after photo, and completion report are required before submission.
+          </p>
+        </SectionCard>
+
+        <div className="grid grid-cols-2 gap-2">
+          <ActionButton
+            label="Start Trip"
+            icon={<PlayCircle size={16} />}
+            onClick={() => onUpdateStatus(ticket.id, 'traveling')}
+          />
+
+          <ActionButton
+            label="Arrived"
+            icon={<MapPin size={16} />}
+            onClick={() => onUpdateStatus(ticket.id, 'arrived_on_site')}
+          />
+
+          <ActionButton
+            label="Navigate"
+            icon={<Navigation size={16} />}
+            onClick={() => onNavigate(ticket)}
+          />
+
+          <ActionButton
+  label={
+    uploading
+      ? 'Submitting...'
+      : ticket?.completion_status === 'rejected'
+        ? 'Resubmit Review'
+        : 'Submit Review'
+  }
+  icon={<Upload size={16} />}
+  onClick={submitForReview}
+  primary
+/>
+
+          <ActionButton
+            label="Close"
+            icon={<X size={16} />}
+            onClick={onClose}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NotificationsModal({ notifications, onClose, onRefresh }) {
+  const openNotification = (item) => {
+    if (!item?.link) return;
+
+    const link = item.link;
+
+    onClose();
+
+    setTimeout(() => {
+      if (link.includes('/ark-connect')) {
+        window.dispatchEvent(
+          new CustomEvent('field-mobile-tab', {
+            detail: { tab: 'connect' },
+          })
+        );
+        return;
+      }
+
+      if (link.includes('/tickets')) {
+        window.dispatchEvent(
+          new CustomEvent('field-mobile-tab', {
+            detail: { tab: 'tickets' },
+          })
+        );
+        return;
+      }
+
+      if (link.includes('/parts') || link.includes('/inventory')) {
+        window.dispatchEvent(
+          new CustomEvent('field-mobile-tab', {
+            detail: { tab: 'parts' },
+          })
+        );
+        return;
+      }
+
+      window.dispatchEvent(
+        new CustomEvent('field-mobile-tab', {
+          detail: { tab: 'home' },
+        })
+      );
+    }, 100);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[75] bg-slate-950 text-white overflow-y-auto overflow-x-hidden"
+      style={{ WebkitOverflowScrolling: 'touch' }}
+    >
+      <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-lg">Notifications</h2>
+          <p className="text-xs text-slate-400">Recent alerts and updates</p>
+        </div>
+        <button type="button" onClick={onClose} className="rounded-full bg-slate-800 p-2">
+          <X size={20} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-3 pb-28">
+        <button type="button" onClick={onRefresh} className="w-full rounded-xl bg-slate-800 border border-slate-700 py-3 text-sm">
+          Refresh Notifications
+        </button>
+
+        {notifications.length === 0 ? (
+          <EmptyText text="No notification found." />
+        ) : (
+          notifications.map((item) => {
+            const hasLink = Boolean(item?.link);
+
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => openNotification(item)}
+                disabled={!hasLink}
+                className={`w-full text-left rounded-2xl bg-slate-900 border border-slate-800 p-4 ${hasLink ? 'active:scale-[0.99]' : 'opacity-90'}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white">
+                      {item.title || item.type || 'Notification'}
+                    </p>
+                    <p className="text-sm text-slate-400 mt-1">
+                      {item.message || item.body || 'No message'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-2">
+                      {formatDate(item.created_at)}
+                    </p>
+                  </div>
+                  {hasLink && <span className="text-orange-400 text-xl">›</span>}
+                </div>
+                {hasLink && <p className="text-xs text-orange-400 mt-2">Tap to open</p>}
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PartsScreen({ tickets, user }) {
+  const [selectedTicketId, setSelectedTicketId] = useState('');
+  const [partName, setPartName] = useState('');
+  const [quantity, setQuantity] = useState('1');
+  const [reason, setReason] = useState('');
+
+  const submitPartRequest = async () => {
+    if (!partName.trim()) {
+      alert('Enter the part needed.');
+      return;
+    }
+
+    const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId);
+
+    const { error } = await supabase.from('notifications').insert({
+      user_email: 'inventory@arktechnologiesgroup.com',
+      title: 'New Parts Request',
+      message: `${user?.full_name || user?.email} requested ${quantity} x ${partName}${
+        selectedTicket ? ` for ${selectedTicket.ticket_number || selectedTicket.ticket_id}` : ''
+      }. ${reason}`,
+      read: false,
+      type: 'parts_request',
+      sound: 'bell',
+      link: '/inventory',
+    });
+
+    if (error) {
+      console.error('Parts request error:', error);
+      alert('Could not submit parts request. Check notifications table policy.');
+      return;
+    }
+
+    alert('Parts request sent to Inventory.');
+    setSelectedTicketId('');
+    setPartName('');
+    setQuantity('1');
+    setReason('');
+  };
+
+  return (
+    <div className="space-y-4">
+      <PageTitle title="Parts" subtitle="Request parts and track inventory support." />
+
+      <SectionCard title="New Parts Request">
+        <div className="space-y-3">
+          <select value={selectedTicketId} onChange={(e) => setSelectedTicketId(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm">
+            <option value="">Select related ticket optional</option>
+            {tickets.map((ticket) => (
+              <option key={ticket.id} value={ticket.id}>
+                {ticket.ticket_number || ticket.ticket_id || ticket.title}
+              </option>
+            ))}
+          </select>
+
+          <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder="Part name e.g Card Reader" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm" />
+          <input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Quantity" type="number" min="1" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm" />
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason / fault note" rows={4} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm" />
+
+          <button type="button" onClick={submitPartRequest} className="w-full rounded-xl bg-orange-500 py-3 font-semibold">
+            Send Parts Request
+          </button>
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+function ConnectScreen({
+  user,
+  dmCount,
+  mails = [],
+  loadingMails = false,
+  chatMessages = [],
+  loadingChat = false,
+  onRefreshMails,
+  onRefreshChat,
+  onSupportRequest,
+}) {
+  const [activeSection, setActiveSection] = useState('chats');
+  const [selectedChat, setSelectedChat] = useState(null);
+  const [selectedMail, setSelectedMail] = useState(null);
+
+  const channels = ['General', 'Engineers', 'Helpdesk', 'Operations'];
+
+  const directChats = Object.values(
+    chatMessages
+      .filter((msg) => !msg.channel_name)
+      .reduce((acc, msg) => {
+        const otherEmail =
+          msg.sender_id === user?.email ? msg.recipient_id : msg.sender_id;
+
+        const otherName =
+          msg.sender_id === user?.email ? msg.recipient_name : msg.sender_name;
+
+        if (!otherEmail) return acc;
+
+        if (!acc[otherEmail]) {
+          acc[otherEmail] = {
+            type: 'direct',
+            id: otherEmail,
+            name: otherName || otherEmail,
+            email: otherEmail,
+            messages: [],
+          };
+        }
+
+        acc[otherEmail].messages.push(msg);
+        return acc;
+      }, {})
+  ).map((chat) => ({
+    ...chat,
+    lastMessage: chat.messages.sort(
+      (a, b) => new Date(b.created_at) - new Date(a.created_at)
+    )[0],
+  }));
+
+  const channelChats = channels.map((channel) => {
+    const messages = chatMessages.filter((msg) => msg.channel_name === channel);
+
+    return {
+      type: 'channel',
+      id: channel,
+      name: `# ${channel}`,
+      channel_name: channel,
+      messages,
+      lastMessage: messages.sort(
+        (a, b) => new Date(b.created_at) - new Date(a.created_at)
+      )[0],
+    };
+  });
+
+  const inboxMails = mails.filter(
+    (mail) => mail.direction !== 'outbound' && mail.is_sent !== true
+  );
+
+  const sentMails = mails.filter(
+    (mail) => mail.direction === 'outbound' || mail.is_sent === true
+  );
+
+  const unreadMails = inboxMails.filter((mail) =>
+    ['new', 'unread', 'assigned'].includes(
+      String(mail.email_status || '').toLowerCase()
+    )
+  ).length;
+
+  return (
+    <div className="space-y-4">
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <h2 className="text-xl font-bold text-white">Connect</h2>
+        <p className="text-sm text-slate-400 mt-1">
+          WhatsApp-style chat, Gmail-style mail and support.
+        </p>
+      </section>
+
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          ['chats', 'Chats'],
+          ['channels', 'Channels'],
+          ['mail', `Mail ${unreadMails ? `(${unreadMails})` : ''}`],
+          ['support', 'Support'],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setActiveSection(key)}
+            className={`rounded-xl py-3 text-[11px] font-semibold border ${
+              activeSection === key
+                ? 'bg-orange-500 border-orange-500 text-white'
+                : 'bg-slate-800 border-slate-700 text-slate-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeSection === 'chats' && (
+        <SectionCard title="Direct Chats">
+          <button
+            type="button"
+            onClick={onRefreshChat}
+            className="w-full rounded-xl bg-slate-800 border border-slate-700 py-3 text-sm mb-3"
+          >
+            {loadingChat ? 'Refreshing...' : 'Refresh Chats'}
+          </button>
+
+          {directChats.length === 0 ? (
+            <EmptyText text="No direct chat found yet." />
+          ) : (
+            <div className="space-y-2">
+              {directChats.map((chat) => (
+                <ChatListItem
+                  key={chat.id}
+                  title={chat.name}
+                  subtitle={chat.lastMessage?.message_body}
+                  time={chat.lastMessage?.created_at}
+                  onClick={() => setSelectedChat(chat)}
+                />
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      )}
+
+      {activeSection === 'channels' && (
+        <SectionCard title="Channels">
+          <div className="space-y-2">
+            {channelChats.map((chat) => (
+              <ChatListItem
+                key={chat.id}
+                title={chat.name}
+                subtitle={chat.lastMessage?.message_body || 'No message yet'}
+                time={chat.lastMessage?.created_at}
+                onClick={() => setSelectedChat(chat)}
+              />
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {activeSection === 'mail' && (
+        <SectionCard title="Mail">
+          <button
+            type="button"
+            onClick={onRefreshMails}
+            className="w-full rounded-xl bg-slate-800 border border-slate-700 py-3 text-sm mb-3"
+          >
+            {loadingMails ? 'Refreshing...' : 'Refresh Mail'}
+          </button>
+
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold text-orange-400">Inbox</h3>
+
+            {inboxMails.length === 0 ? (
+              <EmptyText text="No inbox mail found." />
+            ) : (
+              inboxMails.slice(0, 20).map((mail) => (
+                <MailListItem
+                  key={mail.id}
+                  mail={mail}
+                  onClick={() => setSelectedMail(mail)}
+                />
+              ))
+            )}
+
+            <h3 className="text-sm font-semibold text-orange-400 pt-3">Sent</h3>
+
+            {sentMails.length === 0 ? (
+              <EmptyText text="No sent mail found." />
+            ) : (
+              sentMails.slice(0, 10).map((mail) => (
+                <MailListItem
+                  key={mail.id}
+                  mail={mail}
+                  onClick={() => setSelectedMail(mail)}
+                />
+              ))
+            )}
+          </div>
+        </SectionCard>
+      )}
+
+      {activeSection === 'support' && (
+        <SectionCard title="Quick Support">
+          <div className="space-y-3">
+            <ConnectCard
+              title="Helpdesk"
+              text="Need remote troubleshooting or ticket support."
+              onClick={() =>
+                onSupportRequest(
+                  'Helpdesk',
+                  'Engineer requested Helpdesk support from mobile.'
+                )
+              }
+            />
+
+            <ConnectCard
+              title="Operations"
+              text="Escalate site access, SLA risk or customer delay."
+              onClick={() =>
+                onSupportRequest(
+                  'Operations',
+                  'Engineer requested Operations support from mobile.'
+                )
+              }
+            />
+
+            <ConnectCard
+              title="Inventory"
+              text="Follow up on urgent parts or replacement items."
+              onClick={() =>
+                onSupportRequest(
+                  'Inventory',
+                  'Engineer requested Inventory support from mobile.'
+                )
+              }
+            />
+          </div>
+        </SectionCard>
+      )}
+
+      {selectedChat && (
+        <WhatsAppChatModal
+          chat={selectedChat}
+          user={user}
+          onClose={() => setSelectedChat(null)}
+          onSent={onRefreshChat}
+        />
+      )}
+
+      {selectedMail && (
+  <GmailMailModal
+    mail={selectedMail}
+    user={user}
+    onClose={() => setSelectedMail(null)}
+    onSent={onRefreshMails}
+  />
+)}
+    </div>
+  );
+}
+
+function ChatListItem({ title, subtitle, time, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left rounded-2xl bg-slate-800 border border-slate-700 p-3 active:scale-[0.99]"
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-11 h-11 rounded-full bg-orange-500/15 border border-orange-500 flex items-center justify-center">
+          <MessageCircle size={22} className="text-orange-400" />
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="font-semibold text-white truncate">{title}</h3>
+            <span className="text-[10px] text-slate-500 shrink-0">
+              {time ? formatDate(time) : ''}
+            </span>
+          </div>
+
+          <p className="text-xs text-slate-400 truncate mt-1">
+            {subtitle || 'Tap to start conversation'}
+          </p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function MailListItem({ mail, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left rounded-2xl bg-slate-800 border border-slate-700 p-3 active:scale-[0.99]"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-semibold text-white truncate">
+            {mail.subject || 'No Subject'}
+          </p>
+
+          <p className="text-xs text-slate-400 mt-1 truncate">
+            {mail.sender_name || mail.sender_email || 'ARK Mail'} •{' '}
+            {formatDate(mail.created_at || mail.received_at)}
+          </p>
+
+          <p className="text-sm text-slate-300 mt-2 line-clamp-2">
+            {mail.message_body || 'No message body'}
+          </p>
+        </div>
+
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-orange-300">
+          {mail.email_status || 'New'}
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function WhatsAppChatModal({ chat, user, onClose, onSent }) {
+  const [replyText, setReplyText] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const messages = [...(chat.messages || [])].sort(
+    (a, b) => new Date(a.created_at) - new Date(b.created_at)
+  );
+
+  const sendMessage = async () => {
+    const clean = replyText.trim();
+    if (!clean) return;
+
+    setSending(true);
+
+    const payload = {
+      sender_id: user?.email,
+      sender_name: user?.full_name || user?.name || user?.email,
+      sender_role: user?.role || 'engineer',
+      recipient_id: chat.type === 'direct' ? chat.email : null,
+      recipient_name: chat.type === 'direct' ? chat.name : null,
+      channel_name: chat.type === 'channel' ? chat.channel_name : null,
+      message_type: 'text',
+      message_body: clean,
+      created_at: new Date().toISOString(),
+      read_at: null,
+    };
+
+    const { error } = await supabase.from('chat_messages').insert(payload);
+
+    setSending(false);
+
+    if (error) {
+      console.error('Chat send error:', error);
+      alert(`Could not send message: ${error.message}`);
+      return;
+    }
+
+    setReplyText('');
+    onSent?.();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] bg-slate-950 text-white overflow-hidden"
+      style={{ height: '100svh', maxHeight: '100svh' }}
+    >
+      <div className="h-[72px] bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full bg-slate-800 p-2"
+          >
+            <X size={18} />
+          </button>
+
+          <div className="min-w-0">
+            <h2 className="font-bold truncate">{chat.name}</h2>
+            <p className="text-xs text-slate-400">
+              {chat.type === 'channel' ? 'Channel' : 'Direct message'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="h-[calc(100svh-142px)] overflow-y-auto overflow-x-hidden p-4 space-y-3"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {messages.length === 0 ? (
+          <EmptyText text="No message yet. Start conversation below." />
+        ) : (
+          messages.map((msg) => {
+            const mine = msg.sender_id === user?.email;
+
+            return (
+              <div
+                key={msg.id}
+                className={`max-w-[82%] rounded-2xl p-3 text-sm ${
+                  mine
+                    ? 'ml-auto bg-orange-500 text-white rounded-br-sm'
+                    : 'mr-auto bg-slate-800 text-slate-200 rounded-bl-sm'
+                }`}
+              >
+                {!mine && (
+                  <p className="text-[10px] text-slate-400 mb-1">
+                    {msg.sender_name || msg.sender_id}
+                  </p>
+                )}
+
+                <p className="whitespace-pre-wrap">{msg.message_body}</p>
+
+                <p className={`text-[10px] mt-1 ${mine ? 'text-orange-100' : 'text-slate-500'}`}>
+                  {formatDate(msg.created_at)}
+                </p>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div
+        className="fixed left-0 right-0 bottom-0 bg-slate-900 border-t border-slate-800 p-3 flex gap-2"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}
+      >
+        <input
+          value={replyText}
+          onChange={(e) => setReplyText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+          placeholder="Message..."
+          className="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4 text-sm"
+        />
+
+        <button
+          type="button"
+          onClick={sendMessage}
+          disabled={sending}
+          className="h-11 w-11 rounded-full bg-orange-500 flex items-center justify-center disabled:opacity-60"
+        >
+          <Send size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function GmailMailModal({ mail, user, onClose, onSent }) {
+  const [replyText, setReplyText] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const sendReply = async () => {
+    const clean = replyText.trim();
+    if (!clean) return;
+
+    const recipientEmail = mail.sender_email || mail.recipient_email;
+
+    if (!recipientEmail) {
+      alert('No recipient found.');
+      return;
+    }
+
+    setSending(true);
+
+    const now = new Date().toISOString();
+
+    const { error } = await supabase.from('email_messages').insert({
+      subject: mail.subject?.startsWith('Re:')
+        ? mail.subject
+        : `Re: ${mail.subject || 'No Subject'}`,
+      sender_name: user?.full_name || user?.name || user?.email,
+      sender_email: user?.email,
+      recipient_email: recipientEmail,
+      message_body: clean,
+      email_status: 'Sent',
+      is_sent: true,
+      is_draft: false,
+      archived_status: false,
+      direction: 'outbound',
+      replied_status: true,
+      linked_ticket_id: mail.linked_ticket_id || null,
+      related_bank: mail.related_bank || null,
+      related_branch: mail.related_branch || null,
+      received_at: now,
+      created_at: now,
+      updated_at: now,
+    });
+
+    setSending(false);
+
+    if (error) {
+      console.error('Mail reply error:', error);
+      alert(`Could not send mail: ${error.message}`);
+      return;
+    }
+
+    setReplyText('');
+    alert('Mail sent.');
+    onSent?.();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] bg-slate-950 text-white overflow-hidden"
+      style={{ height: '100svh', maxHeight: '100svh' }}
+    >
+      <div className="h-[72px] bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between">
+        <div className="min-w-0">
+          <h2 className="font-bold truncate">Mail</h2>
+          <p className="text-xs text-slate-400 truncate">
+            {mail.sender_name || mail.sender_email || 'ARK Mail'}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-slate-800 p-2"
+        >
+          <X size={18} />
+        </button>
+      </div>
+
+      <div
+        className="h-[calc(100svh-142px)] overflow-y-auto overflow-x-hidden p-4 space-y-4"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+          <h2 className="text-xl font-bold text-white">
+            {mail.subject || 'No Subject'}
+          </h2>
+
+          <p className="text-xs text-slate-500 mt-2">
+            From: {mail.sender_name || mail.sender_email || 'Unknown'}
+          </p>
+
+          <p className="text-xs text-slate-500">
+            Date: {formatDate(mail.created_at || mail.received_at)}
+          </p>
+
+          <p className="text-sm text-slate-300 whitespace-pre-wrap mt-4">
+            {mail.message_body || 'No message body.'}
+          </p>
+        </div>
+      </div>
+
+      <div
+        className="fixed left-0 right-0 bottom-0 bg-slate-900 border-t border-slate-800 p-3 flex gap-2"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}
+      >
+        <input
+          value={replyText}
+          onChange={(e) => setReplyText(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && sendReply()}
+          placeholder="Reply..."
+          className="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4 text-sm"
+        />
+
+        <button
+          type="button"
+          onClick={sendReply}
+          disabled={sending}
+          className="h-11 w-11 rounded-full bg-orange-500 flex items-center justify-center disabled:opacity-60"
+        >
+          <Send size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ConnectCard({ title, text, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left rounded-xl bg-slate-800 border border-slate-700 p-3 active:scale-[0.99]"
+    >
+      <h3 className="font-semibold text-white">{title}</h3>
+      <p className="text-xs text-slate-400 mt-1">{text}</p>
+    </button>
+  );
+}
+
+function ProfileScreen({
+  user,
+  tickets,
+  devices = [],
+  loadingDevices = false,
+  onLogout,
+  onTabChange,
+}) {
+  const [fieldStatus, setFieldStatus] = useState(user?.field_status || 'available');
+  const [selectedDevice, setSelectedDevice] = useState(null);
+
+  const completed = tickets.filter((ticket) =>
+    ['approved', 'closed', 'completed'].includes(ticket.status)
+  ).length;
+
+  const pendingReview = tickets.filter((ticket) =>
+    ticket.status === 'pending_review' || ticket.completion_status === 'pending'
+  ).length;
+
+  const rejectedTickets = tickets.filter((ticket) =>
+    ticket.completion_status === 'rejected'
+  );
+
+  const activeMachines = devices.filter((device) =>
+    ['active', 'Active'].includes(device.device_status || device.status || device.state)
+  ).length;
+
+  const faultyMachines = devices.filter((device) =>
+    ['faulty', 'Faulty'].includes(device.device_status || device.status || device.state)
+  ).length;
+
+  const slaRisk = devices.filter((device) =>
+    ['Warning', 'Breached', 'Critical', 'warning', 'breached', 'critical'].includes(device.sla_status)
+  ).length;
+
+  const currentStatusLabel = {
+    available: 'Available',
+    traveling: 'Traveling',
+    on_site: 'On Site',
+    busy: 'Busy',
+    offline: 'Offline',
+  }[fieldStatus] || 'Available';
+
+  const updateFieldStatus = async (value) => {
+    setFieldStatus(value);
+
+    const { error } = await supabase
+      .from('users')
+      .update({
+        field_status: value,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('email', user.email);
+
+    if (error) {
+      console.error('Field status update error:', error);
+      alert('Could not update field status.');
+    }
+  };
+
+  const FieldStatusButton = ({ value, label, icon, dotClass }) => (
+    <button
+      type="button"
+      onClick={() => updateFieldStatus(value)}
+      className={`rounded-xl border px-2 py-2 text-[11px] font-semibold flex items-center justify-center gap-1.5 min-h-[42px] ${
+        fieldStatus === value
+          ? 'border-orange-500 bg-orange-500/10 text-white shadow-[0_0_12px_rgba(249,115,22,0.20)]'
+          : 'border-slate-700 bg-slate-900/70 text-slate-400'
+      }`}
+    >
+      {icon ? (
+        <span className="text-base leading-none">{icon}</span>
+      ) : (
+        <span className={`w-3 h-3 rounded-full ${dotClass}`} />
+      )}
+      <span className="truncate">{label}</span>
+    </button>
+  );
+
+  const MiniStat = ({ title, value, icon, tone }) => {
+    const tones = {
+      blue: 'text-blue-400 border-blue-500/30 bg-blue-500/10',
+      green: 'text-green-400 border-green-500/30 bg-green-500/10',
+      amber: 'text-amber-400 border-amber-500/30 bg-amber-500/10',
+      red: 'text-red-400 border-red-500/30 bg-red-500/10',
+    };
+
+    return (
+      <div className="rounded-2xl bg-slate-900 border border-slate-800 px-3 py-3 min-h-[86px] flex flex-col items-center justify-center text-center">
+        <div className={`w-9 h-9 rounded-full border flex items-center justify-center mb-1.5 ${tones[tone]}`}>
+          {icon}
+        </div>
+        <p className="text-2xl font-bold text-white leading-none">{value}</p>
+        <p className="text-[11px] text-slate-400 mt-1 leading-tight">{title}</p>
+      </div>
+    );
+  };
+
+  const QuickAction = ({ icon, label, onClick, accent = 'text-orange-400' }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-2xl bg-slate-900 border border-slate-800 p-3 min-h-[76px] flex flex-col items-center justify-center gap-1 active:scale-[0.98]"
+    >
+      <span className={accent}>{icon}</span>
+      <span className="text-[11px] text-slate-200 font-medium text-center leading-tight">{label}</span>
+    </button>
+  );
+
+  return (
+    <div className="space-y-3 pb-2">
+      <section className="rounded-2xl bg-slate-900/95 border border-slate-800 p-4">
+        <div className="flex items-center gap-4">
+          <div className="w-[76px] h-[76px] rounded-full border-2 border-orange-500 bg-slate-950 flex items-center justify-center shrink-0">
+            <User size={40} className="text-orange-500" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold text-white truncate">
+              {user?.full_name || user?.name || 'Engineer'}
+            </h2>
+
+            <span className="inline-block mt-1 text-xs border border-orange-500 text-orange-400 rounded-full px-3 py-0.5 font-semibold">
+              Engineer
+            </span>
+
+            <p className="text-sm text-slate-400 mt-2 truncate">
+              {user?.email}
+            </p>
+
+            <p className="text-sm text-green-400 mt-1 font-semibold">
+              ● {currentStatusLabel}
+            </p>
+          </div>
+
+          <span className="text-orange-500 text-4xl leading-none">›</span>
+        </div>
+      </section>
+
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <h3 className="font-bold text-base mb-3">Field Status</h3>
+
+        <div className="grid grid-cols-5 gap-2">
+          <FieldStatusButton value="available" label="Available" dotClass="bg-green-500" />
+          <FieldStatusButton value="traveling" label="Traveling" icon="🚚" />
+          <FieldStatusButton value="on_site" label="On Site" icon="📍" />
+          <FieldStatusButton value="busy" label="Busy" dotClass="bg-red-500" />
+          <FieldStatusButton value="offline" label="Offline" dotClass="bg-slate-400" />
+        </div>
+      </section>
+
+      <div className="grid grid-cols-4 gap-2">
+        <MiniStat title="All Jobs" value={tickets.length} icon={<ClipboardList size={19} />} tone="blue" />
+        <MiniStat title="Completed" value={completed} icon={<CheckCircle size={20} />} tone="green" />
+        <MiniStat title="Pending Review" value={pendingReview} icon={<History size={20} />} tone="amber" />
+        <MiniStat title="Rejected" value={rejectedTickets.length} icon={<X size={20} />} tone="red" />
+      </div>
+
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-base">Engineer Details</h3>
+          <span className="text-orange-500 text-3xl leading-none">›</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <div>
+            <p className="text-slate-500 text-xs">Department</p>
+            <p className="text-slate-100 truncate">{user?.department || 'General'}</p>
+          </div>
+
+          <div>
+            <p className="text-slate-500 text-xs">Email</p>
+            <p className="text-slate-100 truncate">{user?.email}</p>
+          </div>
+
+          <div>
+            <p className="text-slate-500 text-xs">Phone</p>
+            <p className="text-slate-100 truncate">{user?.phone || user?.phone_number || 'Not set'}</p>
+          </div>
+
+          <div>
+            <p className="text-slate-500 text-xs">Member Since</p>
+            <p className="text-slate-100 truncate">{formatDate(user?.created_at)}</p>
+          </div>
+
+          <div>
+            <p className="text-slate-500 text-xs">Role</p>
+            <p className="text-slate-100 capitalize truncate">{user?.role || 'Engineer'}</p>
+          </div>
+
+          <div>
+            <p className="text-slate-500 text-xs">Status</p>
+            <span className="inline-block text-green-400 border border-green-500/40 bg-green-500/10 rounded-full px-2 py-0.5 text-xs font-semibold capitalize">
+              {user?.status || user?.approval_status || 'Active'}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <button
+          type="button"
+          onClick={() => setSelectedDevice({ view: 'list' })}
+          className="w-full text-left rounded-2xl bg-slate-900 border border-orange-500 p-4 active:scale-[0.99]"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-14 h-14 rounded-full border-2 border-orange-500 bg-orange-500/10 flex items-center justify-center shrink-0">
+                <Package size={29} className="text-orange-500" />
+              </div>
+
+              <div className="min-w-0">
+                <h3 className="font-bold text-lg text-white truncate">
+                  My Assigned Machines
+                </h3>
+                <p className="text-sm text-slate-400 truncate">
+                  All machines assigned to you
+                </p>
+              </div>
+            </div>
+
+            <span className="text-orange-500 text-4xl leading-none">›</span>
+          </div>
+
+          <div className="mt-3 ml-[68px]">
+            <p className="text-4xl font-bold text-white leading-none">
+              {loadingDevices ? '...' : devices.length}
+            </p>
+            <p className="text-sm text-slate-400 mt-1">Total Machines</p>
+          </div>
+
+          <div className="border-t border-slate-800 mt-4 pt-3 grid grid-cols-4 gap-2 text-center items-center">
+            <div>
+              <p className="text-green-400 font-bold text-lg">● {activeMachines}</p>
+              <p className="text-xs text-slate-400">Active</p>
+            </div>
+
+            <div>
+              <p className="text-yellow-400 font-bold text-lg">⚠ {slaRisk}</p>
+              <p className="text-xs text-slate-400">SLA Risk</p>
+            </div>
+
+            <div>
+              <p className="text-red-400 font-bold text-lg">✖ {faultyMachines}</p>
+              <p className="text-xs text-slate-400">Faulty</p>
+            </div>
+
+            <p className="text-orange-400 text-xs font-semibold leading-tight text-right">
+              Tap to view<br />machine list
+            </p>
+          </div>
+        </button>
+      </section>
+
+      <section>
+        <h3 className="font-bold text-base mb-2">Quick Actions</h3>
+        <div className="grid grid-cols-4 gap-2">
+          <QuickAction icon={<FileText size={26} />} label="New Ticket" onClick={() => onTabChange?.('tickets')} />
+          <QuickAction icon={<ClipboardList size={26} />} label="My Tickets" onClick={() => onTabChange?.('tickets')} accent="text-blue-400" />
+          <QuickAction icon={<Upload size={26} />} label="Submit Completion" onClick={() => onTabChange?.('jobs')} accent="text-green-400" />
+          <QuickAction icon={<History size={26} />} label="History" onClick={() => onTabChange?.('tickets')} accent="text-purple-400" />
+        </div>
+      </section>
+
+      <button
+        type="button"
+        onClick={onLogout}
+        className="w-full rounded-xl bg-red-600 py-3.5 font-semibold flex items-center justify-center gap-2"
+      >
+        <LogOut size={20} />
+        Log Out
+      </button>
+
+      {selectedDevice?.view === 'list' && (
+        <AssignedMachinesModal
+          devices={devices}
+          onClose={() => setSelectedDevice(null)}
+          onSelectDevice={(device) => setSelectedDevice(device)}
+        />
+      )}
+
+      {selectedDevice && !selectedDevice.view && (
+        <DeviceDetailsModal
+          device={selectedDevice}
+          onClose={() => setSelectedDevice(null)}
+          onBack={() => setSelectedDevice({ view: 'list' })}
+        />
+      )}
+    </div>
+  );
+}
+
+function AssignedMachinesModal({ devices, onClose, onSelectDevice }) {
+  const [search, setSearch] = useState('');
+
+  const filteredDevices = devices.filter((device) => {
+    const q = search.toLowerCase();
+
+    return (
+      !q ||
+      device.terminal_id?.toLowerCase().includes(q) ||
+      device.atm_terminal_id?.toLowerCase().includes(q) ||
+      device.bank_name?.toLowerCase().includes(q) ||
+      device.client_name?.toLowerCase().includes(q) ||
+      device.branch_name?.toLowerCase().includes(q) ||
+      device.branch?.toLowerCase().includes(q) ||
+      device.site_name?.toLowerCase().includes(q)
+    );
+  });
+
+  return (
+    <div
+      className="fixed inset-0 z-[84] bg-slate-950 text-white overflow-y-auto overflow-x-hidden"
+      style={{ WebkitOverflowScrolling: 'touch' }}
+    >
+      <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-lg">Assigned Machines</h2>
+            <p className="text-xs text-slate-400">
+              {filteredDevices.length} of {devices.length} machines
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full bg-slate-800 p-2"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search terminal, bank, branch..."
+          className="w-full mt-4 bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+        />
+      </div>
+
+      <div className="p-4 space-y-3 pb-28">
+        {filteredDevices.length === 0 ? (
+          <EmptyText text="No machine found." />
+        ) : (
+          filteredDevices.map((device) => (
+            <button
+              key={device.id}
+              type="button"
+              onClick={() => onSelectDevice(device)}
+              className="w-full text-left rounded-xl bg-slate-900 border border-slate-800 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-white truncate">
+                    {device.terminal_id ||
+                      device.atm_terminal_id ||
+                      device.machine_name ||
+                      device.device_name ||
+                      device.name ||
+                      'Unnamed Machine'}
+                  </p>
+
+                  <p className="text-xs text-slate-400 mt-1 truncate">
+                    {device.bank_name || device.client_name || 'Bank'} •{' '}
+                    {device.branch_name || device.branch || device.site_name || 'Branch'}
+                  </p>
+                </div>
+
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-orange-300">
+                  {device.device_status || device.status || device.state || 'Active'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3 mt-3 text-[11px] text-slate-400">
+                <span>
+                  Health:{' '}
+                  <b className="text-slate-200">
+                    {device.health_score !== null && device.health_score !== undefined
+                      ? `${device.health_score}%`
+                      : 'N/A'}
+                  </b>
+                </span>
+
+                <span>
+                  SLA:{' '}
+                  <b className="text-slate-200">
+                    {device.sla_status || 'Normal'}
+                  </b>
+                </span>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DeviceDetailsModal({ device, onClose, onBack }) {
+  return (
+    <div
+      className="fixed inset-0 z-[85] bg-slate-950 text-white overflow-y-auto overflow-x-hidden"
+      style={{ WebkitOverflowScrolling: 'touch' }}
+    >
+      <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
+        <div>
+          <h2 className="font-bold text-lg">Machine Details</h2>
+          <p className="text-xs text-slate-400">
+            {device.terminal_id || device.atm_terminal_id || device.id}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full bg-slate-800 p-2"
+        >
+          <X size={20} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4 pb-28">
+        <SectionCard title="Machine Identity">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <Info label="Terminal ID" value={device.terminal_id || device.atm_terminal_id} />
+            <Info label="Serial No." value={device.serial_number} />
+            <Info label="Name" value={device.device_name || device.machine_name || device.name} />
+            <Info label="Type" value={device.device_type || device.machine_type || device.category} />
+            <Info label="Model" value={device.device_model || device.model} />
+            <Info label="Firmware" value={device.firmware_version} />
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Bank & Location">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <Info label="Bank" value={device.bank_name || device.client_name} />
+            <Info label="Branch" value={device.branch_name || device.branch} />
+            <Info label="Site" value={device.site_name} />
+            <Info label="Location" value={device.location || device.branch_location} />
+            <Info label="State" value={device.state} />
+            <Info label="IP Address" value={device.ip_address} />
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Operational Status">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <Info label="Device Status" value={device.device_status || device.status} />
+            <Info label="SLA Status" value={device.sla_status} />
+            <Info
+              label="Health Score"
+              value={
+                device.health_score !== null && device.health_score !== undefined
+                  ? `${device.health_score}%`
+                  : 'N/A'
+              }
+            />
+            <Info label="Assigned Engineer" value={device.assigned_engineer_name || device.assigned_engineer_email} />
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Maintenance">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <Info label="Installed" value={device.installation_date} />
+            <Info label="Warranty Expiry" value={device.warranty_expiry} />
+            <Info label="Last PM" value={device.last_maintenance_date} />
+            <Info label="Next PM" value={device.next_maintenance_date} />
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Notes">
+          <p className="text-sm text-slate-300 whitespace-pre-wrap">
+            {device.notes || 'No note available.'}
+          </p>
+        </SectionCard>
+
+        <button
+          type="button"
+          onClick={onBack || onClose}
+          className="w-full rounded-xl bg-orange-500 py-3 font-semibold"
+        >
+          Back to List
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AssistantModal({ replies, message, setMessage, onSend, onClose }) {
+  return (
+    <div className="fixed inset-0 z-[80] bg-slate-950 text-white flex flex-col">
+      <div className="bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bot className="text-orange-400" />
+          <div>
+            <h2 className="font-bold">ARK Assistant</h2>
+            <p className="text-xs text-slate-400">ATM remote support assistant</p>
+          </div>
+        </div>
+        <button type="button" onClick={onClose} className="rounded-full bg-slate-800 p-2">
+          <X size={20} />
+        </button>
+      </div>
+
+      <div className="bg-slate-900/50 border-b border-slate-800 p-3 grid grid-cols-2 gap-2">
+        {['Cash jam', 'Card reader', 'Dispenser', 'Comms down'].map((item) => (
+          <button key={item} type="button" onClick={() => setMessage(item)} className="rounded-xl bg-slate-800 border border-slate-700 p-2 text-xs">
+            {item}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
+        {replies.map((item, index) => (
+          <div key={`${item.from}-${index}`} className={`max-w-[85%] rounded-2xl p-3 text-sm whitespace-pre-line ${item.from === 'user' ? 'ml-auto bg-orange-500 text-white' : 'mr-auto bg-slate-800 text-slate-200'}`}>
+            {item.text}
+          </div>
+        ))}
+      </div>
+
+      <div className="p-3 border-t border-slate-800 bg-slate-900 flex gap-2">
+        <input value={message} onChange={(e) => setMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && onSend()} placeholder="Describe ATM fault..." className="flex-1 bg-slate-800 border border-slate-700 rounded-xl px-3 text-sm" />
+        <button type="button" onClick={onSend} className="bg-orange-500 rounded-xl px-4">
+          <Send size={18} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function getAssistantReply(message, tickets) {
+  const lower = message.toLowerCase();
+
+  if (lower.includes('cash') || lower.includes('jam')) {
+    return `ATM cash jam support:
+1. Confirm machine state and note error code.
+2. Put ATM in supervisor/maintenance mode if available.
+3. Check presenter, transport path and reject bin.
+4. Remove jammed note carefully without forcing belts.
+5. Inspect cassette seating and note quality.
+6. Run dispense test.
+7. If jam repeats, check pick module, sensors and transport belts.
+8. Update ticket with findings before completion.`;
+  }
+
+  if (lower.includes('card')) {
+    return `Card reader support:
+1. Check if card is stuck or reader shutter is blocked.
+2. Clean card reader path using approved cleaning card.
+3. Check reader cable and USB/serial connection.
+4. Restart ATM application service if required.
+5. Test card insert/eject.
+6. If card is retained repeatedly, check reader motor, sensor and shutter.
+7. Request replacement card reader if fault persists.`;
+  }
+
+  if (lower.includes('dispenser')) {
+    return `Dispenser support:
+1. Check dispenser error code.
+2. Confirm cassette lock, note level and cassette seating.
+3. Inspect pick rollers and presenter path.
+4. Check reject bin and purge notes.
+5. Run dispenser test from supervisor mode.
+6. If one cassette fails, swap/test cassette position.
+7. If all cassettes fail, check dispenser controller/power/cable.`;
+  }
+
+  if (lower.includes('printer') || lower.includes('receipt')) {
+    return `Receipt printer support:
+1. Check paper roll direction and paper level.
+2. Clear paper jam.
+3. Clean printer sensor area.
+4. Check printer cable and power.
+5. Run receipt printer test.
+6. If printing is faint, check thermal paper quality.
+7. If no feed, inspect feed motor and sensor.`;
+  }
+
+  if (lower.includes('network') || lower.includes('comms') || lower.includes('communication')) {
+    return `Communication down support:
+1. Confirm router/modem power.
+2. Check LAN cable from ATM to router/switch.
+3. Verify link light on ATM LAN port.
+4. Restart router if approved.
+5. Check IP configuration if accessible.
+6. Confirm site network availability with bank/contact.
+7. Escalate to Operations/Helpdesk if network is external.`;
+  }
+
+  if (lower.includes('power')) {
+    return `Power issue support:
+1. Confirm site power source and UPS status.
+2. Check ATM power cable and breaker.
+3. Inspect PSU indicators if available.
+4. Confirm monitor/PC/dispenser power separately.
+5. Avoid bypassing safety protection.
+6. If PSU is suspected, request replacement and escalate.`;
+  }
+
+  if (lower.includes('job') || lower.includes('ticket')) {
+    return `You currently have ${tickets.length} active assigned job(s). Use Jobs for field actions and Tickets for fault details/work history.`;
+  }
+
+  return `I can help with ATM faults such as:
+- Cash jam
+- Card reader error
+- Dispenser fault
+- Receipt printer issue
+- Communication down
+- Power issue
+- Supervisor mode error
+
+Describe the fault or error code you are seeing on site.`;
+}
+
+function MiniTicketCard({ ticket, onClick }) {
+  return (
+    <button type="button" onClick={onClick} className="w-full text-left rounded-xl bg-slate-800 border border-slate-700 p-3">
+      <p className="text-xs text-slate-500">{ticket.ticket_number || ticket.ticket_id || 'Ticket'}</p>
+      <p className="font-medium text-sm mt-1">{ticket.title || ticket.category || 'Assigned Job'}</p>
+      <p className="text-xs text-slate-400 mt-1">{ticket.bank_name || ticket.client_name || 'Bank'} • {ticket.branch_name || ticket.branch || 'Branch'}</p>
+    </button>
+  );
+}
+
+function TimelineItem({ icon, label, value }) {
+  return (
+    <div className="flex gap-3 border-l border-slate-700 pl-3 pb-3">
+      <div className="text-orange-400 mt-0.5">{icon}</div>
+      <div>
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className="text-sm text-slate-300">{value || 'Not set'}</p>
+      </div>
+    </div>
+  );
+}
+
+function PageTitle({ title, subtitle }) {
+  return (
+    <div>
+      <h2 className="text-xl font-bold">{title}</h2>
+      <p className="text-sm text-slate-400 mt-1">{subtitle}</p>
+    </div>
+  );
+}
+
+function SectionCard({ title, children }) {
+  return (
+    <section className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
+      <h3 className="font-semibold mb-3">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+function StatCard({ title, value, icon }) {
+  return (
+    <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
+      <div className="flex items-center justify-between text-slate-400">
+        <span className="text-xs">{title}</span>
+        {icon}
+      </div>
+      <p className="text-2xl font-bold mt-3">{value}</p>
+    </div>
+  );
+}
+
+function EmptyText({ text }) {
+  return <p className="text-sm text-slate-500 py-3">{text}</p>;
+}
+
+function Info({ label, value }) {
+  return (
+    <p>
+      <span className="text-slate-500">{label}:</span>{' '}
+      <span className="text-slate-300">{value || 'Not set'}</span>
+    </p>
+  );
+}
+
+function ActionButton({ label, icon, onClick, primary }) {
+  return (
+    <button type="button" onClick={onClick} className={`rounded-xl py-3 text-sm flex items-center justify-center gap-2 border ${primary ? 'bg-orange-500 border-orange-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function BottomItem({ icon, label, active, onClick, badge = 0 }) {
+  return (
+    <button type="button" onClick={onClick} className={`relative flex flex-col items-center justify-center gap-1 text-[11px] ${active ? 'text-orange-400' : 'text-slate-400'}`}>
+      <span className="relative">
+        {icon}
+        {badge > 0 && (
+          <span className="absolute -top-2 -right-3 bg-orange-500 text-white text-[9px] min-w-4 h-4 rounded-full flex items-center justify-center px-1">
+            {badge}
+          </span>
+        )}
+      </span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function formatDate(value) {
+  if (!value) return 'Not set';
+
+  try {
+    return new Date(value).toLocaleString();
+  } catch {
+    return value;
+  }
+}

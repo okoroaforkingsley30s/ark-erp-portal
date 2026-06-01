@@ -22,9 +22,9 @@ const STATUS_COLORS = {
 };
 
 const SLA_COLORS = {
-  Normal: 'bg-green-50 text-green-700',
+  Normal: 'bg-green-500/15 text-green-300',
   Warning: 'bg-yellow-50 text-yellow-700',
-  Breached: 'bg-red-50 text-red-700',
+  Breached: 'bg-red-500/15 text-red-300',
   Critical: 'bg-red-100 text-red-800 font-bold',
 };
 
@@ -155,8 +155,8 @@ export default function Assets() {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        <span className="px-3 py-1.5 rounded-lg bg-green-50 text-green-700 text-xs font-medium border border-green-200">{counts.active} Active</span>
-        <span className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-medium border border-red-200">{counts.faulty} Faulty / Maintenance</span>
+        <span className="px-3 py-1.5 rounded-lg bg-green-500/15 text-green-300 text-xs font-medium border border-green-200">{counts.active} Active</span>
+        <span className="px-3 py-1.5 rounded-lg bg-red-500/15 text-red-300 text-xs font-medium border border-red-200">{counts.faulty} Faulty / Maintenance</span>
         <span className="px-3 py-1.5 rounded-lg bg-gray-50 text-gray-600 text-xs font-medium border border-gray-200">{counts.inactive} Inactive</span>
         <span className="px-3 py-1.5 rounded-lg bg-orange-50 text-orange-700 text-xs font-medium border border-orange-200">{counts.sla} SLA Alerts</span>
       </div>

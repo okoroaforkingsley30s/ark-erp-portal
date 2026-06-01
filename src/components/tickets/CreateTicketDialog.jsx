@@ -231,7 +231,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
           title: 'New Ticket Assigned',
           message: `You have been assigned ticket ${ticketNumber}.`,
           type: 'ticket_assigned',
-          link: '/engineering',
+          link: `/tickets/${insertedTicket.id}`,
           sound: 'bell',
           data: {
             ticket_id: insertedTicket?.id,

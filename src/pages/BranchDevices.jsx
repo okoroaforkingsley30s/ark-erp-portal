@@ -130,15 +130,15 @@ export default function BranchDevices() {
       device_type: device.device_type || device.category || 'ATM',
       device_model: device.device_model || device.model || '',
       assigned_engineer:
-        device.assigned_engineer_email ||
-        device.assigned_engineer ||
-        '',
-      assigned_engineer_name:
-        device.assigned_engineer_name ||
-        device.assigned_engineer ||
-        '',
-      assigned_engineer_email:
-        device.assigned_engineer_email || '',
+  device.assigned_engineer_email ||
+  device.assigned_engineer ||
+  '',
+assigned_engineer_name:
+  device.assigned_engineer_name ||
+  '',
+assigned_engineer_email:
+  device.assigned_engineer_email ||
+  '',
       device_status: device.device_status || device.status || 'Active',
       sla_status: device.sla_status || 'Normal',
     });
@@ -171,9 +171,21 @@ export default function BranchDevices() {
         device_model: form.device_model || null,
         model: form.device_model || null,
 
-        assigned_engineer: selectedEngineer?.full_name || form.assigned_engineer_name || null,
-        assigned_engineer_name: selectedEngineer?.full_name || form.assigned_engineer_name || null,
-        assigned_engineer_email: selectedEngineer?.email || form.assigned_engineer_email || null,
+        assigned_engineer:
+  selectedEngineer?.email ||
+  form.assigned_engineer_email ||
+  form.assigned_engineer ||
+  null,
+
+assigned_engineer_name:
+  selectedEngineer?.full_name?.trim() ||
+  form.assigned_engineer_name?.trim() ||
+  null,
+
+assigned_engineer_email:
+  selectedEngineer?.email ||
+  form.assigned_engineer_email ||
+  null,
 
         device_status: form.device_status || 'Active',
         status: form.device_status || 'Active',
