@@ -655,10 +655,16 @@ function HomeScreen({
         </div>
 
         {firstTicket ? (
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={0}
             onClick={() => onSelectTicket(firstTicket)}
-            className="w-full text-left rounded-2xl bg-slate-950 border border-slate-800 p-4 active:scale-[0.99]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                onSelectTicket(firstTicket);
+              }
+            }}
+            className="w-full text-left rounded-2xl bg-slate-950 border border-slate-800 p-4 active:scale-[0.99] cursor-pointer"
           >
             <p className="text-xs text-orange-400">
               {firstTicket.ticket_number || firstTicket.ticket_id || 'Ticket'}
@@ -697,7 +703,7 @@ function HomeScreen({
                 Open Jobs
               </button>
             </div>
-          </button>
+          </div>
         ) : (
           <EmptyText text="No assigned job yet." />
         )}
@@ -784,41 +790,52 @@ function JobsScreen({
     String(t.completion_status || '').toLowerCase() === 'pending'
   );
 
-  const pendingParts = tickets.filter((t) =>
-    String(t.status || '').toLowerCase().includes('part') ||
-    String(t.completion_status || '').toLowerCase().includes('part') ||
-    String(t.category || '').toLowerCase().includes('part')
-  );
+  const pendingParts = tickets.filter((t) => {
+    const status = String(t.status || '').toLowerCase();
+    const completionStatus = String(t.completion_status || '').toLowerCase();
+    const requestType = String(t.part_request_type || '').toLowerCase();
+
+    return (
+      status === 'pending_parts' ||
+      completionStatus === 'pending_parts' ||
+      requestType === 'consumable'
+    );
+  });
+
+  const pendingBank = tickets.filter((t) => {
+    const status = String(t.status || '').toLowerCase();
+    const completionStatus = String(t.completion_status || '').toLowerCase();
+    const requestType = String(t.part_request_type || '').toLowerCase();
+
+    return (
+      status === 'pending_bank' ||
+      completionStatus === 'pending_bank' ||
+      requestType === 'bank'
+    );
+  });
 
   const rejectedCalls = tickets.filter((t) => {
-  const status = String(t.status || '').toLowerCase();
-  const completionStatus = String(t.completion_status || '').toLowerCase();
-  const reviewStatus = String(t.review_status || '').toLowerCase();
+    const status = String(t.status || '').toLowerCase();
+    const completionStatus = String(t.completion_status || '').toLowerCase();
+    const reviewStatus = String(t.review_status || '').toLowerCase();
 
-  return (
-    status === 'rejected' ||
-    completionStatus === 'rejected' ||
-    reviewStatus === 'rejected'
-  );
-});
+    return (
+      status === 'rejected' ||
+      completionStatus === 'rejected' ||
+      reviewStatus === 'rejected'
+    );
+  });
 
   const openCalls = tickets.filter((t) => {
-  const status = String(t.status || '').toLowerCase();
-  const completionStatus = String(t.completion_status || '').toLowerCase();
+    const status = String(t.status || '').toLowerCase();
 
-  return (
-    ![
+    return ![
       'closed',
       'completed',
       'approved',
-      'pending_review',
       'rejected',
-    ].includes(status) &&
-    completionStatus !== 'pending' &&
-    completionStatus !== 'rejected' &&
-    !status.includes('part')
-  );
-});
+    ].includes(status);
+  });
 
   const groups = [
     {
@@ -857,13 +874,24 @@ function JobsScreen({
     {
       key: 'parts',
       title: 'Pending on Parts',
-      subtitle: 'Jobs waiting for inventory support',
+      subtitle: 'Consumables / company-supplied items',
       count: pendingParts.length,
       color: 'text-yellow-400',
       border: 'border-yellow-500/40',
       bg: 'bg-yellow-500/10',
       icon: <Package size={28} />,
       items: pendingParts,
+    },
+    {
+      key: 'bank',
+      title: 'Pending on Bank',
+      subtitle: 'Bank damage or bank payment required',
+      count: pendingBank.length,
+      color: 'text-cyan-400',
+      border: 'border-cyan-500/40',
+      bg: 'bg-cyan-500/10',
+      icon: <Package size={28} />,
+      items: pendingBank,
     },
     {
       key: 'closed',
@@ -976,6 +1004,13 @@ function JobGroupModal({
   onNavigate,
   onSelectTicket,
 }) {
+  const openTicketDetails = (ticket) => {
+    onClose();
+    setTimeout(() => {
+      onSelectTicket(ticket);
+    }, 150);
+  };
+
   return (
     <div
       className="fixed inset-0 z-[85] bg-slate-950 text-white overflow-hidden"
@@ -983,10 +1018,7 @@ function JobGroupModal({
     >
       <div className="h-[72px] bg-slate-900 border-b border-slate-800 px-4 flex items-center justify-between">
         <div>
-          <h2 className="font-bold text-lg">
-            {group.title}
-          </h2>
-
+          <h2 className="font-bold text-lg">{group.title}</h2>
           <p className="text-xs text-slate-400">
             {group.count} job{group.count !== 1 ? 's' : ''}
           </p>
@@ -995,7 +1027,7 @@ function JobGroupModal({
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full bg-slate-800 p-2"
+          className="rounded-full bg-slate-800 p-2 active:bg-red-500 active:scale-95 transition-all"
         >
           <X size={18} />
         </button>
@@ -1015,8 +1047,8 @@ function JobGroupModal({
             >
               <button
                 type="button"
-                onClick={() => onSelectTicket(ticket)}
-                className="w-full text-left"
+                onClick={() => openTicketDetails(ticket)}
+                className="w-full text-left active:scale-[0.99] transition-all"
               >
                 <p className="text-xs text-orange-400">
                   {ticket.ticket_number || ticket.ticket_id || 'Ticket'}
@@ -1040,7 +1072,7 @@ function JobGroupModal({
                 <button
                   type="button"
                   onClick={() => onUpdateStatus(ticket.id, 'accepted')}
-                  className="rounded-xl bg-blue-500/10 border border-blue-500/20 py-3 text-xs font-semibold text-blue-300"
+                  className="rounded-xl bg-blue-500/10 border border-blue-500/20 py-3 text-xs font-semibold text-blue-300 active:bg-blue-500 active:text-white active:scale-95 transition-all"
                 >
                   Accept
                 </button>
@@ -1048,7 +1080,7 @@ function JobGroupModal({
                 <button
                   type="button"
                   onClick={() => onUpdateStatus(ticket.id, 'traveling')}
-                  className="rounded-xl bg-purple-500/10 border border-purple-500/20 py-3 text-xs font-semibold text-purple-300"
+                  className="rounded-xl bg-purple-500/10 border border-purple-500/20 py-3 text-xs font-semibold text-purple-300 active:bg-purple-500 active:text-white active:scale-95 transition-all"
                 >
                   Start Trip
                 </button>
@@ -1056,7 +1088,7 @@ function JobGroupModal({
                 <button
                   type="button"
                   onClick={() => onUpdateStatus(ticket.id, 'arrived_on_site')}
-                  className="rounded-xl bg-yellow-500/10 border border-yellow-500/20 py-3 text-xs font-semibold text-yellow-300"
+                  className="rounded-xl bg-yellow-500/10 border border-yellow-500/20 py-3 text-xs font-semibold text-yellow-300 active:bg-yellow-500 active:text-white active:scale-95 transition-all"
                 >
                   Arrived
                 </button>
@@ -1064,7 +1096,7 @@ function JobGroupModal({
                 <button
                   type="button"
                   onClick={() => onNavigate(ticket)}
-                  className="rounded-xl bg-orange-500 py-3 text-xs font-semibold text-white"
+                  className="rounded-xl bg-orange-500 py-3 text-xs font-semibold text-white active:bg-green-500 active:scale-95 transition-all"
                 >
                   Navigate
                 </button>
@@ -1072,15 +1104,15 @@ function JobGroupModal({
                 <button
                   type="button"
                   onClick={() => onUpdateStatus(ticket.id, 'in_progress')}
-                  className="rounded-xl bg-green-500/10 border border-green-500/20 py-3 text-xs font-semibold text-green-300"
+                  className="rounded-xl bg-green-500/10 border border-green-500/20 py-3 text-xs font-semibold text-green-300 active:bg-green-500 active:text-white active:scale-95 transition-all"
                 >
                   Start Work
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => onSelectTicket(ticket)}
-                  className="rounded-xl bg-slate-800 border border-slate-700 py-3 text-xs font-semibold text-white"
+                  onClick={() => openTicketDetails(ticket)}
+                  className="rounded-xl bg-slate-800 border border-slate-700 py-3 text-xs font-semibold text-white active:bg-orange-500 active:border-orange-500 active:scale-95 transition-all"
                 >
                   Complete Report
                 </button>
@@ -1158,6 +1190,66 @@ function TicketDetailsModal({
   const [afterFiles, setAfterFiles] = useState([]);
   const [videoFiles, setVideoFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [showPartRequest, setShowPartRequest] = useState(false);
+  const [partType, setPartType] = useState('consumable');
+  const [partName, setPartName] = useState('');
+  const [partQty, setPartQty] = useState('1');
+  const [partReason, setPartReason] = useState('');
+  const [partEvidence, setPartEvidence] = useState([]);
+  const [redirectingPart, setRedirectingPart] = useState(false);
+  const [selectedInventoryPart, setSelectedInventoryPart] = useState(null);
+  const [inventoryParts, setInventoryParts] = useState([]);
+  const [loadingInventoryParts, setLoadingInventoryParts] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchInventoryParts = async () => {
+      setLoadingInventoryParts(true);
+
+      const { data, error } = await supabase
+        .from('spare_parts')
+        .select('*')
+        .order('description', { ascending: true });
+
+      if (!active) return;
+
+      if (error) {
+        console.error('Mobile inventory parts fetch error:', error);
+        setInventoryParts([]);
+      } else {
+        setInventoryParts(data || []);
+      }
+
+      setLoadingInventoryParts(false);
+    };
+
+    fetchInventoryParts();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const matchingInventoryParts = inventoryParts
+    .filter((part) => {
+      const query = partName.trim().toLowerCase();
+
+      if (query.length < 2) return false;
+
+      return [
+        part.part_name,
+        part.description,
+        part.part_number,
+        part.device_brand,
+        part.device_model,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query);
+    })
+    .slice(0, 8);
 
   const existingBeforePhotos = Array.isArray(ticket?.before_photos)
     ? ticket.before_photos
@@ -1209,6 +1301,108 @@ function TicketDetailsModal({
     }
 
     return uploaded;
+  };
+
+  const redirectToPartRequest = async () => {
+    if (!partName.trim()) {
+      alert('Enter the part or consumable needed.');
+      return;
+    }
+
+    if (!partReason.trim()) {
+      alert('Enter reason for redirecting this call to parts/bank.');
+      return;
+    }
+
+    setRedirectingPart(true);
+
+    try {
+      const now = new Date().toISOString();
+      const ticketStatus = partType === 'bank' ? 'pending_bank' : 'pending_parts';
+      const uploadedPartEvidence = await uploadEvidenceFiles(partEvidence, 'part-issue-evidence');
+
+      const { data: partRequest, error: requestError } = await supabase
+        .from('part_requests')
+        .insert({
+          ticket_id: ticket.id,
+          ticket_number: ticket.ticket_number || ticket.ticket_id || ticket.id,
+          engineer_email: user?.email,
+          engineer_name: user?.full_name || user?.name || user?.email,
+          part_name: (selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim(),
+          quantity: Number(partQty || 1),
+          request_type: partType,
+          reason_category: partType === 'bank' ? 'damaged_by_bank' : 'consumable_required',
+          reason_note: selectedInventoryPart
+            ? `${partReason.trim()}\n\nSelected inventory item: ${selectedInventoryPart.part_name || selectedInventoryPart.description || 'N/A'} | Part No: ${selectedInventoryPart.part_number || 'N/A'} | Available Stock: ${selectedInventoryPart.quantity_available || 0}`
+            : partReason.trim(),
+          evidence_photos: uploadedPartEvidence,
+          approval_status: 'pending_operations',
+          operations_status: 'pending_review',
+          inventory_status: 'pending_review',
+          finance_status: partType === 'bank' ? 'pending_payment_review' : 'pending_dispatch_cost_review',
+          dispatch_status: 'pending',
+          current_department: 'operations',
+          created_at: now,
+          updated_at: now,
+        })
+        .select()
+        .single();
+
+      if (requestError) {
+        throw requestError;
+      }
+
+      const { error: ticketError } = await supabase
+        .from('tickets')
+        .update({
+          status: ticketStatus,
+          completion_status: ticketStatus,
+          linked_part_request_id: partRequest.id,
+          part_request_type: partType,
+          part_request_reason: partType === 'bank' ? 'damaged_by_bank' : 'consumable_required',
+          part_request_note: partReason.trim(),
+          part_request_status: 'pending_operations',
+          updated_at: now,
+        })
+        .eq('id', ticket.id);
+
+      if (ticketError) {
+        throw ticketError;
+      }
+
+      await supabase.from('notifications').insert({
+        user_email: 'operations@arktechnologiesgroup.com',
+        title: partType === 'bank'
+          ? 'Bank-Related Part Request'
+          : 'Consumable / Parts Request',
+        message: `${user?.full_name || user?.email} redirected ${ticket.ticket_number || ticket.ticket_id || ticket.id} to ${partType === 'bank' ? 'Pending on Bank' : 'Pending on Parts'} for ${partQty} x ${partName}. ${partReason}`,
+        read: false,
+        type: 'part_request_pending_operations',
+        sound: 'bell',
+        link: '/spare-parts',
+        created_at: now,
+      });
+
+      alert(
+        partType === 'bank'
+          ? 'Call redirected to Pending on Bank for Operations review.'
+          : 'Call redirected to Pending on Parts for Operations review.'
+      );
+
+      setShowPartRequest(false);
+      setPartType('consumable');
+      setPartName('');
+      setPartQty('1');
+      setPartReason('');
+      setPartEvidence([]);
+      setSelectedInventoryPart(null);
+      onCompleted();
+    } catch (err) {
+      console.error('Part redirect error:', err);
+      alert(`Could not redirect part issue: ${err.message || 'Unknown error'}`);
+    } finally {
+      setRedirectingPart(false);
+    }
   };
 
   const submitForReview = async () => {
@@ -1434,6 +1628,184 @@ function TicketDetailsModal({
           />
         </SectionCard>
 
+        <SectionCard title="Redirect Part Issue">
+  <div className="space-y-3">
+    <p className="text-sm text-slate-400">
+      Use this when the machine cannot be completed because a part, consumable, or bank-damaged item is required.
+    </p>
+
+    {!showPartRequest ? (
+      <button
+        type="button"
+        onClick={() => setShowPartRequest(true)}
+        className="w-full rounded-xl bg-yellow-500/10 border border-yellow-500/30 py-3 text-sm font-semibold text-yellow-300 active:bg-yellow-500 active:text-white active:scale-95 transition-all"
+      >
+        Open Part / Bank Redirect Form
+      </button>
+    ) : (
+      <div className="space-y-3 rounded-2xl bg-slate-950 border border-slate-800 p-3">
+        <select
+          value={partType}
+          onChange={(e) => setPartType(e.target.value)}
+          className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+        >
+          <option value="consumable">
+            Pending on Parts - Consumable / Company Supplied
+          </option>
+          <option value="bank">
+            Pending on Bank - Damaged by Bank / Bank to Pay
+          </option>
+        </select>
+
+        <div className="space-y-2">
+          <input
+            value={partName}
+            onChange={(e) => {
+              setPartName(e.target.value);
+              setSelectedInventoryPart(null);
+            }}
+            placeholder="Search or type part name e.g Card Reader, Receipt Roll"
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+          />
+
+          {partName.trim().length > 1 && !selectedInventoryPart && (
+            <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900">
+              {loadingInventoryParts && (
+                <p className="px-3 py-3 text-xs text-slate-400">
+                  Checking inventory stock...
+                </p>
+              )}
+
+              {!loadingInventoryParts && matchingInventoryParts.map((part) => (
+                <div
+                  key={part.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => {
+                    setSelectedInventoryPart(part);
+                    setPartName(part.part_name || part.description || '');
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      setSelectedInventoryPart(part);
+                      setPartName(part.part_name || part.description || '');
+                    }
+                  }}
+                  className="w-full text-left px-3 py-2 border-b border-slate-800 active:bg-green-600 transition-all cursor-pointer"
+                >
+                  <p className="text-sm font-semibold text-slate-100">
+                    {part.part_name || part.description}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Part No: {part.part_number || 'N/A'} · Stock:{' '}
+                    <span
+                      className={
+                        Number(part.quantity_available || 0) > 0
+                          ? 'text-green-400'
+                          : 'text-red-400'
+                      }
+                    >
+                      {part.quantity_available || 0} available
+                    </span>
+                  </p>
+                </div>
+              ))}
+
+              {!loadingInventoryParts && matchingInventoryParts.length === 0 && (
+                <p className="px-3 py-3 text-xs text-slate-400">
+                  No matching inventory item found. You can still submit this as a manual part request.
+                </p>
+              )}
+            </div>
+          )}
+
+          {selectedInventoryPart && (
+            <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-3">
+              <p className="text-xs text-green-300 font-semibold">
+                Selected from inventory
+              </p>
+              <p className="text-sm text-white">
+                {selectedInventoryPart.part_name || selectedInventoryPart.description}
+              </p>
+              <p className="text-xs text-slate-300">
+                Part No: {selectedInventoryPart.part_number || 'N/A'} · Available:{' '}
+                {selectedInventoryPart.quantity_available || 0}
+              </p>
+              <button
+                type="button"
+                onClick={() => setSelectedInventoryPart(null)}
+                className="mt-2 text-xs text-red-300 underline"
+              >
+                Remove selection / use manual entry
+              </button>
+            </div>
+          )}
+        </div>
+
+        <input
+          value={partQty}
+          onChange={(e) => setPartQty(e.target.value)}
+          placeholder="Quantity"
+          type="number"
+          min="1"
+          className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+        />
+
+        <textarea
+          value={partReason}
+          onChange={(e) => setPartReason(e.target.value)}
+          placeholder="Explain the issue. Example: card reader damaged by bank user, receipt roll exhausted, cassette part worn out..."
+          rows={4}
+          className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+        />
+
+        <div className="space-y-2">
+          <p className="text-xs text-slate-400">
+            Picture Evidence optional but recommended
+          </p>
+
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            onChange={(e) => setPartEvidence(Array.from(e.target.files || []))}
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+          />
+
+          {partEvidence.length > 0 && (
+            <p className="text-xs text-green-400">
+              {partEvidence.length} evidence photo(s) selected.
+            </p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setShowPartRequest(false);
+              setSelectedInventoryPart(null);
+            }}
+            className="rounded-xl bg-slate-800 border border-slate-700 py-3 text-sm font-semibold text-slate-200 active:bg-red-500 active:text-white active:scale-95 transition-all"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="button"
+            onClick={redirectToPartRequest}
+            disabled={redirectingPart || !partName.trim()}
+            className="rounded-xl bg-orange-500 border border-orange-500 py-3 text-sm font-semibold text-white active:bg-green-500 active:scale-95 transition-all disabled:opacity-60"
+          >
+            {redirectingPart ? 'Redirecting...' : 'Submit Redirect'}
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+</SectionCard>
+
         <SectionCard title="Before Repair Photos">
           <div className="space-y-3">
             <input
@@ -1583,6 +1955,12 @@ function TicketDetailsModal({
           />
 
           <ActionButton
+            label="Redirect Part Issue"
+            icon={<Package size={16} />}
+            onClick={() => setShowPartRequest(true)}
+          />
+
+          <ActionButton
   label={
     uploading
       ? 'Submitting...'
@@ -1713,6 +2091,60 @@ function PartsScreen({ tickets, user }) {
   const [partName, setPartName] = useState('');
   const [quantity, setQuantity] = useState('1');
   const [reason, setReason] = useState('');
+  const [selectedInventoryPart, setSelectedInventoryPart] = useState(null);
+  const [inventoryParts, setInventoryParts] = useState([]);
+  const [loadingInventoryParts, setLoadingInventoryParts] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchInventoryParts = async () => {
+      setLoadingInventoryParts(true);
+
+      const { data, error } = await supabase
+        .from('spare_parts')
+        .select('*')
+        .order('description', { ascending: true });
+
+      if (!active) return;
+
+      if (error) {
+        console.error('Parts inventory fetch error:', error);
+        setInventoryParts([]);
+      } else {
+        setInventoryParts(data || []);
+      }
+
+      setLoadingInventoryParts(false);
+    };
+
+    fetchInventoryParts();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const matchingInventoryParts = inventoryParts
+    .filter((part) => {
+      const query = partName.trim().toLowerCase();
+
+      if (query.length < 2) return false;
+
+      return [
+        part.part_name,
+        part.description,
+        part.part_number,
+        part.device_brand,
+        part.device_model,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(query);
+    })
+    .slice(0, 8);
 
   const submitPartRequest = async () => {
     if (!partName.trim()) {
@@ -1720,40 +2152,76 @@ function PartsScreen({ tickets, user }) {
       return;
     }
 
-    const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId);
-
-    const { error } = await supabase.from('notifications').insert({
-      user_email: 'inventory@arktechnologiesgroup.com',
-      title: 'New Parts Request',
-      message: `${user?.full_name || user?.email} requested ${quantity} x ${partName}${
-        selectedTicket ? ` for ${selectedTicket.ticket_number || selectedTicket.ticket_id}` : ''
-      }. ${reason}`,
-      read: false,
-      type: 'parts_request',
-      sound: 'bell',
-      link: '/inventory',
-    });
-
-    if (error) {
-      console.error('Parts request error:', error);
-      alert('Could not submit parts request. Check notifications table policy.');
+    if (!reason.trim()) {
+      alert('Enter reason for this part request.');
       return;
     }
 
-    alert('Parts request sent to Inventory.');
-    setSelectedTicketId('');
-    setPartName('');
-    setQuantity('1');
-    setReason('');
+    setSubmitting(true);
+
+    try {
+      const now = new Date().toISOString();
+      const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId);
+      const finalPartName = (
+        selectedInventoryPart?.part_name ||
+        selectedInventoryPart?.description ||
+        partName
+      ).trim();
+
+      const { error } = await supabase.from('part_requests').insert({
+        ticket_id: selectedTicket?.id || null,
+        ticket_number: selectedTicket
+          ? selectedTicket.ticket_number || selectedTicket.ticket_id || selectedTicket.id
+          : null,
+        engineer_email: user?.email,
+        engineer_name: user?.full_name || user?.name || user?.email,
+        part_name: finalPartName,
+        quantity: Number(quantity || 1),
+        request_type: 'consumable',
+        reason_category: selectedTicket ? 'permanent_resolution' : 'engineer_part_request',
+        reason_note: selectedInventoryPart
+          ? `${reason.trim()}\n\nSelected inventory item: ${finalPartName} | Part No: ${selectedInventoryPart.part_number || 'N/A'} | Available Stock: ${selectedInventoryPart.quantity_available || 0}`
+          : reason.trim(),
+        approval_status: 'pending_operations',
+        operations_status: 'pending_review',
+        inventory_status: 'pending_review',
+        finance_status: 'pending_dispatch_cost_review',
+        dispatch_status: 'pending',
+        current_department: 'operations',
+        created_at: now,
+        updated_at: now,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      alert('Part request sent to Operations, Inventory, and Accounts workflow.');
+
+      setSelectedTicketId('');
+      setPartName('');
+      setQuantity('1');
+      setReason('');
+      setSelectedInventoryPart(null);
+    } catch (err) {
+      console.error('Parts request error:', err);
+      alert(`Could not submit parts request: ${err.message || 'Unknown error'}`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="space-y-4">
-      <PageTitle title="Parts" subtitle="Request parts and track inventory support." />
+      <PageTitle title="Parts" subtitle="Request parts for temporary repairs, permanent resolution, and inventory dispatch." />
 
       <SectionCard title="New Parts Request">
         <div className="space-y-3">
-          <select value={selectedTicketId} onChange={(e) => setSelectedTicketId(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm">
+          <select
+            value={selectedTicketId}
+            onChange={(e) => setSelectedTicketId(e.target.value)}
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+          >
             <option value="">Select related ticket optional</option>
             {tickets.map((ticket) => (
               <option key={ticket.id} value={ticket.id}>
@@ -1762,12 +2230,115 @@ function PartsScreen({ tickets, user }) {
             ))}
           </select>
 
-          <input value={partName} onChange={(e) => setPartName(e.target.value)} placeholder="Part name e.g Card Reader" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm" />
-          <input value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="Quantity" type="number" min="1" className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm" />
-          <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason / fault note" rows={4} className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm" />
+          <div className="space-y-2">
+            <input
+              value={partName}
+              onChange={(e) => {
+                setPartName(e.target.value);
+                setSelectedInventoryPart(null);
+              }}
+              placeholder="Search or type part name e.g Card Reader"
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+            />
 
-          <button type="button" onClick={submitPartRequest} className="w-full rounded-xl bg-orange-500 py-3 font-semibold">
-            Send Parts Request
+            {partName.trim().length > 1 && !selectedInventoryPart && (
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900">
+                {loadingInventoryParts && (
+                  <p className="px-3 py-3 text-xs text-slate-400">
+                    Checking inventory stock...
+                  </p>
+                )}
+
+                {!loadingInventoryParts && matchingInventoryParts.map((part) => (
+                  <div
+                    key={part.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setSelectedInventoryPart(part);
+                      setPartName(part.part_name || part.description || '');
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        setSelectedInventoryPart(part);
+                        setPartName(part.part_name || part.description || '');
+                      }
+                    }}
+                    className="w-full text-left px-3 py-2 border-b border-slate-800 active:bg-green-600 transition-all cursor-pointer"
+                  >
+                    <p className="text-sm font-semibold text-slate-100">
+                      {part.part_name || part.description}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Part No: {part.part_number || 'N/A'} · Stock:{' '}
+                      <span
+                        className={
+                          Number(part.quantity_available || 0) > 0
+                            ? 'text-green-400'
+                            : 'text-red-400'
+                        }
+                      >
+                        {part.quantity_available || 0} available
+                      </span>
+                    </p>
+                  </div>
+                ))}
+
+                {!loadingInventoryParts && matchingInventoryParts.length === 0 && (
+                  <p className="px-3 py-3 text-xs text-slate-400">
+                    No matching inventory item found. You can still submit this as a manual part request.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {selectedInventoryPart && (
+              <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-3">
+                <p className="text-xs text-green-300 font-semibold">
+                  Selected from inventory
+                </p>
+                <p className="text-sm text-white">
+                  {selectedInventoryPart.part_name || selectedInventoryPart.description}
+                </p>
+                <p className="text-xs text-slate-300">
+                  Part No: {selectedInventoryPart.part_number || 'N/A'} · Available:{' '}
+                  {selectedInventoryPart.quantity_available || 0}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSelectedInventoryPart(null)}
+                  className="mt-2 text-xs text-red-300 underline"
+                >
+                  Remove selection / use manual entry
+                </button>
+              </div>
+            )}
+          </div>
+
+          <input
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            placeholder="Quantity"
+            type="number"
+            min="1"
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+          />
+
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Reason / fault note. Example: temporary repair completed, part needed for permanent resolution."
+            rows={4}
+            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+          />
+
+          <button
+            type="button"
+            onClick={submitPartRequest}
+            disabled={submitting || !partName.trim()}
+            className="w-full rounded-xl bg-orange-500 py-3 font-semibold disabled:opacity-60"
+          >
+            {submitting ? 'Sending...' : 'Send Parts Request'}
           </button>
         </div>
       </SectionCard>
@@ -2363,6 +2934,36 @@ function ProfileScreen({
 }) {
   const [fieldStatus, setFieldStatus] = useState(user?.field_status || 'available');
   const [selectedDevice, setSelectedDevice] = useState(null);
+  const [mobileEngineerStatus, setMobileEngineerStatus] = useState(null);
+
+  useEffect(() => {
+    const fetchMobileEngineerStatus = async () => {
+      if (!user?.email) return;
+
+      const { data, error } = await supabase
+        .from('engineer_statuses')
+        .select('profile_photo, status, phone, department, staff_id, skills, regions')
+        .eq('engineer_email', user.email)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Mobile engineer status fetch error:', error);
+        return;
+      }
+
+      if (data) {
+        setMobileEngineerStatus(data);
+
+        if (data.status) {
+          setFieldStatus(data.status);
+        }
+      }
+    };
+
+    fetchMobileEngineerStatus();
+  }, [user?.email]);
+
+  const profilePhoto = mobileEngineerStatus?.profile_photo || '';
 
   const completed = tickets.filter((ticket) =>
     ['approved', 'closed', 'completed'].includes(ticket.status)
@@ -2466,8 +3067,16 @@ function ProfileScreen({
     <div className="space-y-3 pb-2">
       <section className="rounded-2xl bg-slate-900/95 border border-slate-800 p-4">
         <div className="flex items-center gap-4">
-          <div className="w-[76px] h-[76px] rounded-full border-2 border-orange-500 bg-slate-950 flex items-center justify-center shrink-0">
-            <User size={40} className="text-orange-500" />
+          <div className="w-[76px] h-[76px] rounded-full border-2 border-orange-500 bg-slate-950 flex items-center justify-center shrink-0 overflow-hidden">
+            {profilePhoto ? (
+              <img
+                src={profilePhoto}
+                alt={user?.full_name || user?.name || 'Engineer'}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <User size={40} className="text-orange-500" />
+            )}
           </div>
 
           <div className="flex-1 min-w-0">
@@ -3036,11 +3645,43 @@ function Info({ label, value }) {
   );
 }
 
-function ActionButton({ label, icon, onClick, primary }) {
+function ActionButton({ label, icon, onClick, primary, disabled }) {
+  const [pressed, setPressed] = useState(false);
+
+  const handleClick = async () => {
+    if (disabled) return;
+
+    setPressed(true);
+
+    try {
+      await onClick?.();
+    } finally {
+      setTimeout(() => setPressed(false), 650);
+    }
+  };
+
   return (
-    <button type="button" onClick={onClick} className={`rounded-xl py-3 text-sm flex items-center justify-center gap-2 border ${primary ? 'bg-orange-500 border-orange-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-200'}`}>
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={handleClick}
+      onTouchStart={() => !disabled && setPressed(true)}
+      onTouchEnd={() => setTimeout(() => setPressed(false), 350)}
+      onMouseDown={() => !disabled && setPressed(true)}
+      onMouseUp={() => setTimeout(() => setPressed(false), 350)}
+      onMouseLeave={() => setTimeout(() => setPressed(false), 350)}
+      className={`rounded-xl py-3 text-sm flex items-center justify-center gap-2 border transition-all duration-200 active:scale-95 ${
+        disabled
+          ? 'bg-slate-700 border-slate-700 text-slate-400 opacity-60'
+          : pressed
+            ? 'bg-green-500 border-green-400 text-white shadow-lg shadow-green-500/30'
+            : primary
+              ? 'bg-orange-500 border-orange-500 text-white shadow-md shadow-orange-500/20'
+              : 'bg-slate-800 border-slate-700 text-slate-200'
+      }`}
+    >
       {icon}
-      {label}
+      {pressed ? 'Processing...' : label}
     </button>
   );
 }

@@ -136,20 +136,75 @@ async function fetchSpareParts() {
 
 async function fetchSpareRequests(user, isEngineer) {
   let query = supabase
-    .from('spare_part_requests')
-    .select('*')
+    .from('part_requests')
+    .select(`
+      *,
+      tickets:ticket_id (
+        id,
+        ticket_number,
+        status,
+        bank_name,
+        branch_name,
+        terminal_id,
+        location
+      )
+    `)
     .order('created_at', { ascending: false });
 
   if (isEngineer) {
-    query = query.eq('engineer_email', user.email);
+    if (user?.id && user?.email) {
+      query = query.or(`engineer_id.eq.${user.id},engineer_email.eq.${user.email}`);
+    } else if (user?.email) {
+      query = query.eq('engineer_email', user.email);
+    }
   }
 
-  const { data, error } = await query.limit(isEngineer ? 100 : 300);
+  const { data, error } = await query.limit(isEngineer ? 100 : 500);
 
   if (error) throw error;
   return data || [];
 }
 
+const normalizeRole = (role) =>
+  String(role || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+
+const requestQty = (req) => Number(req.quantity_requested || req.quantity || 1);
+
+const requestPhoto = (req) => {
+  if (Array.isArray(req.photo_evidence) && req.photo_evidence.length > 0) {
+    return req.photo_evidence[0];
+  }
+
+  if (Array.isArray(req.evidence_photos) && req.evidence_photos.length > 0) {
+    return req.evidence_photos[0];
+  }
+
+  return req.faulty_part_photo || req.photo_url || '';
+};
+
+const workflowStatus = (req) => {
+  if (req.status === 'rejected') return 'rejected';
+  if (req.dispatch_status === 'received' || req.status === 'received') return 'received';
+  if (req.dispatch_status === 'dispatched' || req.status === 'dispatched') return 'dispatched';
+
+  if (
+    req.finance_status === 'pending_payment_review' ||
+    req.finance_status === 'pending_dispatch_cost_review'
+  ) {
+    return 'finance_pending';
+  }
+
+  if (req.inventory_status === 'pending_review') return 'inventory_pending';
+  if (req.operations_status === 'pending_review') return 'operations_pending';
+  if (req.operations_status === 'approved' && req.inventory_status === 'approved_for_dispatch') {
+    return 'ready_dispatch';
+  }
+
+  return req.status || 'pending';
+};
 async function fetchInventoryMovements() {
   const { data, error } = await supabase
     .from('inventory_movements')
@@ -164,8 +219,13 @@ async function fetchInventoryMovements() {
 export default function SparePartsInventory() {
   const { user } = useOutletContext();
   const role = user?.role || 'engineer';
+  const normalizedRole = normalizeRole(role);
 
-  const canManage = ['admin', 'inventory', 'procurement'].includes(role);
+  const isAdmin = normalizedRole === 'admin';
+  const isOperations = ['operations', 'operational_manager', 'operation_manager', 'manager'].includes(normalizedRole);
+  const isInventory = normalizedRole === 'inventory';
+  const isFinance = ['finance', 'accounts', 'account', 'account_department'].includes(normalizedRole);
+  const canManage = isAdmin || isOperations || isInventory || isFinance || ['procurement'].includes(normalizedRole);
   const canViewPrices = [
     'admin',
     'inventory',
@@ -176,7 +236,7 @@ export default function SparePartsInventory() {
     'manager',
   ].includes(role);
 
-  const isEngineer = role === 'engineer';
+  const isEngineer = ['engineer', 'field_engineer'].includes(normalizedRole);
   const qc = useQueryClient();
 
   const [tab, setTab] = useState(isEngineer ? 'requests' : 'inventory');
@@ -230,7 +290,11 @@ export default function SparePartsInventory() {
 
   const outStock = items.filter((i) => (i.quantity_available || 0) === 0);
 
-  const pending = requests.filter((r) => r.status === 'pending').length;
+  const pending = requests.filter((r) => ['operations_pending', 'inventory_pending', 'finance_pending', 'ready_dispatch'].includes(workflowStatus(r))).length;
+  const operationsPending = requests.filter((r) => r.operations_status === 'pending_review').length;
+  const inventoryPending = requests.filter((r) => r.operations_status === 'approved' && r.inventory_status === 'pending_review').length;
+  const financePending = requests.filter((r) => ['pending_payment_review', 'pending_dispatch_cost_review'].includes(r.finance_status)).length;
+  const dispatchPending = requests.filter((r) => r.inventory_status === 'approved_for_dispatch' && !['dispatched', 'received'].includes(r.dispatch_status)).length;
 
   const filtered = useMemo(
     () =>
@@ -341,15 +405,34 @@ export default function SparePartsInventory() {
 
     try {
       const item = items.find((p) => p.id === rf.part_id);
+      const requestNumber = 'PR-' + Date.now();
+      const partName = item?.description || rf.part_name;
+      const partNumber = item?.part_number || rf.part_number;
 
-      const { error } = await supabase.from('spare_part_requests').insert({
-        ...rf,
-        part_name: item?.description || rf.part_name,
-        part_number: item?.part_number || rf.part_number,
+      const { error } = await supabase.from('part_requests').insert({
+        part_id: rf.part_id || null,
+        ticket_id: rf.ticket_id || null,
+        part_name: partName,
+        part_number: partNumber,
+        quantity: requestQty(rf),
+        quantity_requested: requestQty(rf),
+        site_name: rf.site_name,
+        urgency: rf.urgency,
+        reason: rf.reason,
+        faulty_part_photo: rf.faulty_part_photo,
+        request_number: requestNumber,
+        request_type: 'company',
+        status: 'pending_parts',
+        request_status: 'pending_operations_review',
+        operations_status: 'pending_review',
+        inventory_status: 'pending_review',
+        finance_status: 'pending_dispatch_cost_review',
+        dispatch_status: 'pending',
+        current_department: 'operations',
+        engineer_id: user.id || null,
         engineer_email: user.email,
         engineer_name: user.full_name || user.name || user.email,
-        request_number: 'REQ-' + Date.now(),
-        status: 'pending',
+        created_by: user.id || null,
         created_at: new Date().toISOString(),
       });
 
@@ -366,28 +449,111 @@ export default function SparePartsInventory() {
     }
   };
 
-  const reqAction = async (req, status) => {
+  const reqAction = async (req, action) => {
     try {
+      const now = new Date().toISOString();
+      const updatePayload = {};
+
+      if (action === 'operations_approved') {
+        Object.assign(updatePayload, {
+          operations_status: 'approved',
+          request_status: 'pending_inventory_review',
+          current_department: 'inventory',
+          operations_note: 'Approved by Operations',
+        });
+      }
+
+      if (action === 'operations_rejected') {
+        Object.assign(updatePayload, {
+          status: 'rejected',
+          operations_status: 'rejected',
+          request_status: 'rejected_by_operations',
+          current_department: 'operations',
+          operations_note: 'Rejected by Operations',
+        });
+      }
+
+      if (action === 'inventory_approved') {
+        Object.assign(updatePayload, {
+          inventory_status: 'approved_for_dispatch',
+          request_status: 'pending_finance_review',
+          current_department: 'finance',
+          inventory_note: 'Stock confirmed / approved for dispatch',
+        });
+      }
+
+      if (action === 'inventory_rejected') {
+        Object.assign(updatePayload, {
+          status: 'rejected',
+          inventory_status: 'rejected',
+          request_status: 'rejected_by_inventory',
+          current_department: 'inventory',
+          inventory_note: 'Rejected by Inventory',
+        });
+      }
+
+      if (action === 'finance_approved') {
+        Object.assign(updatePayload, {
+          finance_status: 'approved',
+          request_status: 'approved_for_dispatch',
+          current_department: 'inventory',
+          finance_note: 'Payment / waybill cost approved by Accounts',
+        });
+      }
+
+      if (action === 'dispatched') {
+        Object.assign(updatePayload, {
+          status: 'dispatched',
+          dispatch_status: 'dispatched',
+          request_status: 'dispatched',
+          current_department: 'engineer',
+          dispatch_note: 'Part dispatched to engineer/site',
+        });
+      }
+
+      if (action === 'received') {
+        Object.assign(updatePayload, {
+          status: 'received',
+          dispatch_status: 'received',
+          request_status: 'received_by_engineer',
+          current_department: 'engineer',
+        });
+      }
+
       const { error } = await supabase
-        .from('spare_part_requests')
-        .update({
-          status,
-          approver_email: user.email,
-          approved_date: new Date().toISOString(),
-        })
+        .from('part_requests')
+        .update(updatePayload)
         .eq('id', req.id);
 
       if (error) throw error;
 
-      if (status === 'dispatched') {
+      if (req.ticket_id) {
+        const ticketPayload = {
+          part_request_status: updatePayload.request_status || req.request_status,
+          updated_at: now,
+        };
+
+        if (action === 'operations_rejected' || action === 'inventory_rejected') {
+          ticketPayload.status = 'rejected_parts';
+        }
+
+        const { error: ticketError } = await supabase
+          .from('tickets')
+          .update(ticketPayload)
+          .eq('id', req.ticket_id);
+
+        if (ticketError) throw ticketError;
+      }
+
+      if (action === 'dispatched') {
         const item = items.find(
           (p) => p.id === req.part_id || p.part_number === req.part_number
         );
 
         if (item) {
           const previousQty = item.quantity_available || 0;
-          const requestQty = req.quantity_requested || 1;
-          const newQty = Math.max(0, previousQty - requestQty);
+          const qty = requestQty(req);
+          const newQty = Math.max(0, previousQty - qty);
 
           const { error: stockError } = await supabase
             .from('spare_parts')
@@ -395,7 +561,7 @@ export default function SparePartsInventory() {
               quantity_available: newQty,
               stock_status: computeStatus(newQty, item.minimum_stock_level),
               total_stock_value: (item.unit_price_ngn || 0) * newQty,
-              updated_at: new Date().toISOString(),
+              updated_at: now,
             })
             .eq('id', item.id);
 
@@ -408,13 +574,13 @@ export default function SparePartsInventory() {
               part_number: item.part_number,
               item_description: item.description,
               movement_type: 'request_dispatch',
-              quantity_changed: -requestQty,
+              quantity_changed: -qty,
               previous_quantity: previousQty,
               new_quantity: newQty,
-              reason: `Dispatched for request ${req.request_number}`,
+              reason: `Dispatched for request ${req.request_number || req.id}`,
               performed_by_email: user.email,
               performed_by_name: user.full_name || user.name || user.email,
-              created_at: new Date().toISOString(),
+              created_at: now,
             });
 
           if (movementError) throw movementError;
@@ -424,7 +590,7 @@ export default function SparePartsInventory() {
         }
       }
 
-      if (status === 'received') {
+      if (action === 'received') {
         const { error: movementError } = await supabase
           .from('inventory_movements')
           .insert({
@@ -435,10 +601,10 @@ export default function SparePartsInventory() {
             quantity_changed: 0,
             previous_quantity: 0,
             new_quantity: 0,
-            reason: `Engineer confirmed receipt for request ${req.request_number}`,
+            reason: `Engineer confirmed receipt for request ${req.request_number || req.id}`,
             performed_by_email: user.email,
             performed_by_name: user.full_name || user.name || user.email,
-            created_at: new Date().toISOString(),
+            created_at: now,
           });
 
         if (movementError) throw movementError;
@@ -623,11 +789,14 @@ export default function SparePartsInventory() {
   };
 
   const REQ_STATUS = {
-    pending: { label: 'Pending', color: 'bg-amber-500/15 text-amber-300' },
-    approved: { label: 'Approved', color: 'bg-green-500/15 text-green-300' },
+    operations_pending: { label: 'Operations Review', color: 'bg-amber-500/15 text-amber-300' },
+    inventory_pending: { label: 'Inventory Review', color: 'bg-blue-50 text-blue-700' },
+    finance_pending: { label: 'Accounts Review', color: 'bg-purple-50 text-purple-700' },
+    ready_dispatch: { label: 'Ready to Dispatch', color: 'bg-green-500/15 text-green-300' },
     rejected: { label: 'Rejected', color: 'bg-red-500/15 text-red-300' },
     dispatched: { label: 'Dispatched', color: 'bg-blue-50 text-blue-700' },
     received: { label: 'Received', color: 'bg-purple-50 text-purple-700' },
+    pending: { label: 'Pending', color: 'bg-amber-500/15 text-amber-300' },
   };
 
   const URGENCY = {
@@ -693,6 +862,28 @@ export default function SparePartsInventory() {
       </div>
 
       <InvStatsCards items={items} />
+
+
+      {canManage && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <Card className="p-3">
+            <p className="text-xs text-muted-foreground">Operations Approval</p>
+            <p className="text-xl font-bold">{operationsPending}</p>
+          </Card>
+          <Card className="p-3">
+            <p className="text-xs text-muted-foreground">Inventory Approval</p>
+            <p className="text-xl font-bold">{inventoryPending}</p>
+          </Card>
+          <Card className="p-3">
+            <p className="text-xs text-muted-foreground">Accounts / Waybill</p>
+            <p className="text-xl font-bold">{financePending}</p>
+          </Card>
+          <Card className="p-3">
+            <p className="text-xs text-muted-foreground">Dispatch Pending</p>
+            <p className="text-xl font-bold">{dispatchPending}</p>
+          </Card>
+        </div>
+      )}
 
       {outStock.length > 0 && canManage && (
         <div className="flex gap-3 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl">
@@ -1021,15 +1212,30 @@ export default function SparePartsInventory() {
           )}
 
           {requests.map((req) => {
-            const sc = REQ_STATUS[req.status] || REQ_STATUS.pending;
+            const currentStatus = workflowStatus(req);
+            const sc = REQ_STATUS[currentStatus] || REQ_STATUS.pending;
+            const photo = requestPhoto(req);
+            const canOperationsAction = (isAdmin || isOperations) && req.operations_status === 'pending_review';
+            const canInventoryAction =
+              (isAdmin || isInventory) &&
+              req.operations_status === 'approved' &&
+              req.inventory_status === 'pending_review';
+            const canFinanceAction =
+              (isAdmin || isFinance) &&
+              ['pending_payment_review', 'pending_dispatch_cost_review'].includes(req.finance_status);
+            const canDispatchAction =
+              (isAdmin || isInventory) &&
+              req.inventory_status === 'approved_for_dispatch' &&
+              !['pending_payment_review', 'pending_dispatch_cost_review'].includes(req.finance_status) &&
+              !['dispatched', 'received'].includes(req.dispatch_status);
 
             return (
               <Card key={req.id} className="p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
                       <span className="font-mono text-xs text-muted-foreground">
-                        {req.request_number}
+                        {req.request_number || req.id}
                       </span>
                       <Badge variant="outline" className={sc.color + ' text-[10px]'}>
                         {sc.label}
@@ -1038,51 +1244,76 @@ export default function SparePartsInventory() {
                         variant="outline"
                         className={(URGENCY[req.urgency] || '') + ' text-[10px] capitalize'}
                       >
-                        {req.urgency}
+                        {req.urgency || 'medium'}
                       </Badge>
+                      {req.status === 'pending_bank' && (
+                        <Badge variant="outline" className="text-[10px] bg-red-500/15 text-red-300">
+                          Bank To Pay
+                        </Badge>
+                      )}
                     </div>
 
                     <p className="font-semibold text-sm">
-                      {req.part_name}{' '}
+                      {req.part_name || req.part_number || 'Requested Part'}{' '}
                       <span className="font-normal text-muted-foreground">
-                        ×{req.quantity_requested}
+                        ×{requestQty(req)}
                       </span>
                     </p>
 
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      By: {req.engineer_name}
+                      By: {req.engineer_name || req.engineer_email || 'Engineer'}
                       {req.site_name ? ' · ' + req.site_name : ''}
+                      {req.tickets?.terminal_id ? ' · Terminal: ' + req.tickets.terminal_id : ''}
                     </p>
 
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-[11px]">
+                      <div className="rounded-lg border p-2">
+                        <p className="text-muted-foreground">Operations</p>
+                        <p className="font-semibold capitalize">{req.operations_status || 'pending_review'}</p>
+                      </div>
+                      <div className="rounded-lg border p-2">
+                        <p className="text-muted-foreground">Inventory</p>
+                        <p className="font-semibold capitalize">{req.inventory_status || 'pending_review'}</p>
+                      </div>
+                      <div className="rounded-lg border p-2">
+                        <p className="text-muted-foreground">Accounts</p>
+                        <p className="font-semibold capitalize">{req.finance_status || 'not_required'}</p>
+                      </div>
+                      <div className="rounded-lg border p-2">
+                        <p className="text-muted-foreground">Dispatch</p>
+                        <p className="font-semibold capitalize">{req.dispatch_status || 'pending'}</p>
+                      </div>
+                    </div>
+
                     {req.reason && (
-                      <p className="text-xs text-muted-foreground mt-1">{req.reason}</p>
+                      <p className="text-xs text-muted-foreground mt-2">{req.reason}</p>
                     )}
                   </div>
 
-                  {req.faulty_part_photo && (
+                  {photo && (
                     <img
-                      src={req.faulty_part_photo}
+                      src={photo}
                       alt="Faulty part"
                       className="w-16 h-16 object-cover rounded-lg border"
                     />
                   )}
                 </div>
 
-                {canManage && req.status === 'pending' && (
+                {canOperationsAction && (
                   <div className="flex gap-2 mt-3">
                     <Button
                       size="sm"
                       className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                      onClick={() => reqAction(req, 'approved')}
+                      onClick={() => reqAction(req, 'operations_approved')}
                     >
                       <CheckCircle2 className="w-3 h-3 mr-1" />
-                      Approve
+                      Operations Approve
                     </Button>
                     <Button
                       size="sm"
                       variant="outline"
                       className="flex-1 text-destructive"
-                      onClick={() => reqAction(req, 'rejected')}
+                      onClick={() => reqAction(req, 'operations_rejected')}
                     >
                       <XCircle className="w-3 h-3 mr-1" />
                       Reject
@@ -1090,7 +1321,41 @@ export default function SparePartsInventory() {
                   </div>
                 )}
 
-                {canManage && req.status === 'approved' && (
+                {canInventoryAction && (
+                  <div className="flex gap-2 mt-3">
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                      onClick={() => reqAction(req, 'inventory_approved')}
+                    >
+                      <CheckCircle2 className="w-3 h-3 mr-1" />
+                      Inventory Approve
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="flex-1 text-destructive"
+                      onClick={() => reqAction(req, 'inventory_rejected')}
+                    >
+                      <XCircle className="w-3 h-3 mr-1" />
+                      Reject
+                    </Button>
+                  </div>
+                )}
+
+                {canFinanceAction && (
+                  <Button
+                    size="sm"
+                    className="w-full mt-3"
+                    variant="outline"
+                    onClick={() => reqAction(req, 'finance_approved')}
+                  >
+                    <CheckCircle2 className="w-3 h-3 mr-1" />
+                    Accounts Approve Payment / Waybill
+                  </Button>
+                )}
+
+                {canDispatchAction && (
                   <Button
                     size="sm"
                     className="w-full mt-3"
@@ -1102,7 +1367,7 @@ export default function SparePartsInventory() {
                   </Button>
                 )}
 
-                {isEngineer && req.status === 'dispatched' && (
+                {isEngineer && req.dispatch_status === 'dispatched' && (
                   <Button
                     size="sm"
                     className="w-full mt-3"
