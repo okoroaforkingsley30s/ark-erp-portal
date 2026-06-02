@@ -34,6 +34,8 @@ import {
   Clock,
   Tag,
   AlertTriangle,
+  Image,
+  Video,
 } from 'lucide-react';
 
 import { Separator } from '@/components/ui/separator';
@@ -70,6 +72,54 @@ async function fetchEngineers() {
 
   if (error) throw error;
   return data || [];
+}
+
+function getFileUrl(item) {
+  if (!item) return '';
+  if (typeof item === 'string') return item;
+  return item.url || item.publicUrl || item.file_url || '';
+}
+
+function getFileName(item, fallback) {
+  if (!item) return fallback;
+  if (typeof item === 'string') return fallback;
+  return item.name || fallback;
+}
+
+function EvidenceLinks({ title, icon, items }) {
+  const safeItems = Array.isArray(items) ? items : [];
+
+  if (safeItems.length === 0) return null;
+
+  return (
+    <div className="mt-4 space-y-2">
+      <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+        {icon}
+        {title}
+      </p>
+
+      <div className="flex flex-wrap gap-2">
+        {safeItems.map((item, i) => {
+          const fileUrl = getFileUrl(item);
+          const fileName = getFileName(item, `${title} ${i + 1}`);
+
+          if (!fileUrl) return null;
+
+          return (
+            <a
+              key={`${title}-${i}`}
+              href={fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:underline border rounded-lg px-3 py-2"
+            >
+              {fileName}
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 export default function TicketDetail() {
@@ -130,63 +180,63 @@ export default function TicketDetail() {
   };
 
   const handleAssign = async (engineerEmail) => {
-  if (!engineerEmail) {
-    alert('No engineer selected.');
-    return;
-  }
-
-  if (!ticket?.id && !id) {
-    alert('Ticket ID not found.');
-    return;
-  }
-
-  const eng = engineers.find((e) => e.email === engineerEmail);
-  const ticketTitle = ticket?.title || ticket?.ticket_id || 'Untitled Ticket';
-  const ticketLink = `/tickets/${id}`;
-
-  try {
-    await updateTicket({
-      assigned_to: engineerEmail,
-      assigned_to_name: eng?.full_name || engineerEmail,
-      status: 'assigned',
-    });
-
-    const { data: notifyData, error: notifyError } = await supabase
-      .from('notifications')
-      .insert({
-        user_email: engineerEmail,
-        title: 'New Ticket Assigned',
-        message: `You have been assigned ticket: ${ticketTitle}`,
-        type: 'ticket_assigned',
-        link: ticketLink,
-        sound: 'bell',
-        read: false,
-        created_at: new Date().toISOString(),
-      })
-      .select();
-
-    console.log('Ticket assignment notification result:', {
-      notifyData,
-      notifyError,
-      engineerEmail,
-      ticketId: id,
-    });
-
-    if (notifyError) {
-      alert('Ticket notification failed: ' + notifyError.message);
+    if (!engineerEmail) {
+      alert('No engineer selected.');
       return;
     }
 
-    alert(`Ticket assigned and notification sent to ${engineerEmail}`);
+    if (!ticket?.id && !id) {
+      alert('Ticket ID not found.');
+      return;
+    }
 
-    queryClient.invalidateQueries({ queryKey: ['notifications'] });
-    queryClient.invalidateQueries({ queryKey: ['ticket', id] });
-    queryClient.invalidateQueries({ queryKey: ['tickets'] });
-  } catch (error) {
-    console.error('Ticket assignment failed:', error);
-    alert('Ticket assignment failed: ' + (error?.message || 'Unknown error'));
-  }
-};
+    const eng = engineers.find((e) => e.email === engineerEmail);
+    const ticketTitle = ticket?.title || ticket?.ticket_id || 'Untitled Ticket';
+    const ticketLink = `/tickets/${id}`;
+
+    try {
+      await updateTicket({
+        assigned_to: engineerEmail,
+        assigned_to_name: eng?.full_name || engineerEmail,
+        status: 'assigned',
+      });
+
+      const { data: notifyData, error: notifyError } = await supabase
+        .from('notifications')
+        .insert({
+          user_email: engineerEmail,
+          title: 'New Ticket Assigned',
+          message: `You have been assigned ticket: ${ticketTitle}`,
+          type: 'ticket_assigned',
+          link: ticketLink,
+          sound: 'bell',
+          read: false,
+          created_at: new Date().toISOString(),
+        })
+        .select();
+
+      console.log('Ticket assignment notification result:', {
+        notifyData,
+        notifyError,
+        engineerEmail,
+        ticketId: id,
+      });
+
+      if (notifyError) {
+        alert('Ticket notification failed: ' + notifyError.message);
+        return;
+      }
+
+      alert(`Ticket assigned and notification sent to ${engineerEmail}`);
+
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      queryClient.invalidateQueries({ queryKey: ['ticket', id] });
+      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    } catch (error) {
+      console.error('Ticket assignment failed:', error);
+      alert('Ticket assignment failed: ' + (error?.message || 'Unknown error'));
+    }
+  };
 
   const handleStatusChange = async (newStatus) => {
     const data = { status: newStatus };
@@ -272,6 +322,14 @@ export default function TicketDetail() {
     (c) => role !== 'client' || !c.is_internal
   );
 
+  const evidencePhotos = Array.isArray(ticket.evidence_photos)
+    ? ticket.evidence_photos
+    : [];
+
+  const evidenceVideos = Array.isArray(ticket.evidence_videos)
+    ? ticket.evidence_videos
+    : [];
+
   return (
     <div className="space-y-5 max-w-4xl">
       <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
@@ -345,6 +403,28 @@ export default function TicketDetail() {
               )}
             </CardContent>
           </Card>
+
+          {(evidencePhotos.length > 0 || evidenceVideos.length > 0) && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm">Engineer Evidence</CardTitle>
+              </CardHeader>
+
+              <CardContent>
+                <EvidenceLinks
+                  title="Evidence Photos"
+                  icon={<Image className="w-3.5 h-3.5" />}
+                  items={evidencePhotos}
+                />
+
+                <EvidenceLinks
+                  title="Evidence Videos"
+                  icon={<Video className="w-3.5 h-3.5" />}
+                  items={evidenceVideos}
+                />
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader className="pb-3">

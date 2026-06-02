@@ -247,7 +247,7 @@ useEffect(() => {
 
   if (success) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
+      <div className="min-h-screen overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
 
         <Card className="p-8 max-w-sm w-full text-center space-y-4">
 
@@ -268,9 +268,9 @@ useEffect(() => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
+    <div className="min-h-screen overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
 
-      <Card className="p-8 max-w-md w-full space-y-6 border-0 shadow-2xl">
+      <Card className="p-8 max-w-md w-full mx-auto my-8 space-y-6 border-0 shadow-2xl">
 
         <div className="text-center space-y-3">
 
