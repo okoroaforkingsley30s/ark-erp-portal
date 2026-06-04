@@ -91,24 +91,24 @@ useEffect(() => {
 
       const code = searchParams.get('code') || hashParams.get('code');
 
-      if (accessToken && refreshToken) {
-        const { error } = await supabase.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
+if (accessToken && refreshToken) {
+  const { error } = await supabase.auth.setSession({
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  });
 
-        if (error) throw error;
+  if (error) throw error;
 
-        window.history.replaceState({}, document.title, '/create-password');
-      }
+  window.history.replaceState({}, document.title, '/#/create-password');
+}
 
-      if (code) {
-        const { error } = await supabase.auth.exchangeCodeForSession(code);
+if (code) {
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
 
-        if (error) throw error;
+  if (error) throw error;
 
-        window.history.replaceState({}, document.title, '/create-password');
-      }
+  window.history.replaceState({}, document.title, '/#/create-password');
+}
 
       const {
         data: { session },
