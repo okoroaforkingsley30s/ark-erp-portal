@@ -91,6 +91,8 @@ const AuthenticatedApp = () => {
       <Route path="/register" element={<Welcome />} />
       <Route path="/signup" element={<Welcome />} />
       <Route path="/create-password" element={<ChangePassword />} />
+<Route path="/reset-password" element={<ChangePassword />} />
+<Route path="/change-password" element={<ChangePassword />} />
 
       <Route element={<AppLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />
