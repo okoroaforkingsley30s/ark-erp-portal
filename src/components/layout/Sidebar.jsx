@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 
@@ -160,13 +160,13 @@ const ALL_MENUS = [
   {
     label: 'Inventory',
     icon: Boxes,
-    path: '/spare-parts',
+    path: '/spare-parts?tab=inventory',
     permission: 'inventory',
   },
   {
     label: 'Request Parts',
     icon: Boxes,
-    path: '/spare-parts',
+    path: '/spare-parts?tab=requests',
     permission: 'parts_request',
   },
 
@@ -269,7 +269,7 @@ const ALL_MENUS = [
   },
 ];
 
-export default function Sidebar({
+function Sidebar({
   user,
   unreadCount = 0,
   dmUnreadCount = 0,
@@ -280,20 +280,6 @@ export default function Sidebar({
   const location = useLocation();
   const navRef = useRef(null);
   const role = user?.role || '';
-
-  useEffect(() => {
-    const savedScroll = sessionStorage.getItem('ark_sidebar_scroll');
-
-    if (!savedScroll) return;
-
-    const timer = setTimeout(() => {
-      if (navRef.current) {
-        navRef.current.scrollTop = Number(savedScroll);
-      }
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [location.pathname, collapsed]);
 
   const filteredMenu = ALL_MENUS.filter((item) => {
     return canAccess(role, item.permission);
@@ -334,16 +320,10 @@ export default function Sidebar({
       </div>
 
       <nav
-        ref={navRef}
-        className="flex-1 p-2 overflow-y-auto"
-        style={{ WebkitOverflowScrolling: 'touch' }}
-        onScroll={(e) => {
-          sessionStorage.setItem(
-            'ark_sidebar_scroll',
-            String(e.currentTarget.scrollTop)
-          );
-        }}
-      >
+  ref={navRef}
+  className="flex-1 p-2 overflow-y-auto"
+  style={{ WebkitOverflowScrolling: 'touch' }}
+>
         {filteredMenu.map((item, idx) => {
           if (item.section) {
             if (collapsed) return null;
@@ -358,14 +338,20 @@ export default function Sidebar({
             );
           }
 
-          const isActive =
-            location.pathname === item.path ||
-            location.pathname.startsWith(`${item.path}/`);
+          const itemBasePath = item.path.split('?')[0];
+          const itemFullPath = item.path;
+          const currentFullPath = `${location.pathname}${location.search}`;
+
+          const isActive = item.path.includes('?')
+            ? currentFullPath === itemFullPath
+            : location.pathname === itemBasePath ||
+              location.pathname.startsWith(`${itemBasePath}/`);
 
           return (
             <Link
               key={item.path + item.label}
               to={item.path}
+              preventScrollReset
               onClick={() => setMobileOpen(false)}
               className={cn(
                 'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all mb-0.5 border',
@@ -503,3 +489,5 @@ export default function Sidebar({
     </>
   );
 }
+
+export default React.memo(Sidebar);
