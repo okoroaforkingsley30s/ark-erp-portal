@@ -232,28 +232,38 @@ export default function UserManagement() {
   };
 
   const handleForcePasswordReset = async (u) => {
-    if (!isAdmin) {
-      alert('Unauthorized');
-      return;
+  if (!isAdmin) {
+    alert('Unauthorized');
+    return;
+  }
+
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    u.email,
+    {
+      redirectTo:
+        'https://portal.arktechnologiesgroup.com/#/create-password',
     }
+  );
 
-    if (!confirm(`Force ${u.full_name || u.email} to change their password on next login?`)) return;
+  if (error) {
+    alert(error.message);
+    return;
+  }
 
-    const { error } = await supabase
-      .from('users')
-      .update({
-        must_change_password: true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', u.id);
+  await supabase
+    .from('users')
+    .update({
+      must_change_password: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', u.id);
 
-    if (error) {
-      alert(error.message);
-      return;
-    }
+  alert('Password reset email sent successfully.');
 
-    qc.invalidateQueries({ queryKey: ['users'] });
-  };
+  qc.invalidateQueries({
+    queryKey: ['users'],
+  });
+};
 
   const handleBulkForceReset = async () => {
     if (!isAdmin) {
