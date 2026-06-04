@@ -64,7 +64,9 @@ useEffect(() => {
       const hash = window.location.hash || '';
       const search = window.location.search || '';
 
-      const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
+      const hashParams = new URLSearchParams(
+  hash.replace(/^#\/create-password\??/, '').replace(/^#/, '')
+);
       const searchParams = new URLSearchParams(search.replace(/^\?/, ''));
 
       const errorCode =
