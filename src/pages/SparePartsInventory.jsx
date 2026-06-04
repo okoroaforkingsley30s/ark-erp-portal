@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -171,24 +171,51 @@ const normalizeRole = (role) =>
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
 
-const requestQty = (req) => Number(req.quantity_requested || req.quantity || 1);
+const requestQty = (req) => Number(req.quantity || req.quantity_requested || 1);
+
+const getPhotoUrl = (photo) => {
+  if (!photo) return '';
+
+  if (typeof photo === 'string') return photo;
+
+  if (typeof photo === 'object') {
+    return photo.url || photo.publicUrl || photo.path || '';
+  }
+
+  return '';
+};
 
 const requestPhoto = (req) => {
   if (Array.isArray(req.photo_evidence) && req.photo_evidence.length > 0) {
-    return req.photo_evidence[0];
+    return getPhotoUrl(req.photo_evidence[0]);
   }
 
   if (Array.isArray(req.evidence_photos) && req.evidence_photos.length > 0) {
-    return req.evidence_photos[0];
+    return getPhotoUrl(req.evidence_photos[0]);
   }
 
   return req.faulty_part_photo || req.photo_url || '';
 };
 
 const workflowStatus = (req) => {
-  if (req.status === 'rejected') return 'rejected';
-  if (req.dispatch_status === 'received' || req.status === 'received') return 'received';
-  if (req.dispatch_status === 'dispatched' || req.status === 'dispatched') return 'dispatched';
+  if (
+    req.approval_status === 'rejected' ||
+    req.operations_status === 'rejected' ||
+    req.inventory_status === 'rejected'
+  ) {
+    return 'rejected';
+  }
+
+  if (req.dispatch_status === 'received') return 'received';
+  if (req.dispatch_status === 'dispatched') return 'dispatched';
+
+  if (
+    req.operations_status === 'approved' &&
+    req.inventory_status === 'approved_for_dispatch' &&
+    ['approved', 'not_required'].includes(req.finance_status || 'not_required')
+  ) {
+    return 'ready_dispatch';
+  }
 
   if (
     req.finance_status === 'pending_payment_review' ||
@@ -197,13 +224,19 @@ const workflowStatus = (req) => {
     return 'finance_pending';
   }
 
-  if (req.inventory_status === 'pending_review') return 'inventory_pending';
-  if (req.operations_status === 'pending_review') return 'operations_pending';
-  if (req.operations_status === 'approved' && req.inventory_status === 'approved_for_dispatch') {
-    return 'ready_dispatch';
+  if (req.operations_status === 'approved' && req.inventory_status === 'pending_review') {
+    return 'inventory_pending';
   }
 
-  return req.status || 'pending';
+  if (
+    req.operations_status === 'pending_review' ||
+    req.approval_status === 'pending_operations' ||
+    req.inventory_status === 'waiting_operations_approval'
+  ) {
+    return 'operations_pending';
+  }
+
+  return 'pending';
 };
 async function fetchInventoryMovements() {
   const { data, error } = await supabase
@@ -290,11 +323,26 @@ export default function SparePartsInventory() {
 
   const outStock = items.filter((i) => (i.quantity_available || 0) === 0);
 
-  const pending = requests.filter((r) => ['operations_pending', 'inventory_pending', 'finance_pending', 'ready_dispatch'].includes(workflowStatus(r))).length;
-  const operationsPending = requests.filter((r) => r.operations_status === 'pending_review').length;
-  const inventoryPending = requests.filter((r) => r.operations_status === 'approved' && r.inventory_status === 'pending_review').length;
-  const financePending = requests.filter((r) => ['pending_payment_review', 'pending_dispatch_cost_review'].includes(r.finance_status)).length;
-  const dispatchPending = requests.filter((r) => r.inventory_status === 'approved_for_dispatch' && !['dispatched', 'received'].includes(r.dispatch_status)).length;
+  const pending = requests.filter((r) =>
+    ['operations_pending', 'inventory_pending', 'finance_pending', 'ready_dispatch'].includes(workflowStatus(r))
+  ).length;
+  const operationsPending = requests.filter((r) =>
+    r.operations_status === 'pending_review' ||
+    r.approval_status === 'pending_operations' ||
+    r.inventory_status === 'waiting_operations_approval'
+  ).length;
+  const inventoryPending = requests.filter((r) =>
+    r.operations_status === 'approved' &&
+    r.inventory_status === 'pending_review'
+  ).length;
+  const financePending = requests.filter((r) =>
+    ['pending_payment_review', 'pending_dispatch_cost_review'].includes(r.finance_status)
+  ).length;
+  const dispatchPending = requests.filter((r) =>
+    r.inventory_status === 'approved_for_dispatch' &&
+    ['approved', 'not_required'].includes(r.finance_status || 'not_required') &&
+    !['dispatched', 'received'].includes(r.dispatch_status)
+  ).length;
 
   const filtered = useMemo(
     () =>
@@ -405,35 +453,27 @@ export default function SparePartsInventory() {
 
     try {
       const item = items.find((p) => p.id === rf.part_id);
-      const requestNumber = 'PR-' + Date.now();
       const partName = item?.description || rf.part_name;
-      const partNumber = item?.part_number || rf.part_number;
 
       const { error } = await supabase.from('part_requests').insert({
-        part_id: rf.part_id || null,
         ticket_id: rf.ticket_id || null,
-        part_name: partName,
-        part_number: partNumber,
-        quantity: requestQty(rf),
-        quantity_requested: requestQty(rf),
-        site_name: rf.site_name,
-        urgency: rf.urgency,
-        reason: rf.reason,
-        faulty_part_photo: rf.faulty_part_photo,
-        request_number: requestNumber,
-        request_type: 'company',
-        status: 'pending_parts',
-        request_status: 'pending_operations_review',
-        operations_status: 'pending_review',
-        inventory_status: 'pending_review',
-        finance_status: 'pending_dispatch_cost_review',
-        dispatch_status: 'pending',
-        current_department: 'operations',
-        engineer_id: user.id || null,
+        ticket_number: rf.ticket_id || null,
         engineer_email: user.email,
         engineer_name: user.full_name || user.name || user.email,
-        created_by: user.id || null,
+        part_name: partName,
+        quantity: requestQty(rf),
+        request_type: 'consumable',
+        reason_category: 'consumable_required',
+        reason_note: rf.reason,
+        evidence_photos: [],
+        approval_status: 'pending_operations',
+        operations_status: 'pending_review',
+        inventory_status: 'waiting_operations_approval',
+        finance_status: 'not_required',
+        dispatch_status: 'pending',
+        current_department: 'operations',
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       });
 
       if (error) throw error;
@@ -456,67 +496,77 @@ export default function SparePartsInventory() {
 
       if (action === 'operations_approved') {
         Object.assign(updatePayload, {
+          approval_status: 'operations_approved',
           operations_status: 'approved',
-          request_status: 'pending_inventory_review',
-          current_department: 'inventory',
-          operations_note: 'Approved by Operations',
+          inventory_status: 'pending_review',
+          finance_status:
+            req.request_type === 'bank'
+              ? 'pending_payment_review'
+              : 'pending_dispatch_cost_review',
+          current_department: 'inventory_accounts',
+          operations_note: 'Approved by Operations and pushed to Inventory and Accounts',
+          updated_at: now,
         });
       }
 
       if (action === 'operations_rejected') {
         Object.assign(updatePayload, {
-          status: 'rejected',
+          approval_status: 'rejected',
           operations_status: 'rejected',
-          request_status: 'rejected_by_operations',
           current_department: 'operations',
           operations_note: 'Rejected by Operations',
+          updated_at: now,
         });
       }
 
       if (action === 'inventory_approved') {
         Object.assign(updatePayload, {
           inventory_status: 'approved_for_dispatch',
-          request_status: 'pending_finance_review',
-          current_department: 'finance',
+          current_department:
+            ['approved', 'not_required'].includes(req.finance_status || 'not_required')
+              ? 'inventory'
+              : 'accounts',
           inventory_note: 'Stock confirmed / approved for dispatch',
+          updated_at: now,
         });
       }
 
       if (action === 'inventory_rejected') {
         Object.assign(updatePayload, {
-          status: 'rejected',
+          approval_status: 'rejected',
           inventory_status: 'rejected',
-          request_status: 'rejected_by_inventory',
           current_department: 'inventory',
           inventory_note: 'Rejected by Inventory',
+          updated_at: now,
         });
       }
 
       if (action === 'finance_approved') {
         Object.assign(updatePayload, {
           finance_status: 'approved',
-          request_status: 'approved_for_dispatch',
-          current_department: 'inventory',
+          current_department:
+            req.inventory_status === 'approved_for_dispatch'
+              ? 'inventory'
+              : 'inventory_accounts',
           finance_note: 'Payment / waybill cost approved by Accounts',
+          updated_at: now,
         });
       }
 
       if (action === 'dispatched') {
         Object.assign(updatePayload, {
-          status: 'dispatched',
           dispatch_status: 'dispatched',
-          request_status: 'dispatched',
           current_department: 'engineer',
           dispatch_note: 'Part dispatched to engineer/site',
+          updated_at: now,
         });
       }
 
       if (action === 'received') {
         Object.assign(updatePayload, {
-          status: 'received',
           dispatch_status: 'received',
-          request_status: 'received_by_engineer',
           current_department: 'engineer',
+          updated_at: now,
         });
       }
 
@@ -529,7 +579,11 @@ export default function SparePartsInventory() {
 
       if (req.ticket_id) {
         const ticketPayload = {
-          part_request_status: updatePayload.request_status || req.request_status,
+          part_request_status:
+            updatePayload.current_department ||
+            updatePayload.approval_status ||
+            req.current_department ||
+            req.approval_status,
           updated_at: now,
         };
 
@@ -547,7 +601,11 @@ export default function SparePartsInventory() {
 
       if (action === 'dispatched') {
         const item = items.find(
-          (p) => p.id === req.part_id || p.part_number === req.part_number
+          (p) =>
+            p.id === req.part_id ||
+            p.part_number === req.part_number ||
+            p.description === req.part_name ||
+            p.part_name === req.part_name
         );
 
         if (item) {
@@ -595,7 +653,7 @@ export default function SparePartsInventory() {
           .from('inventory_movements')
           .insert({
             item_id: req.part_id || null,
-            part_number: req.part_number,
+            part_number: req.part_number || '',
             item_description: req.part_name,
             movement_type: 'request_received',
             quantity_changed: 0,
@@ -1215,7 +1273,13 @@ export default function SparePartsInventory() {
             const currentStatus = workflowStatus(req);
             const sc = REQ_STATUS[currentStatus] || REQ_STATUS.pending;
             const photo = requestPhoto(req);
-            const canOperationsAction = (isAdmin || isOperations) && req.operations_status === 'pending_review';
+            const canOperationsAction =
+              (isAdmin || isOperations) &&
+              (
+                req.operations_status === 'pending_review' ||
+                req.approval_status === 'pending_operations' ||
+                req.inventory_status === 'waiting_operations_approval'
+              );
             const canInventoryAction =
               (isAdmin || isInventory) &&
               req.operations_status === 'approved' &&
@@ -1226,7 +1290,7 @@ export default function SparePartsInventory() {
             const canDispatchAction =
               (isAdmin || isInventory) &&
               req.inventory_status === 'approved_for_dispatch' &&
-              !['pending_payment_review', 'pending_dispatch_cost_review'].includes(req.finance_status) &&
+              ['approved', 'not_required'].includes(req.finance_status || 'not_required') &&
               !['dispatched', 'received'].includes(req.dispatch_status);
 
             return (
@@ -1246,7 +1310,7 @@ export default function SparePartsInventory() {
                       >
                         {req.urgency || 'medium'}
                       </Badge>
-                      {req.status === 'pending_bank' && (
+                      {req.request_type === 'bank' && (
                         <Badge variant="outline" className="text-[10px] bg-red-500/15 text-red-300">
                           Bank To Pay
                         </Badge>
@@ -1285,8 +1349,10 @@ export default function SparePartsInventory() {
                       </div>
                     </div>
 
-                    {req.reason && (
-                      <p className="text-xs text-muted-foreground mt-2">{req.reason}</p>
+                    {(req.reason_note || req.reason) && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {req.reason_note || req.reason}
+                      </p>
                     )}
                   </div>
 
