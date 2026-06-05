@@ -104,9 +104,18 @@ export default function Dashboard() {
   });
 
   const { data: engineers = [] } = useQuery({
-    queryKey: ['engineers'],
+    queryKey: ['engineers-dashboard'],
     queryFn: async () => {
-      const { data } = await supabase.from('engineers').select('*');
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .in('role', ['engineer', 'field_engineer', 'field engineer']);
+
+      if (error) {
+        console.error('Engineers dashboard fetch error:', error);
+        return [];
+      }
+
       return data || [];
     },
     enabled: OPS_ROLES.includes(role),
@@ -133,22 +142,28 @@ export default function Dashboard() {
   });
 
   const { data: spareRequests = [] } = useQuery({
-    queryKey: ['spare-requests'],
+    queryKey: ['part-requests-dashboard', user?.email, role],
     queryFn: async () => {
       let query = supabase
-        .from('spare_part_requests')
+        .from('part_requests')
         .select('*')
-        .eq('status', 'pending');
+        .order('created_at', { ascending: false });
 
-      if (role === 'engineer') {
+      if (role === 'engineer' || role === 'field_engineer') {
         query = query.eq('engineer_email', user.email);
       }
 
-      const { data } = await query;
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Part requests dashboard fetch error:', error);
+        return [];
+      }
 
       return data || [];
     },
-    enabled: role !== 'client',
+    enabled: role !== 'client' && !!user?.email,
+    refetchInterval: 15000,
   });
 
   const { data: unreadMessages = [] } = useQuery({
@@ -169,35 +184,129 @@ export default function Dashboard() {
     refetchInterval: 15000,
   });
 
-  const openTickets = tickets.filter(
-    t => !['closed', 'resolved'].includes(t.status)
-  );
+  const normalizeStatus = (value) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, '_');
 
-  const resolvedTickets = tickets.filter(
-    t => ['resolved', 'closed'].includes(t.status)
-  );
+  const closedStatuses = [
+    'closed',
+    'resolved',
+    'completed',
+    'approved',
+    'complete',
+    'done',
+  ];
 
-  const criticalTickets = tickets.filter(
-    t =>
-      t.priority === 'critical' &&
-      !['closed', 'resolved'].includes(t.status)
-  );
+  const pendingRequestStatuses = [
+    'pending',
+    'pending_parts',
+    'pending_bank',
+    'pending_operations',
+    'pending_review',
+    'waiting_operations_approval',
+    'pending_inventory_review',
+    'pending_finance_review',
+    'approved_for_dispatch',
+  ];
 
-  const lowStock = spareParts.filter(
-    p =>
-      (p.quantity_available || 0) <=
-      (p.minimum_stock_level || 0)
-  ).length;
+  const openTickets = tickets.filter((t) => {
+    const status = normalizeStatus(t.status);
+    const completionStatus = normalizeStatus(t.completion_status);
 
-  const activeDevices = devices.filter(
-    d => d.status === 'operational'
-  ).length;
+    return (
+      !closedStatuses.includes(status) &&
+      !closedStatuses.includes(completionStatus)
+    );
+  });
 
-  const faultyDevices = devices.filter(
-    d =>
-      d.status === 'faulty' ||
-      d.status === 'under_maintenance'
-  ).length;
+  const resolvedTickets = tickets.filter((t) => {
+    const status = normalizeStatus(t.status);
+    const completionStatus = normalizeStatus(t.completion_status);
+
+    return (
+      closedStatuses.includes(status) ||
+      closedStatuses.includes(completionStatus)
+    );
+  });
+
+  const criticalTickets = tickets.filter((t) => {
+    const status = normalizeStatus(t.status);
+    const completionStatus = normalizeStatus(t.completion_status);
+    const priority = normalizeStatus(t.priority || t.severity || t.urgency);
+    const slaStatus = normalizeStatus(t.sla_status);
+
+    return (
+      !closedStatuses.includes(status) &&
+      !closedStatuses.includes(completionStatus) &&
+      (
+        priority === 'critical' ||
+        priority === 'high' ||
+        slaStatus === 'critical' ||
+        slaStatus === 'breached'
+      )
+    );
+  });
+
+  const lowStock = spareParts.filter((p) => {
+    const qty = Number(p.quantity_available || 0);
+    const min = Number(p.minimum_stock_level || 0);
+
+    return qty <= min;
+  }).length;
+
+  const activeDevices = devices.filter((d) => {
+    const status = normalizeStatus(
+      d.device_status || d.status || d.state || d.operational_status
+    );
+
+    return ['active', 'operational', 'working', 'online'].includes(status);
+  }).length;
+
+  const faultyDevices = devices.filter((d) => {
+    const status = normalizeStatus(
+      d.device_status || d.status || d.state || d.operational_status
+    );
+
+    return [
+      'faulty',
+      'fault',
+      'down',
+      'offline',
+      'under_maintenance',
+      'maintenance',
+      'not_working',
+      'inactive',
+    ].includes(status);
+  }).length;
+
+  const pendingRequests = spareRequests.filter((r) => {
+    const approvalStatus = normalizeStatus(r.approval_status);
+    const operationsStatus = normalizeStatus(r.operations_status);
+    const inventoryStatus = normalizeStatus(r.inventory_status);
+    const financeStatus = normalizeStatus(r.finance_status);
+    const dispatchStatus = normalizeStatus(r.dispatch_status);
+    const requestStatus = normalizeStatus(r.request_status);
+    const status = normalizeStatus(r.status);
+
+    if (
+      ['rejected', 'received', 'closed', 'completed'].includes(status) ||
+      ['rejected', 'received', 'closed', 'completed'].includes(dispatchStatus)
+    ) {
+      return false;
+    }
+
+    return [
+      approvalStatus,
+      operationsStatus,
+      inventoryStatus,
+      financeStatus,
+      dispatchStatus,
+      requestStatus,
+      status,
+    ].some((s) => pendingRequestStatuses.includes(s));
+  });
 
   const showOpsStats =
     OPS_ROLES.includes(role) ||
@@ -282,7 +391,7 @@ export default function Dashboard() {
             <StatCard title="Active Devices" value={activeDevices} icon={CheckCircle2} />
             <StatCard title="Faulty Devices" value={faultyDevices} icon={AlertTriangle} />
             <StatCard title="Low Stock" value={lowStock} icon={Package} />
-            <StatCard title="Pending Requests" value={spareRequests.length} icon={Boxes} />
+            <StatCard title="Pending Requests" value={pendingRequests.length} icon={Boxes} />
 
           </div>
         </>

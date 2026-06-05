@@ -105,9 +105,9 @@ export default function AppLayout() {
   }, [location.pathname, resetDMCount]);
 
   useEffect(() => {
-    if (!isLoadingAuth && !isAuthenticated) {
-      navigate('/welcome', { replace: true });
-    }
+    if (!isLoadingAuth && !isAuthenticated && location.pathname !== '/welcome') {
+  navigate('/welcome', { replace: true });
+}
   }, [isLoadingAuth, isAuthenticated, navigate]);
 
   useEffect(() => {

@@ -88,6 +88,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [files, setFiles] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [branchSearch, setBranchSearch] = useState('');
 
   const queryClient = useQueryClient();
 
@@ -148,6 +149,18 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
       bank_name: form.bank_name,
     }));
   }, [devices, form.bank_name]);
+
+  const filteredBranches = useMemo(() => {
+    const q = branchSearch.trim().toLowerCase();
+
+    if (!q) return branches.slice(0, 30);
+
+    return branches
+      .filter((branch) =>
+        branch.branch_name?.toLowerCase().includes(q)
+      )
+      .slice(0, 30);
+  }, [branches, branchSearch]);
 
   const filteredDevices = useMemo(() => {
     return devices.filter(d => {
@@ -262,6 +275,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
       alert('Ticket created successfully');
 
       setForm(EMPTY_FORM);
+      setBranchSearch('');
       setFiles([]);
       onOpenChange(false);
 
@@ -297,6 +311,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                       f('branch_name', '');
                       f('terminal_id', '');
                       f('device_name', '');
+                      setBranchSearch('');
                     }}
                   >
                     <SelectTrigger>
@@ -313,29 +328,54 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                   </Select>
                 </div>
 
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 relative">
                   <Label>Branch / Location</Label>
-                  <Select
-                    value={form.branch_name}
-                    onValueChange={(v) => {
-                      f('branch_name', v);
+
+                  <Input
+                    value={branchSearch}
+                    disabled={!form.bank_name}
+                    placeholder={form.bank_name ? 'Type full branch/location name...' : 'Select bank first...'}
+                    onChange={(e) => {
+                      const value = e.target.value;
+
+                      setBranchSearch(value);
+                      f('branch_name', value);
                       f('terminal_id', '');
                       f('device_name', '');
                     }}
-                    disabled={!form.bank_name}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select branch..." />
-                    </SelectTrigger>
+                  />
 
-                    <SelectContent>
-                      {branches.map((b) => (
-                        <SelectItem key={b.id} value={b.branch_name}>
-                          {b.branch_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {form.bank_name && branchSearch && filteredBranches.length > 0 && (
+                    <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 text-white shadow-2xl">
+                      {filteredBranches.map((b) => (
+  <button
+    key={b.id || b.branch_name}
+    type="button"
+    className="w-full text-left px-3 py-2 text-sm text-white bg-slate-900 hover:bg-slate-800 border-b border-slate-700 last:border-b-0"
+    onClick={() => {
+      setBranchSearch(b.branch_name);
+      f('branch_name', b.branch_name);
+      f('terminal_id', '');
+      f('device_name', '');
+    }}
+  >
+    {b.branch_name}
+  </button>
+))}
+                    </div>
+                  )}
+
+                  {form.bank_name && branchSearch && filteredBranches.length === 0 && (
+                    <p className="text-xs text-amber-500">
+                      No matching branch found. You can still keep typing the full location.
+                    </p>
+                  )}
+
+                  {form.branch_name && (
+                    <p className="text-xs text-green-500">
+                      Selected / typed: {form.branch_name}
+                    </p>
+                  )}
                 </div>
               </div>
 

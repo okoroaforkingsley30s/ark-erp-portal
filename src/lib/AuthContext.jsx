@@ -186,12 +186,14 @@ export const AuthProvider = ({ children }) => {
     await supabase.auth.signOut();
     setUser(null);
     setIsAuthenticated(false);
-    window.location.href = "/welcome";
+    window.location.href = "/#/welcome";
   };
 
   const navigateToLogin = () => {
-    window.location.href = "/welcome";
-  };
+  if (window.location.hash !== '#/welcome') {
+    window.location.hash = '#/welcome';
+  }
+};
 
   return (
     <AuthContext.Provider

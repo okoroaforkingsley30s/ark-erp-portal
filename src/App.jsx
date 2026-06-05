@@ -91,8 +91,8 @@ const AuthenticatedApp = () => {
       <Route path="/register" element={<Welcome />} />
       <Route path="/signup" element={<Welcome />} />
       <Route path="/create-password" element={<ChangePassword />} />
-<Route path="/reset-password" element={<ChangePassword />} />
-<Route path="/change-password" element={<ChangePassword />} />
+      <Route path="/reset-password" element={<ChangePassword />} />
+      <Route path="/change-password" element={<ChangePassword />} />
 
       <Route element={<AppLayout />}>
         <Route path="/dashboard" element={<Dashboard />} />
@@ -112,7 +112,8 @@ const AuthenticatedApp = () => {
         <Route path="/staff" element={<StaffDirectory />} />
         <Route path="/sites" element={<SiteMonitor />} />
         <Route path="/engineers" element={<EngineerBoard />} />
-        <Route path="/spare-parts" element={<SparePartsInventory />} />
+        <Route path="/spare-parts" element={<SparePartsInventory mode="inventory" />} />
+        <Route path="/part-requests" element={<SparePartsInventory mode="requests" />} />
         <Route path="/field-ops" element={<FieldOperations />} />
         <Route path="/devices" element={<DeviceManagement />} />
 
