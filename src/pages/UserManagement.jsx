@@ -118,7 +118,34 @@ export default function UserManagement() {
         return [];
       }
 
-      return data || [];
+      const baseUsers = data || [];
+      const emails = baseUsers
+        .map((u) => u.email?.toLowerCase())
+        .filter(Boolean);
+
+      if (emails.length === 0) return baseUsers;
+
+      const { data: activityProfiles, error: activityError } = await supabase
+        .from('user_profiles')
+        .select('user_email, last_login, last_seen, online_status')
+        .in('user_email', emails);
+
+      if (activityError) {
+        console.error('SUPABASE USER ACTIVITY ERROR:', activityError);
+        return baseUsers;
+      }
+
+      const activityByEmail = (activityProfiles || []).reduce((acc, profile) => {
+        if (profile.user_email) {
+          acc[profile.user_email.toLowerCase()] = profile;
+        }
+        return acc;
+      }, {});
+
+      return baseUsers.map((u) => ({
+        ...u,
+        activity: activityByEmail[u.email?.toLowerCase()] || null,
+      }));
     },
   });
 
@@ -138,6 +165,20 @@ export default function UserManagement() {
 
   const roleCfg = (role) =>
     ALL_ROLES.find((r) => r.value === role) || ALL_ROLES[ALL_ROLES.length - 1];
+
+  const isUserCurrentlyOnline = (activity) =>
+    !!activity?.last_seen &&
+    Date.now() - new Date(activity.last_seen).getTime() < 120000;
+
+  const formatActivityDate = (dateValue) => {
+    if (!dateValue) return 'Never';
+
+    try {
+      return format(new Date(dateValue), 'MMM d, yyyy HH:mm');
+    } catch (error) {
+      return 'Invalid date';
+    }
+  };
 
   const handleInvite = async () => {
     if (!isAdmin) {
@@ -427,6 +468,14 @@ export default function UserManagement() {
       u.is_approved === false
   ).length;
 
+  const onlineUsers = users.filter((u) => isUserCurrentlyOnline(u.activity));
+
+  const onlineEngineers = onlineUsers.filter((u) => u.role === 'engineer').length;
+  const onlineHelpdesk = onlineUsers.filter((u) => u.role === 'helpdesk').length;
+  const onlineOperations = onlineUsers.filter((u) =>
+    ['manager', 'agm', 'ceo', 'ceo_pa'].includes(u.role)
+  ).length;
+
   if (!isAdmin) {
     return (
       <div className="max-w-xl mx-auto mt-16">
@@ -470,6 +519,32 @@ export default function UserManagement() {
           <PendingApprovalPanel />
         </div>
       )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        <Card className="p-4 border-green-200 bg-green-50/70">
+          <p className="text-xs text-green-700 font-medium">Online Users</p>
+          <p className="text-2xl font-bold text-green-800 mt-1">{onlineUsers.length}</p>
+          <p className="text-xs text-green-700/80 mt-1">Seen in the last 2 minutes</p>
+        </Card>
+
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground font-medium">Online Engineers</p>
+          <p className="text-2xl font-bold mt-1">{onlineEngineers}</p>
+          <p className="text-xs text-muted-foreground mt-1">Field engineers currently active</p>
+        </Card>
+
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground font-medium">Online Helpdesk</p>
+          <p className="text-2xl font-bold mt-1">{onlineHelpdesk}</p>
+          <p className="text-xs text-muted-foreground mt-1">Helpdesk users currently active</p>
+        </Card>
+
+        <Card className="p-4">
+          <p className="text-xs text-muted-foreground font-medium">Online Management</p>
+          <p className="text-2xl font-bold mt-1">{onlineOperations}</p>
+          <p className="text-xs text-muted-foreground mt-1">CEO, AGM and managers online</p>
+        </Card>
+      </div>
 
       <div className="flex flex-wrap gap-2">
         <button
@@ -521,6 +596,8 @@ export default function UserManagement() {
           {filtered.map((u) => {
             const rc = roleCfg(u.role);
             const Icon = rc.icon;
+            const activity = u.activity;
+            const isOnline = isUserCurrentlyOnline(activity);
 
             return (
               <Card key={u.id} className="p-4">
@@ -587,6 +664,27 @@ export default function UserManagement() {
                           {u.phone}
                         </span>
                       )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <Badge
+                        variant="outline"
+                        className={
+                          isOnline
+                            ? 'text-[10px] bg-green-50 text-green-700 border-green-200'
+                            : 'text-[10px] bg-slate-50 text-slate-600 border-slate-200'
+                        }
+                      >
+                        {isOnline ? '🟢 Online' : '⚫ Offline'}
+                      </Badge>
+
+                      <span className="text-xs text-muted-foreground">
+                        Last seen: {formatActivityDate(activity?.last_seen)}
+                      </span>
+
+                      <span className="text-xs text-muted-foreground">
+                        Last login: {formatActivityDate(activity?.last_login)}
+                      </span>
                     </div>
                   </div>
 

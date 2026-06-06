@@ -1,7 +1,9 @@
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
 import { HashRouter as Router, Route, Routes } from 'react-router-dom';
+import { supabase } from "@/integrations/supabase/client";
 
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
@@ -50,13 +52,59 @@ import ChangePassword from '@/pages/ChangePassword';
 import DataImport from '@/pages/DataImport';
 import RepairRefurbish from '@/pages/RepairRefurbish';
 
+const updateUserActivity = async (user, online = true, login = false) => {
+  console.log("TRACKING USER:", user?.email);
+
+  if (!user?.email) return;
+
+  const updates = {
+    last_seen: new Date().toISOString(),
+    online_status: online,
+  };
+
+  if (login) {
+    updates.last_login = new Date().toISOString();
+  }
+
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .update(updates)
+    .eq("user_email", user.email)
+    .select();
+
+  console.log("ACTIVITY UPDATE RESULT:", { data, error });
+};
+
 const AuthenticatedApp = () => {
   const {
-    isLoadingAuth,
-    isLoadingPublicSettings,
-    authError,
-    navigateToLogin,
-  } = useAuth();
+  isLoadingAuth,
+  isLoadingPublicSettings,
+  authError,
+  navigateToLogin,
+} = useAuth();
+
+useEffect(() => {
+  let interval;
+
+  const startActivityTracking = async () => {
+    const { data } = await supabase.auth.getUser();
+    const user = data?.user;
+
+    if (!user) return;
+
+    await updateUserActivity(user, true, true);
+
+    interval = setInterval(() => {
+      updateUserActivity(user, true, false);
+    }, 60000);
+  };
+
+  startActivityTracking();
+
+  return () => {
+    if (interval) clearInterval(interval);
+  };
+}, []);
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
