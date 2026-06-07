@@ -156,6 +156,56 @@ export default function FieldEngineerMobileApp({
     fetchChatMessages();
   }, [fetchAssignedTickets, fetchNotifications, fetchMails, fetchChatMessages]);
 
+  // Production-safe auto refresh for FEMobi.
+  // Keeps tickets, notifications, mails and chats fresh without manual refresh.
+  useEffect(() => {
+    if (!user?.email) return;
+
+    const refreshAll = () => {
+      fetchAssignedTickets();
+      fetchNotifications();
+      fetchMails();
+      fetchChatMessages();
+    };
+
+    const interval = window.setInterval(refreshAll, 15000);
+
+    const channel = supabase
+      .channel(`femobi-live-${user.email}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'tickets' },
+        refreshAll
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'notifications' },
+        refreshAll
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_messages' },
+        refreshAll
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'email_messages' },
+        refreshAll
+      )
+      .subscribe();
+
+    return () => {
+      window.clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [
+    user?.email,
+    fetchAssignedTickets,
+    fetchNotifications,
+    fetchMails,
+    fetchChatMessages,
+  ]);
+
   useEffect(() => {
     const handleMobileTab = (event) => {
       const tab = event?.detail?.tab;
@@ -2664,42 +2714,180 @@ function MailListItem({ mail, onClick }) {
 function WhatsAppChatModal({ chat, user, onClose, onSent }) {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [localMessages, setLocalMessages] = useState(chat.messages || []);
+  const [loadingMessages, setLoadingMessages] = useState(false);
 
-  const messages = [...(chat.messages || [])].sort(
+  const isDirectChat = chat.type === 'direct';
+  const isChannelChat = chat.type === 'channel';
+
+  const upsertLocalMessages = useCallback((incomingMessages = []) => {
+    setLocalMessages((prev) => {
+      const map = new Map();
+
+      [...prev, ...incomingMessages].forEach((msg) => {
+        const key = msg.id || `${msg.sender_id}-${msg.created_at}-${msg.message_body}`;
+        map.set(key, msg);
+      });
+
+      return Array.from(map.values()).sort(
+        (a, b) => new Date(a.created_at) - new Date(b.created_at)
+      );
+    });
+  }, []);
+
+  const fetchLatestMessages = useCallback(async () => {
+    if (!user?.email) return;
+
+    setLoadingMessages(true);
+
+    let query = supabase
+      .from('chat_messages')
+      .select('*')
+      .order('created_at', { ascending: true })
+      .limit(100);
+
+    if (isChannelChat) {
+      query = query
+        .eq('message_type', 'channel')
+        .eq('channel_name', chat.channel_name);
+    } else if (isDirectChat && chat.email) {
+      query = query
+        .eq('message_type', 'dm')
+        .or(
+          `and(sender_id.eq.${user.email},recipient_id.eq.${chat.email}),and(sender_id.eq.${chat.email},recipient_id.eq.${user.email})`
+        );
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Mobile chat modal refresh error:', error);
+    } else {
+      setLocalMessages(data || []);
+    }
+
+    setLoadingMessages(false);
+  }, [user?.email, chat.email, chat.channel_name, isDirectChat, isChannelChat]);
+
+  useEffect(() => {
+    setLocalMessages(chat.messages || []);
+    fetchLatestMessages();
+  }, [chat.id, chat.messages, fetchLatestMessages]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+
+    const channel = supabase
+      .channel(`femobi-chat-${chat.id}-${user.email}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+        (payload) => {
+          const msg = payload.new;
+
+          const belongsToChannel =
+            isChannelChat &&
+            msg.message_type === 'channel' &&
+            msg.channel_name === chat.channel_name;
+
+          const belongsToDirect =
+            isDirectChat &&
+            msg.message_type === 'dm' &&
+            ((msg.sender_id === user.email && msg.recipient_id === chat.email) ||
+              (msg.sender_id === chat.email && msg.recipient_id === user.email));
+
+          if (belongsToChannel || belongsToDirect) {
+            upsertLocalMessages([msg]);
+            onSent?.(msg);
+          }
+        }
+      )
+      .subscribe();
+
+    const interval = window.setInterval(fetchLatestMessages, 5000);
+
+    return () => {
+      window.clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [
+    user?.email,
+    chat.id,
+    chat.email,
+    chat.channel_name,
+    isDirectChat,
+    isChannelChat,
+    fetchLatestMessages,
+    upsertLocalMessages,
+    onSent,
+  ]);
+
+  const messages = [...localMessages].sort(
     (a, b) => new Date(a.created_at) - new Date(b.created_at)
   );
 
   const sendMessage = async () => {
     const clean = replyText.trim();
-    if (!clean) return;
+    if (!clean || sending || !user?.email) return;
 
     setSending(true);
 
+    const now = new Date().toISOString();
+
     const payload = {
-      sender_id: user?.email,
-      sender_name: user?.full_name || user?.name || user?.email,
+      sender_id: user.email,
+      sender_name: user?.full_name || user?.name || user.email,
       sender_role: user?.role || 'engineer',
-      recipient_id: chat.type === 'direct' ? chat.email : null,
-      recipient_name: chat.type === 'direct' ? chat.name : null,
-      channel_name: chat.type === 'channel' ? chat.channel_name : null,
-      message_type: 'text',
+      recipient_id: isDirectChat ? chat.email : null,
+      recipient_name: isDirectChat ? chat.name : null,
+      message_type: isChannelChat ? 'channel' : 'dm',
+      channel_name: isChannelChat ? chat.channel_name : null,
       message_body: clean,
-      created_at: new Date().toISOString(),
-      read_at: null,
+      created_at: now,
     };
 
-    const { error } = await supabase.from('chat_messages').insert(payload);
+    const tempMessage = {
+      ...payload,
+      id: `temp-${now}`,
+      pending: true,
+    };
+
+    // Show message instantly in the chatbox before database refresh returns.
+    upsertLocalMessages([tempMessage]);
+    setReplyText('');
+
+    const { data, error } = await supabase
+      .from('chat_messages')
+      .insert(payload)
+      .select()
+      .single();
 
     setSending(false);
 
     if (error) {
-      console.error('Chat send error:', error);
+      console.error('Mobile chat send error:', {
+        error,
+        payload,
+        chat,
+        userEmail: user?.email,
+      });
+
+      // Remove temporary message if Supabase rejects the send.
+      setLocalMessages((prev) => prev.filter((msg) => msg.id !== tempMessage.id));
+      setReplyText(clean);
       alert(`Could not send message: ${error.message}`);
       return;
     }
 
-    setReplyText('');
-    onSent?.();
+    setLocalMessages((prev) =>
+      prev
+        .filter((msg) => msg.id !== tempMessage.id)
+        .concat(data ? [data] : [])
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    );
+
+    onSent?.(data);
+    fetchLatestMessages();
   };
 
   return (
@@ -2720,7 +2908,11 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
           <div className="min-w-0">
             <h2 className="font-bold truncate">{chat.name}</h2>
             <p className="text-xs text-slate-400">
-              {chat.type === 'channel' ? 'Channel' : 'Direct message'}
+              {loadingMessages
+                ? 'Refreshing...'
+                : chat.type === 'channel'
+                  ? 'Channel'
+                  : 'Direct message'}
             </p>
           </div>
         </div>
@@ -2738,12 +2930,12 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
 
             return (
               <div
-                key={msg.id}
+                key={msg.id || `${msg.sender_id}-${msg.created_at}-${msg.message_body}`}
                 className={`max-w-[82%] rounded-2xl p-3 text-sm ${
                   mine
                     ? 'ml-auto bg-orange-500 text-white rounded-br-sm'
                     : 'mr-auto bg-slate-800 text-slate-200 rounded-bl-sm'
-                }`}
+                } ${msg.pending ? 'opacity-70' : ''}`}
               >
                 {!mine && (
                   <p className="text-[10px] text-slate-400 mb-1">
@@ -2754,7 +2946,7 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
                 <p className="whitespace-pre-wrap">{msg.message_body}</p>
 
                 <p className={`text-[10px] mt-1 ${mine ? 'text-orange-100' : 'text-slate-500'}`}>
-                  {formatDate(msg.created_at)}
+                  {msg.pending ? 'Sending...' : formatDate(msg.created_at)}
                 </p>
               </div>
             );
@@ -2769,7 +2961,12 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
         <input
           value={replyText}
           onChange={(e) => setReplyText(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              sendMessage();
+            }
+          }}
           placeholder="Message..."
           className="flex-1 bg-slate-800 border border-slate-700 rounded-full px-4 text-sm"
         />
@@ -2777,7 +2974,7 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
         <button
           type="button"
           onClick={sendMessage}
-          disabled={sending}
+          disabled={sending || !replyText.trim()}
           className="h-11 w-11 rounded-full bg-orange-500 flex items-center justify-center disabled:opacity-60"
         >
           <Send size={18} />

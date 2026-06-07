@@ -3,7 +3,7 @@ import { supabase } from "../integrations/supabase/client";
 
 const AuthContext = createContext();
 
-const ADMIN_EMAIL = "okoroaforkingsley30s@gmail.com";
+const ADMIN_EMAIL = "iamkizmith@gmail.com";
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -11,12 +11,13 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
 
-  const signOutAndBlock = async (message) => {
+  const signOutAndBlock = async (message, type = "user_not_registered") => {
     console.warn(message);
     await supabase.auth.signOut();
+
     setUser(null);
     setIsAuthenticated(false);
-    setAuthError(message);
+    setAuthError({ type, message });
     setIsLoadingAuth(false);
   };
 
@@ -29,6 +30,8 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
+      setIsLoadingAuth(true);
+
       const cleanEmail = authUser.email?.trim().toLowerCase();
 
       const { data: profile, error } = await supabase
@@ -39,12 +42,16 @@ export const AuthProvider = ({ children }) => {
 
       if (error) {
         console.error("Profile load failed:", error.message);
-        await signOutAndBlock("Unable to load your user profile. Please contact admin.");
+        await signOutAndBlock(
+          "Unable to load your user profile. Please contact admin."
+        );
         return;
       }
 
       if (!profile) {
-        await signOutAndBlock("Your user profile was not found. Please contact admin.");
+        await signOutAndBlock(
+          "Your user profile was not found. Please contact admin."
+        );
         return;
       }
 
@@ -54,7 +61,8 @@ export const AuthProvider = ({ children }) => {
       const isApproved =
         isMainAdmin ||
         profile.is_approved === true ||
-        approvalStatus === "approved";
+        approvalStatus === "approved" ||
+        approvalStatus === "active";
 
       const hasRole = Boolean(profile.role);
 
@@ -67,12 +75,16 @@ export const AuthProvider = ({ children }) => {
         profile.status === "rejected" ||
         profile.approval_status === "rejected"
       ) {
-        await signOutAndBlock("Your account approval was rejected. Please contact admin.");
+        await signOutAndBlock(
+          "Your account approval was rejected. Please contact admin."
+        );
         return;
       }
 
-      setUser({
+      const finalUser = {
+        ...profile,
         id: authUser.id,
+        auth_id: authUser.id,
         email: cleanEmail,
         full_name:
           profile.full_name ||
@@ -83,14 +95,16 @@ export const AuthProvider = ({ children }) => {
         approval_status: profile.approval_status || "approved",
         is_approved: true,
         department: profile.department || null,
-        ...profile,
-      });
+      };
 
+      setUser(finalUser);
       setIsAuthenticated(true);
       setAuthError(null);
     } catch (error) {
       console.error("Profile load failed:", error);
-      await signOutAndBlock("Authentication failed. Please contact admin.");
+      await signOutAndBlock(
+        "Authentication failed. Please contact admin."
+      );
     } finally {
       setIsLoadingAuth(false);
     }
@@ -113,11 +127,12 @@ export const AuthProvider = ({ children }) => {
       } else {
         setUser(null);
         setIsAuthenticated(false);
+        setAuthError({ type: "auth_required", message: "Login required" });
         setIsLoadingAuth(false);
       }
     } catch (error) {
       console.error("Auth check failed:", error);
-      setAuthError(error.message);
+      setAuthError({ type: "auth_required", message: error.message });
       setUser(null);
       setIsAuthenticated(false);
       setIsLoadingAuth(false);
@@ -131,22 +146,25 @@ export const AuthProvider = ({ children }) => {
       try {
         const {
           data: { session },
+          error,
         } = await supabase.auth.getSession();
 
         if (!mounted) return;
+        if (error) throw error;
 
         if (session?.user) {
           await loadUserProfile(session.user);
         } else {
           setUser(null);
           setIsAuthenticated(false);
+          setAuthError(null);
           setIsLoadingAuth(false);
         }
       } catch (error) {
         if (!mounted) return;
 
         console.error("Initial auth failed:", error);
-        setAuthError(error.message);
+        setAuthError({ type: "auth_required", message: error.message });
         setUser(null);
         setIsAuthenticated(false);
         setIsLoadingAuth(false);
@@ -163,16 +181,17 @@ export const AuthProvider = ({ children }) => {
       if (event === "SIGNED_OUT") {
         setUser(null);
         setIsAuthenticated(false);
+        setAuthError(null);
         setIsLoadingAuth(false);
         return;
       }
 
-      if (session?.user) {
+      if (event === "SIGNED_IN" && session?.user) {
         loadUserProfile(session.user);
-      } else {
-        setUser(null);
-        setIsAuthenticated(false);
-        setIsLoadingAuth(false);
+      }
+
+      if (event === "TOKEN_REFRESHED" && session?.user) {
+        loadUserProfile(session.user);
       }
     });
 
@@ -186,14 +205,18 @@ export const AuthProvider = ({ children }) => {
     await supabase.auth.signOut();
     setUser(null);
     setIsAuthenticated(false);
-    window.location.href = "/#/welcome";
+    setAuthError(null);
+    window.location.hash = "#/welcome";
   };
 
   const navigateToLogin = () => {
-  if (window.location.hash !== '#/welcome') {
-    window.location.hash = '#/welcome';
-  }
-};
+    if (
+      window.location.hash !== "#/welcome" &&
+      window.location.hash !== "#/login"
+    ) {
+      window.location.hash = "#/welcome";
+    }
+  };
 
   return (
     <AuthContext.Provider
