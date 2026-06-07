@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 
 import Sidebar from './Sidebar';
 import MobileBottomNav from './MobileBottomNav';
@@ -18,6 +19,7 @@ export default function AppLayout() {
 
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [isMobile, setIsMobile] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -27,6 +29,7 @@ export default function AppLayout() {
   const [notifications, setNotifications] = useState([]);
 
   const previousNotifCountRef = useRef(0);
+  const globalRefreshTimerRef = useRef(null);
 
   const { dmUnreadCount, resetDMCount } = useDMNotifications(user);
 
@@ -68,6 +71,17 @@ export default function AppLayout() {
     setNotifications(data || []);
   }, [user?.email]);
 
+  const triggerGlobalRefresh = useCallback(() => {
+    if (globalRefreshTimerRef.current) {
+      clearTimeout(globalRefreshTimerRef.current);
+    }
+
+    globalRefreshTimerRef.current = setTimeout(() => {
+      queryClient.invalidateQueries();
+      fetchUnreadNotifications();
+    }, 500);
+  }, [queryClient, fetchUnreadNotifications]);
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth < 768);
@@ -106,9 +120,9 @@ export default function AppLayout() {
 
   useEffect(() => {
     if (!isLoadingAuth && !isAuthenticated && location.pathname !== '/welcome') {
-  navigate('/welcome', { replace: true });
-}
-  }, [isLoadingAuth, isAuthenticated, navigate]);
+      navigate('/welcome', { replace: true });
+    }
+  }, [isLoadingAuth, isAuthenticated, location.pathname, navigate]);
 
   useEffect(() => {
     fetchUnreadNotifications();
@@ -133,6 +147,7 @@ export default function AppLayout() {
         },
         (payload) => {
           fetchUnreadNotifications();
+          queryClient.invalidateQueries({ queryKey: ['notifications'] });
           playNotificationSound(payload?.new?.sound || 'bell');
         }
       )
@@ -146,6 +161,7 @@ export default function AppLayout() {
         },
         () => {
           fetchUnreadNotifications();
+          queryClient.invalidateQueries({ queryKey: ['notifications'] });
         }
       )
       .subscribe((status) => {
@@ -155,7 +171,90 @@ export default function AppLayout() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user?.email, fetchUnreadNotifications, playNotificationSound]);
+  }, [user?.email, fetchUnreadNotifications, playNotificationSound, queryClient]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+
+    const realtimeTables = [
+      'tickets',
+      'chat_messages',
+      'notifications',
+      'engineer_statuses',
+      'engineers',
+      'devices',
+      'bank_devices',
+      'branches',
+      'banks',
+      'part_requests',
+      'spare_part_requests',
+      'spare_parts',
+      'inventory_movements',
+      'purchase_requests',
+      'workflow_requests',
+      'workflows',
+      'repair_jobs',
+      'site_visits',
+      'email_messages',
+      'expenses',
+      'invoices',
+      'lpos',
+      'hr_attendance',
+      'hr_leave',
+      'hr_loans',
+      'hr_performance',
+      'hr_training',
+      'audit_logs',
+    ];
+
+    const channel = supabase.channel(`ark-global-refresh-${user.email}`);
+
+    realtimeTables.forEach((table) => {
+      channel.on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table,
+        },
+        () => {
+          triggerGlobalRefresh();
+        }
+      );
+    });
+
+    channel.subscribe((status) => {
+      console.log('ARK global realtime status:', status);
+    });
+
+    return () => {
+      supabase.removeChannel(channel);
+
+      if (globalRefreshTimerRef.current) {
+        clearTimeout(globalRefreshTimerRef.current);
+      }
+    };
+  }, [user?.email, triggerGlobalRefresh]);
+
+  useEffect(() => {
+    const refreshOnFocus = () => {
+      triggerGlobalRefresh();
+    };
+
+    const refreshOnVisible = () => {
+      if (document.visibilityState === 'visible') {
+        triggerGlobalRefresh();
+      }
+    };
+
+    window.addEventListener('focus', refreshOnFocus);
+    document.addEventListener('visibilitychange', refreshOnVisible);
+
+    return () => {
+      window.removeEventListener('focus', refreshOnFocus);
+      document.removeEventListener('visibilitychange', refreshOnVisible);
+    };
+  }, [triggerGlobalRefresh]);
 
   const notifCount = notifications?.length || 0;
 
