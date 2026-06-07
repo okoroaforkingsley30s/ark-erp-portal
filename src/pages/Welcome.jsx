@@ -12,6 +12,7 @@ import {
   Lock,
   Mail,
   Eye,
+  EyeOff,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -20,6 +21,172 @@ import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabaseClient';
 
 const ADMIN_EMAIL = 'iamkizmith@gmail.com';
+
+function PendingApproval({ onBackToSignin }) {
+  return (
+    <div className="text-center">
+      <h2 className="text-3xl font-bold text-white mb-3">Pending Approval</h2>
+      <p className="text-slate-300 mb-6">
+        Your registration has been submitted successfully. Please wait for admin approval.
+      </p>
+
+      <Button
+        type="button"
+        onClick={onBackToSignin}
+        className="w-full bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold rounded-xl"
+      >
+        Back to Sign In
+      </Button>
+    </div>
+  );
+}
+
+function AuthForm({
+  desktop = false,
+  authMode,
+  setAuthMode,
+  email,
+  setEmail,
+  password,
+  setPassword,
+  fullName,
+  setFullName,
+  loading,
+  handleAuth,
+  handleForgotPassword,
+}) {
+  const [showPassword, setShowPassword] = useState(false);
+
+  return (
+    <div className="w-full">
+      {!desktop && (
+        <button
+          type="button"
+          onClick={() => setAuthMode(null)}
+          className="text-[#ff5a00] text-sm flex items-center gap-2 mb-5"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
+      )}
+
+      <h2 className="text-3xl xl:text-4xl font-black text-white mb-2">
+        {authMode === 'register' ? 'Create Account' : 'Welcome Back'}
+      </h2>
+
+      <p className="text-slate-300 mb-8">
+        {authMode === 'register'
+          ? 'Register your ARK ONE account for approval'
+          : 'Sign in to continue to ARK ONE Portal'}
+      </p>
+
+      <div className="space-y-5">
+        {authMode === 'register' && (
+          <div>
+            <Label className="text-slate-200 font-semibold">Full Name</Label>
+            <Input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Your full name"
+              autoComplete="name"
+              className="mt-2 h-14 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
+            />
+          </div>
+        )}
+
+        <div>
+          <Label className="text-slate-200 font-semibold">
+            {desktop ? 'Username' : 'Email'}
+          </Label>
+
+          <div className="relative mt-2">
+            <Mail className="absolute left-4 top-4 w-5 h-5 text-slate-400 pointer-events-none" />
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={desktop ? 'Enter your username' : 'Enter your email'}
+              autoComplete="email"
+              className="h-14 pl-12 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
+            />
+          </div>
+        </div>
+
+        <div>
+          <Label className="text-slate-200 font-semibold">Password</Label>
+
+          <div className="relative mt-2">
+            <Lock className="absolute left-4 top-4 w-5 h-5 text-slate-400 pointer-events-none" />
+
+            <Input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+              className="h-14 pl-12 pr-12 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
+            />
+
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              className="absolute right-4 top-4 text-slate-400 hover:text-[#ff5a00] transition"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? (
+                <EyeOff className="w-5 h-5" />
+              ) : (
+                <Eye className="w-5 h-5" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {authMode === 'signin' && (
+          <div className="flex justify-between items-center text-sm">
+            <label className="flex items-center gap-2 text-slate-200">
+              <input type="checkbox" className="accent-[#ff5a00]" />
+              Remember me
+            </label>
+
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="text-[#ff5a00] font-semibold"
+            >
+              Forgot Password?
+            </button>
+          </div>
+        )}
+
+        <Button
+          type="button"
+          onClick={handleAuth}
+          disabled={loading}
+          className="w-full h-16 bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold rounded-xl text-lg shadow-[0_0_35px_rgba(255,90,0,0.28)]"
+        >
+          {loading ? (
+            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+          ) : (
+            <LogIn className="w-5 h-5 mr-3" />
+          )}
+          {authMode === 'register' ? 'Submit Registration' : 'Sign In'}
+        </Button>
+
+        <button
+          type="button"
+          onClick={() => setAuthMode(authMode === 'signin' ? 'register' : 'signin')}
+          className="w-full h-14 rounded-xl border border-[#ff5a00]/60 text-white hover:bg-[#ff5a00]/10 font-bold"
+        >
+          <UserPlus className="inline w-5 h-5 mr-2 text-[#ff5a00]" />
+          {authMode === 'signin'
+            ? 'Register / Sign Up'
+            : 'Already registered? Sign In'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function Welcome() {
   const navigate = useNavigate();
@@ -193,6 +360,20 @@ export default function Welcome() {
     }
   };
 
+  const authFormProps = {
+    authMode,
+    setAuthMode,
+    email,
+    setEmail,
+    password,
+    setPassword,
+    fullName,
+    setFullName,
+    loading,
+    handleAuth,
+    handleForgotPassword,
+  };
+
   if (checkingAuth) {
     return (
       <div className="min-h-screen bg-[#06102f] flex items-center justify-center">
@@ -200,131 +381,6 @@ export default function Welcome() {
       </div>
     );
   }
-
-  const PendingApproval = () => (
-    <div className="text-center">
-      <h2 className="text-3xl font-bold text-white mb-3">Pending Approval</h2>
-      <p className="text-slate-300 mb-6">
-        Your registration has been submitted successfully. Please wait for admin approval.
-      </p>
-      <Button
-        onClick={() => setAuthMode('signin')}
-        className="w-full bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold rounded-xl"
-      >
-        Back to Sign In
-      </Button>
-    </div>
-  );
-
-  const AuthForm = ({ desktop = false }) => (
-    <div className="w-full">
-      {!desktop && (
-        <button
-          onClick={() => setAuthMode(null)}
-          className="text-[#ff5a00] text-sm flex items-center gap-2 mb-5"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </button>
-      )}
-
-      <h2 className="text-3xl xl:text-4xl font-black text-white mb-2">
-        {authMode === 'register' ? 'Create Account' : 'Welcome Back'}
-      </h2>
-
-      <p className="text-slate-300 mb-8">
-        {authMode === 'register'
-          ? 'Register your ARK ONE account for approval'
-          : 'Sign in to continue to ARK ONE Portal'}
-      </p>
-
-      <div className="space-y-5">
-        {authMode === 'register' && (
-          <div>
-            <Label className="text-slate-200 font-semibold">Full Name</Label>
-            <Input
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Your full name"
-              className="mt-2 h-14 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
-            />
-          </div>
-        )}
-
-        <div>
-          <Label className="text-slate-200 font-semibold">
-            {desktop ? 'Username' : 'Email'}
-          </Label>
-          <div className="relative mt-2">
-            <Mail className="absolute left-4 top-4 w-5 h-5 text-slate-400" />
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={desktop ? 'Enter your username' : 'Enter your email'}
-              className="h-14 pl-12 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
-            />
-          </div>
-        </div>
-
-        <div>
-          <Label className="text-slate-200 font-semibold">Password</Label>
-          <div className="relative mt-2">
-            <Lock className="absolute left-4 top-4 w-5 h-5 text-slate-400" />
-            <Input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Enter your password"
-              className="h-14 pl-12 pr-12 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
-            />
-            <Eye className="absolute right-4 top-4 w-5 h-5 text-slate-400" />
-          </div>
-        </div>
-
-        {authMode === 'signin' && (
-          <div className="flex justify-between items-center text-sm">
-            <label className="flex items-center gap-2 text-slate-200">
-              <input type="checkbox" className="accent-[#ff5a00]" />
-              Remember me
-            </label>
-
-            <button
-              type="button"
-              onClick={handleForgotPassword}
-              className="text-[#ff5a00] font-semibold"
-            >
-              Forgot Password?
-            </button>
-          </div>
-        )}
-
-        <Button
-          onClick={handleAuth}
-          disabled={loading}
-          className="w-full h-16 bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold rounded-xl text-lg shadow-[0_0_35px_rgba(255,90,0,0.28)]"
-        >
-          {loading ? (
-            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-          ) : (
-            <LogIn className="w-5 h-5 mr-3" />
-          )}
-          {authMode === 'register' ? 'Submit Registration' : 'Sign In'}
-        </Button>
-
-        <button
-          type="button"
-          onClick={() => setAuthMode(authMode === 'signin' ? 'register' : 'signin')}
-          className="w-full h-14 rounded-xl border border-[#ff5a00]/60 text-white hover:bg-[#ff5a00]/10 font-bold"
-        >
-          <UserPlus className="inline w-5 h-5 mr-2 text-[#ff5a00]" />
-          {authMode === 'signin'
-            ? 'Register / Sign Up'
-            : 'Already registered? Sign In'}
-        </button>
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-[#06102f] text-white overflow-hidden">
@@ -364,6 +420,7 @@ export default function Welcome() {
 
               <div className="space-y-4">
                 <Button
+                  type="button"
                   onClick={() => setAuthMode('signin')}
                   className="w-full h-16 bg-[#ff5a00] hover:bg-[#ff5a00]/90 rounded-2xl text-lg font-bold"
                 >
@@ -372,6 +429,7 @@ export default function Welcome() {
                 </Button>
 
                 <Button
+                  type="button"
                   onClick={() => setAuthMode('register')}
                   variant="outline"
                   className="w-full h-16 border-[#ff5a00] text-white hover:bg-[#ff5a00]/10 rounded-2xl text-lg font-bold"
@@ -390,21 +448,18 @@ export default function Welcome() {
             </>
           ) : authMode === 'pending' ? (
             <div className="rounded-3xl border border-[#ff5a00]/30 bg-white/5 backdrop-blur-xl p-6">
-              <PendingApproval />
+              <PendingApproval onBackToSignin={() => setAuthMode('signin')} />
             </div>
           ) : (
             <div className="rounded-3xl border border-[#ff5a00]/30 bg-white/5 backdrop-blur-xl p-6">
-              <AuthForm />
+              <AuthForm {...authFormProps} />
             </div>
           )}
         </div>
       </div>
 
       {/* DESKTOP VIEW */}
-            {/* DESKTOP VIEW */}
       <div className="hidden md:flex min-h-screen bg-[#06102f] overflow-hidden">
-
-        {/* LEFT HERO IMAGE */}
         <div className="w-[58%] min-h-screen flex items-center justify-center overflow-hidden bg-[#06102f]">
           <img
             src="/ark-desktop-hero.png"
@@ -413,10 +468,7 @@ export default function Welcome() {
           />
         </div>
 
-        {/* RIGHT PANEL */}
         <div className="w-[42%] min-h-screen relative bg-gradient-to-br from-[#020817] via-[#061430] to-[#071942]">
-
-          {/* Support + Moon */}
           <div className="absolute top-8 right-10 z-20 flex items-center gap-6 text-white">
             <button
               type="button"
@@ -437,17 +489,14 @@ export default function Welcome() {
             </button>
           </div>
 
-          {/* LOGIN AREA */}
           <div className="h-full flex items-center justify-center px-10">
             <div className="w-full max-w-[580px] rounded-[30px] border border-white/15 bg-[#071942]/90 backdrop-blur-xl p-10 shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
-
               {authMode === 'pending' ? (
-                <PendingApproval />
+                <PendingApproval onBackToSignin={() => setAuthMode('signin')} />
               ) : (
-                <AuthForm desktop />
+                <AuthForm desktop {...authFormProps} />
               )}
 
-              {/* DOWNLOAD SECTION */}
               <div className="mt-10 flex items-center gap-4 text-slate-400 text-sm">
                 <div className="h-px bg-white/10 flex-1" />
                 Download App
@@ -456,6 +505,7 @@ export default function Welcome() {
 
               <div className="grid grid-cols-2 gap-4 mt-6">
                 <Button
+                  type="button"
                   variant="outline"
                   className="h-16 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
                 >
@@ -464,6 +514,7 @@ export default function Welcome() {
                 </Button>
 
                 <Button
+                  type="button"
                   variant="outline"
                   className="h-16 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
                 >
@@ -471,13 +522,10 @@ export default function Welcome() {
                   Android
                 </Button>
               </div>
-
             </div>
           </div>
-
         </div>
       </div>
-
     </div>
   );
 }
