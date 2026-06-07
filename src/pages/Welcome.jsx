@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import {
-  Shield,
-  Cpu,
-  Radio,
-  Zap,
   LogIn,
   UserPlus,
   Loader2,
-  ArrowLeft
+  ArrowLeft,
+  Headphones,
+  Moon,
+  Monitor,
+  Smartphone,
+  Lock,
+  Mail,
+  Eye,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -17,33 +19,23 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabaseClient';
 
-const ADMIN_EMAIL = 'okoroaforkingsley30s@gmail.com';
-
-const stats = [
-  { label: 'Devices Monitored', value: '2,400+' },
-  { label: 'Banks Served', value: '47' },
-  { label: 'Uptime SLA', value: '99.8%' },
-  { label: 'Engineers Active', value: '120+' },
-];
+const ADMIN_EMAIL = 'iamkizmith@gmail.com';
 
 export default function Welcome() {
   const navigate = useNavigate();
 
-  const [visible, setVisible] = useState(false);
   const [checkingAuth, setCheckingAuth] = useState(true);
-  const [authMode, setAuthMode] = useState(null);
+  const [authMode, setAuthMode] = useState(
+    typeof window !== 'undefined' && window.innerWidth >= 768 ? 'signin' : null
+  );
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
-
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setVisible(true), 100);
     setCheckingAuth(false);
-
-    return () => clearTimeout(t);
   }, []);
 
   const handleForgotPassword = async () => {
@@ -58,54 +50,33 @@ export default function Welcome() {
       redirectTo: `${window.location.origin}/change-password`,
     });
 
-    if (error) {
-      alert(error.message);
-    } else {
-      alert('Password reset email sent successfully.');
-    }
+    if (error) alert(error.message);
+    else alert('Password reset email sent successfully.');
   };
 
-  const createAdminApprovalNotification = async ({
-    userId,
-    userEmail,
-    userName,
-  }) => {
+  const createAdminApprovalNotification = async ({ userId, userEmail, userName }) => {
     const displayName = userName || userEmail;
 
-    const notificationPayload = {
+    await supabase.from('notifications').insert({
       user_email: ADMIN_EMAIL,
       recipient_email: ADMIN_EMAIL,
-
       title: 'New User Awaiting Approval',
       message: `${displayName} just registered and is awaiting admin approval.`,
-
       type: 'user_approval',
       read: false,
       is_read: false,
-
       related_user_id: userId,
       related_user_email: userEmail,
-
       data: {
         user_id: userId,
         email: userEmail,
         full_name: userName,
         approval_status: 'pending',
       },
-
       link: '/users',
       sound: 'bell',
-
       created_at: new Date().toISOString(),
-    };
-
-    const { error } = await supabase
-      .from('notifications')
-      .insert(notificationPayload);
-
-    if (error) {
-      console.error('Admin notification error:', error);
-    }
+    });
   };
 
   const handleAuth = async () => {
@@ -175,9 +146,7 @@ export default function Welcome() {
           email: cleanEmail,
           password,
           options: {
-            data: {
-              full_name: cleanName,
-            },
+            data: { full_name: cleanName },
           },
         });
 
@@ -188,30 +157,22 @@ export default function Welcome() {
         if (authUserId) {
           const now = new Date().toISOString();
 
-          const pendingUserPayload = {
-            id: authUserId,
-            email: cleanEmail,
-            full_name: cleanName,
+          const { error: userError } = await supabase.from('users').upsert(
+            {
+              id: authUserId,
+              email: cleanEmail,
+              full_name: cleanName,
+              role: null,
+              status: 'pending',
+              approval_status: 'pending',
+              is_approved: false,
+              department: null,
+              updated_at: now,
+            },
+            { onConflict: 'email' }
+          );
 
-            role: null,
-            status: 'pending',
-            approval_status: 'pending',
-            is_approved: false,
-
-            department: null,
-            updated_at: now,
-          };
-
-          const { error: userError } = await supabase
-            .from('users')
-            .upsert(pendingUserPayload, {
-              onConflict: 'email',
-            });
-
-          if (userError) {
-            console.error('User profile upsert error:', userError);
-            throw userError;
-          }
+          if (userError) throw userError;
 
           await createAdminApprovalNotification({
             userId: authUserId,
@@ -224,19 +185,9 @@ export default function Welcome() {
         setPassword('');
         setFullName('');
         setAuthMode('pending');
-        return;
       }
     } catch (err) {
-      console.error('Authentication error:', err);
-
-      if (
-        err?.message?.toLowerCase().includes('already registered') ||
-        err?.message?.toLowerCase().includes('duplicate key')
-      ) {
-        alert('This email already exists. Please sign in or use forgot password.');
-      } else {
-        alert(err?.message || 'Authentication failed.');
-      }
+      alert(err?.message || 'Authentication failed.');
     } finally {
       setLoading(false);
     }
@@ -244,272 +195,289 @@ export default function Welcome() {
 
   if (checkingAuth) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] flex items-center justify-center">
+      <div className="min-h-screen bg-[#06102f] flex items-center justify-center">
         <Loader2 className="w-8 h-8 text-[#ff5a00] animate-spin" />
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] flex flex-col items-center justify-center relative overflow-hidden">
-      <div
-        className="absolute inset-0 opacity-10"
-        style={{
-          backgroundImage:
-            'linear-gradient(#ff5a00 1px, transparent 1px), linear-gradient(90deg, #ff5a00 1px, transparent 1px)',
-          backgroundSize: '60px 60px',
-        }}
-      />
-
-      <div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full"
-        style={{
-          background:
-            'radial-gradient(circle, rgba(245,184,0,0.15) 0%, transparent 70%)',
-        }}
-      />
-
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#ff5a00] to-transparent" />
-
-      <motion.div
-        initial={{ opacity: 0, y: 40 }}
-        animate={{ opacity: visible ? 1 : 0, y: visible ? 0 : 40 }}
-        transition={{ duration: 0.8, ease: 'easeOut' }}
-        className="relative z-10 text-center max-w-2xl px-6"
+  const PendingApproval = () => (
+    <div className="text-center">
+      <h2 className="text-3xl font-bold text-white mb-3">Pending Approval</h2>
+      <p className="text-slate-300 mb-6">
+        Your registration has been submitted successfully. Please wait for admin approval.
+      </p>
+      <Button
+        onClick={() => setAuthMode('signin')}
+        className="w-full bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold rounded-xl"
       >
-        <div className="flex items-center justify-center gap-4 mb-10">
-          <div className="w-16 h-16 rounded-2xl bg-[#ff5a00] flex items-center justify-center shadow-[0_0_40px_rgba(245,184,0,0.4)]">
-            <img
-              src="/logo.png"
-              alt="ARK Logo"
-              className="w-12 h-12 object-contain"
+        Back to Sign In
+      </Button>
+    </div>
+  );
+
+  const AuthForm = ({ desktop = false }) => (
+    <div className="w-full">
+      {!desktop && (
+        <button
+          onClick={() => setAuthMode(null)}
+          className="text-[#ff5a00] text-sm flex items-center gap-2 mb-5"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back
+        </button>
+      )}
+
+      <h2 className="text-3xl xl:text-4xl font-black text-white mb-2">
+        {authMode === 'register' ? 'Create Account' : 'Welcome Back'}
+      </h2>
+
+      <p className="text-slate-300 mb-8">
+        {authMode === 'register'
+          ? 'Register your ARK ONE account for approval'
+          : 'Sign in to continue to ARK ONE Portal'}
+      </p>
+
+      <div className="space-y-5">
+        {authMode === 'register' && (
+          <div>
+            <Label className="text-slate-200 font-semibold">Full Name</Label>
+            <Input
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="Your full name"
+              className="mt-2 h-14 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
             />
           </div>
+        )}
 
-          <div className="text-left">
-            <h1 className="text-4xl font-black text-white tracking-tight">
-              ARK ONE
-            </h1>
-
-            <p className="text-[#ff5a00] text-sm font-semibold uppercase tracking-[0.3em]">
-              Enterprise Portal
-            </p>
+        <div>
+          <Label className="text-slate-200 font-semibold">
+            {desktop ? 'Username' : 'Email'}
+          </Label>
+          <div className="relative mt-2">
+            <Mail className="absolute left-4 top-4 w-5 h-5 text-slate-400" />
+            <Input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder={desktop ? 'Enter your username' : 'Enter your email'}
+              className="h-14 pl-12 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
+            />
           </div>
         </div>
 
-        {!authMode ? (
-          <>
-            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-3 leading-tight">
-              Welcome to ARK ONE Portal
-            </h2>
+        <div>
+          <Label className="text-slate-200 font-semibold">Password</Label>
+          <div className="relative mt-2">
+            <Lock className="absolute left-4 top-4 w-5 h-5 text-slate-400" />
+            <Input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              className="h-14 pl-12 pr-12 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
+            />
+            <Eye className="absolute right-4 top-4 w-5 h-5 text-slate-400" />
+          </div>
+        </div>
 
-            <p className="text-lg text-[#ff5a00] font-medium italic mb-2">
-              "Where Technology Meets Need"
-            </p>
+        {authMode === 'signin' && (
+          <div className="flex justify-between items-center text-sm">
+            <label className="flex items-center gap-2 text-slate-200">
+              <input type="checkbox" className="accent-[#ff5a00]" />
+              Remember me
+            </label>
 
-            <p className="text-slate-200 text-sm max-w-md mx-auto mb-8">
-              Enterprise ATM &amp; Banking Device Support Management Platform
-              for ARK Technologies Group
-            </p>
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="text-[#ff5a00] font-semibold"
+            >
+              Forgot Password?
+            </button>
+          </div>
+        )}
 
-            <div className="flex flex-wrap justify-center gap-2 mb-10">
-              {[
-                { Icon: Cpu, label: 'Device Monitoring' },
-                { Icon: Radio, label: 'Live Site Tracking' },
-                { Icon: Shield, label: 'Secure Operations' },
-                { Icon: Zap, label: 'Real-Time Alerts' },
-              ].map(({ Icon, label }) => (
-                <span
-                  key={label}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#ff5a00]/30 bg-[#ff5a00]/5 text-[#ff5a00] text-xs font-medium"
-                >
-                  <Icon className="w-3 h-3" /> {label}
-                </span>
-              ))}
-            </div>
+        <Button
+          onClick={handleAuth}
+          disabled={loading}
+          className="w-full h-16 bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold rounded-xl text-lg shadow-[0_0_35px_rgba(255,90,0,0.28)]"
+        >
+          {loading ? (
+            <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+          ) : (
+            <LogIn className="w-5 h-5 mr-3" />
+          )}
+          {authMode === 'register' ? 'Submit Registration' : 'Sign In'}
+        </Button>
 
-            <div className="grid grid-cols-4 gap-3 mb-10 border border-[#ff5a00]/40 rounded-2xl p-5 bg-[#102969]/5 backdrop-blur-sm">
-              {stats.map((s) => (
-                <div key={s.label} className="text-center">
-                  <p className="text-xl font-black text-[#ff5a00]">
-                    {s.value}
-                  </p>
+        <button
+          type="button"
+          onClick={() => setAuthMode(authMode === 'signin' ? 'register' : 'signin')}
+          className="w-full h-14 rounded-xl border border-[#ff5a00]/60 text-white hover:bg-[#ff5a00]/10 font-bold"
+        >
+          <UserPlus className="inline w-5 h-5 mr-2 text-[#ff5a00]" />
+          {authMode === 'signin'
+            ? 'Register / Sign Up'
+            : 'Already registered? Sign In'}
+        </button>
+      </div>
+    </div>
+  );
 
-                  <p className="text-[10px] text-slate-200 leading-tight mt-0.5">
-                    {s.label}
-                  </p>
-                </div>
-              ))}
-            </div>
+  return (
+    <div className="min-h-screen bg-[#06102f] text-white overflow-hidden">
+      {/* MOBILE VIEW */}
+      <div className="md:hidden min-h-screen relative flex flex-col justify-center px-6 py-8 bg-gradient-to-br from-[#06102f] via-[#08153d] to-[#102969]">
+        <div className="absolute top-[-120px] right-[-120px] w-80 h-80 rounded-full bg-[#123b91]/25" />
+        <div className="absolute bottom-[-120px] left-[-120px] w-80 h-80 rounded-full bg-[#123b91]/20" />
 
-            <div className="flex flex-col items-center justify-center gap-6">
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+        <div className="relative z-10 w-full max-w-sm mx-auto">
+          {!authMode ? (
+            <>
+              <div className="text-center mb-20">
+                <img
+                  src="/logo.png"
+                  alt="ARK Logo"
+                  className="w-20 h-20 object-contain mx-auto mb-6"
+                />
+
+                <h1 className="text-5xl font-black tracking-tight">
+                  ARK <span className="text-[#ff5a00]">ONE</span>
+                </h1>
+
+                <p className="text-sm tracking-[0.35em] uppercase text-slate-200 mt-2">
+                  Enterprise Portal
+                </p>
+
+                <div className="w-12 h-1 bg-[#ff5a00] rounded-full mx-auto my-10" />
+
+                <h2 className="text-2xl font-medium text-white mb-3">
+                  Welcome to ARK ONE
+                </h2>
+
+                <p className="text-slate-400">
+                  Where Technology Meets Need
+                </p>
+              </div>
+
+              <div className="space-y-4">
                 <Button
-                  size="lg"
                   onClick={() => setAuthMode('signin')}
-                  className="bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold px-10 py-6 text-base rounded-xl shadow-[0_0_30px_rgba(245,184,0,0.3)] w-full sm:w-auto"
+                  className="w-full h-16 bg-[#ff5a00] hover:bg-[#ff5a00]/90 rounded-2xl text-lg font-bold"
                 >
-                  <LogIn className="w-5 h-5 mr-2" />
+                  <LogIn className="w-6 h-6 mr-3" />
                   Sign In
                 </Button>
 
                 <Button
-                  size="lg"
-                  variant="outline"
                   onClick={() => setAuthMode('register')}
-                  className="border-[#ff5a00]/50 text-[#ff5a00] hover:bg-[#ff5a00]/10 font-semibold px-10 py-6 text-base rounded-xl w-full sm:w-auto"
+                  variant="outline"
+                  className="w-full h-16 border-[#ff5a00] text-white hover:bg-[#ff5a00]/10 rounded-2xl text-lg font-bold"
                 >
-                  <UserPlus className="w-5 h-5 mr-2" />
+                  <UserPlus className="w-6 h-6 mr-3 text-[#ff5a00]" />
                   Register / Sign Up
                 </Button>
               </div>
 
-              <div className="w-full max-w-2xl border border-[#ff5a00]/40 rounded-2xl p-5 bg-[#102969]/5 backdrop-blur-sm">
-                <p className="text-sm text-[#ff5a00] font-semibold uppercase tracking-[0.2em] mb-4">
-                  Download ARK ONE App
-                </p>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <Button variant="outline" className="border-[#ff5a00]/40 text-[#ff5a00]">
-                    Windows
-                  </Button>
-
-                  <Button variant="outline" className="border-[#ff5a00]/40 text-[#ff5a00]">
-                    macOS
-                  </Button>
-
-                  <Button variant="outline" className="border-[#ff5a00]/40 text-[#ff5a00]">
-                    Android
-                  </Button>
-
-                  <Button variant="outline" className="border-[#ff5a00]/40 text-[#ff5a00]">
-                    iPhone
-                  </Button>
-                </div>
-              </div>
+              <p className="text-center text-xs text-slate-400 mt-14">
+                Powered by<br />
+                <span className="text-[#ff5a00] tracking-[0.25em] font-semibold">
+                  ARK TECHNOLOGIES GROUP
+                </span>
+              </p>
+            </>
+          ) : authMode === 'pending' ? (
+            <div className="rounded-3xl border border-[#ff5a00]/30 bg-white/5 backdrop-blur-xl p-6">
+              <PendingApproval />
             </div>
-          </>
-        ) : authMode === 'pending' ? (
-          <div className="max-w-md mx-auto border border-[#ff5a00]/40 rounded-2xl p-6 bg-[#102969]/5 backdrop-blur-sm text-center">
-            <h2 className="text-2xl font-bold text-white mb-3">
-              Pending Approval
-            </h2>
+          ) : (
+            <div className="rounded-3xl border border-[#ff5a00]/30 bg-white/5 backdrop-blur-xl p-6">
+              <AuthForm />
+            </div>
+          )}
+        </div>
+      </div>
 
-            <p className="text-sm text-slate-200 mb-5">
-              Your registration has been submitted successfully.
-              Please wait for an administrator to approve your account.
-            </p>
+      {/* DESKTOP VIEW */}
+            {/* DESKTOP VIEW */}
+      <div className="hidden md:flex min-h-screen bg-[#06102f] overflow-hidden">
 
-            <Button
-              onClick={() => setAuthMode('signin')}
-              className="w-full bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold"
-            >
-              Back to Sign In
-            </Button>
-          </div>
-        ) : (
-          <div className="max-w-md mx-auto border border-[#ff5a00]/40 rounded-2xl p-6 bg-[#102969]/5 backdrop-blur-sm text-left">
+        {/* LEFT HERO IMAGE */}
+        <div className="w-[58%] min-h-screen flex items-center justify-center overflow-hidden bg-[#06102f]">
+          <img
+            src="/ark-desktop-hero.png"
+            alt="ARK ONE Portal"
+            className="w-full h-full object-contain"
+          />
+        </div>
+
+        {/* RIGHT PANEL */}
+        <div className="w-[42%] min-h-screen relative bg-gradient-to-br from-[#020817] via-[#061430] to-[#071942]">
+
+          {/* Support + Moon */}
+          <div className="absolute top-8 right-10 z-20 flex items-center gap-6 text-white">
             <button
-              onClick={() => setAuthMode(null)}
-              className="text-[#ff5a00] text-sm flex items-center gap-2 mb-5"
+              type="button"
+              onClick={() => navigate('/ark-connect')}
+              className="flex items-center gap-2 font-semibold hover:text-[#ff5a00] transition"
             >
-              <ArrowLeft className="w-4 h-4" />
-              Back
+              <Headphones className="w-5 h-5" />
+              Support
             </button>
 
-            <h2 className="text-2xl font-bold text-white mb-2">
-              {authMode === 'signin' ? 'Sign In' : 'Create Account'}
-            </h2>
+            <div className="h-8 w-px bg-white/20" />
 
-            <p className="text-sm text-slate-200 mb-5">
-              {authMode === 'signin'
-                ? 'Enter your ARK ONE credentials.'
-                : 'Create your ARK ONE account.'}
-            </p>
+            <button
+              type="button"
+              className="w-10 h-10 rounded-full border border-white/20 bg-white/5 flex items-center justify-center hover:border-[#ff5a00]"
+            >
+              <Moon className="w-5 h-5" />
+            </button>
+          </div>
 
-            <div className="space-y-4">
-              {authMode === 'register' && (
-                <div className="space-y-1.5">
-                  <Label className="text-slate-300">Full Name</Label>
+          {/* LOGIN AREA */}
+          <div className="h-full flex items-center justify-center px-10">
+            <div className="w-full max-w-[580px] rounded-[30px] border border-white/15 bg-[#071942]/90 backdrop-blur-xl p-10 shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
 
-                  <Input
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className="bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]/50 border-[#ff5a00]/30 text-white"
-                    placeholder="Your full name"
-                  />
-                </div>
+              {authMode === 'pending' ? (
+                <PendingApproval />
+              ) : (
+                <AuthForm desktop />
               )}
 
-              <div className="space-y-1.5">
-                <Label className="text-slate-300">Email</Label>
-
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]/50 border-[#ff5a00]/30 text-white"
-                  placeholder="you@example.com"
-                />
+              {/* DOWNLOAD SECTION */}
+              <div className="mt-10 flex items-center gap-4 text-slate-400 text-sm">
+                <div className="h-px bg-white/10 flex-1" />
+                Download App
+                <div className="h-px bg-white/10 flex-1" />
               </div>
 
-              <div className="space-y-1.5">
-                <Label className="text-slate-300">Password</Label>
-
-                <Input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]/50 border-[#ff5a00]/30 text-white"
-                  placeholder="Password"
-                />
-              </div>
-
-              {authMode === 'signin' && (
-                <button
-                  type="button"
-                  onClick={handleForgotPassword}
-                  className="text-xs text-[#ff5a00] hover:underline"
+              <div className="grid grid-cols-2 gap-4 mt-6">
+                <Button
+                  variant="outline"
+                  className="h-16 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
                 >
-                  Forgot Password?
-                </button>
-              )}
+                  <Monitor className="w-5 h-5 mr-3 text-[#ff5a00]" />
+                  Windows
+                </Button>
 
-              <Button
-                onClick={handleAuth}
-                disabled={loading}
-                className="w-full bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white font-bold"
-              >
-                {loading && (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                )}
+                <Button
+                  variant="outline"
+                  className="h-16 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
+                >
+                  <Smartphone className="w-5 h-5 mr-3 text-[#ff5a00]" />
+                  Android
+                </Button>
+              </div>
 
-                {authMode === 'signin' ? 'Sign In' : 'Register'}
-              </Button>
-
-              <button
-                onClick={() =>
-                  setAuthMode(
-                    authMode === 'signin' ? 'register' : 'signin'
-                  )
-                }
-                className="w-full text-center text-sm text-[#ff5a00]"
-              >
-                {authMode === 'signin'
-                  ? 'No account? Register'
-                  : 'Already have account? Sign in'}
-              </button>
             </div>
           </div>
-        )}
 
-        <p className="text-[10px] text-slate-600 mt-10 text-center leading-relaxed">
-          Secure access &middot; ARK Technologies Group &copy; 2026 &middot;
-          v1.0.15
-          <br />
-          Built by Okoroafor Kingsley Chukwuma
-        </p>
-      </motion.div>
+        </div>
+      </div>
+
     </div>
   );
 }
