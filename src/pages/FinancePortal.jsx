@@ -449,19 +449,19 @@ export default function FinancePortal() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-xl border bg-card p-4">
+        <div className="rounded-xl border bg-slate-900/50 p-4">
           <TrendingUp className="w-5 h-5 text-green-500 mb-2" />
           <p className="text-2xl font-bold text-green-600">{fmt(totalIncome)}</p>
           <p className="text-xs text-muted-foreground">Total Income (Paid)</p>
         </div>
 
-        <div className="rounded-xl border bg-card p-4">
+        <div className="rounded-xl border bg-slate-900/50 p-4">
           <TrendingDown className="w-5 h-5 text-red-500 mb-2" />
           <p className="text-2xl font-bold text-red-600">{fmt(totalExpenses)}</p>
           <p className="text-xs text-muted-foreground">Total Expenses</p>
         </div>
 
-        <div className="rounded-xl border bg-card p-4">
+        <div className="rounded-xl border bg-slate-900/50 p-4">
           <BarChart3
             className="w-5 h-5 mb-2"
             style={{
@@ -481,7 +481,7 @@ export default function FinancePortal() {
           </p>
         </div>
 
-        <div className="rounded-xl border bg-card p-4">
+        <div className="rounded-xl border bg-slate-900/50 p-4">
           <AlertCircle className="w-5 h-5 text-amber-500 mb-2" />
           <p className="text-2xl font-bold text-amber-600">{fmt(totalOverdue)}</p>
           <p className="text-xs text-muted-foreground">Overdue</p>
@@ -489,7 +489,7 @@ export default function FinancePortal() {
       </div>
 
       {monthlyIncome.some((m) => m.income > 0) && (
-        <div className="rounded-xl border bg-card p-4">
+        <div className="rounded-xl border bg-slate-900/50 p-4">
           <p className="text-sm font-semibold mb-3">
             Monthly Income (Last 6 Months)
           </p>
@@ -528,7 +528,7 @@ export default function FinancePortal() {
                     'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all capitalize ' +
                     (invFilter === s
                       ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-card border-border text-muted-foreground hover:bg-muted')
+                      : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
                   }
                 >
                   {s === 'all' ? 'All' : INV_STATUS[s]?.label}
@@ -670,7 +670,7 @@ export default function FinancePortal() {
                   'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
                   (expCatFilter === 'all'
                     ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-card border-border text-muted-foreground hover:bg-muted')
+                    : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
                 }
               >
                 All Categories
@@ -684,7 +684,7 @@ export default function FinancePortal() {
                     'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
                     (expCatFilter === c
                       ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-card border-border text-muted-foreground hover:bg-muted')
+                      : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
                   }
                 >
                   {c}
@@ -839,7 +839,7 @@ export default function FinancePortal() {
         {expByCategory.length > 0 && (
           <TabsContent value="analytics" className="space-y-4">
             <div className="grid lg:grid-cols-2 gap-4">
-              <div className="rounded-xl border bg-card p-4">
+              <div className="rounded-xl border bg-slate-900/50 p-4">
                 <p className="text-sm font-semibold mb-3">Expense by Category</p>
                 <ResponsiveContainer width="100%" height={260}>
                   <PieChart>
@@ -865,7 +865,7 @@ export default function FinancePortal() {
                 </ResponsiveContainer>
               </div>
 
-              <div className="rounded-xl border bg-card p-4">
+              <div className="rounded-xl border bg-slate-900/50 p-4">
                 <p className="text-sm font-semibold mb-3">Cash Flow Summary</p>
 
                 <div className="space-y-3 mt-4">

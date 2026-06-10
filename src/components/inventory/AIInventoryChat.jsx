@@ -80,7 +80,7 @@ export default function AIInventoryChat({ items = [] }) {
 
       {open && (
         <div
-          className="fixed bottom-24 right-6 z-50 w-80 sm:w-96 bg-card border rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+          className="fixed bottom-24 right-6 z-50 w-80 sm:w-96 bg-slate-900/50 border rounded-2xl shadow-2xl flex flex-col overflow-hidden"
           style={{ height: '480px' }}
         >
           <div className="flex items-center justify-between px-4 py-3 border-b bg-primary/5">

@@ -2,6 +2,10 @@ import React, { useState } from 'react';
 import { useParams, useOutletContext, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  logOperationEvent,
+  upsertOperationStatus,
+} from '@/lib/operationsIntelligence';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -86,6 +90,28 @@ function getFileName(item, fallback) {
   return item.name || fallback;
 }
 
+function getActorName(user) {
+  return user?.full_name || user?.name || user?.email || 'Unknown User';
+}
+
+function getActorDepartment(user, role) {
+  return user?.department || role || user?.role || 'Helpdesk';
+}
+
+function getTicketLabel(ticket, fallbackId) {
+  return ticket?.ticket_number || ticket?.ticket_id || ticket?.title || fallbackId;
+}
+
+function getStatusSeverity(status) {
+  const value = String(status || '').toLowerCase();
+
+  if (['escalated', 'critical', 'breached'].includes(value)) return 'critical';
+  if (['pending', 'pending_review', 'assigned', 'in_progress'].includes(value)) return 'warning';
+  if (['resolved', 'closed', 'completed', 'approved'].includes(value)) return 'success';
+
+  return 'info';
+}
+
 function EvidenceLinks({ title, icon, items }) {
   const safeItems = Array.isArray(items) ? items : [];
 
@@ -154,12 +180,68 @@ export default function TicketDetail() {
     enabled: role === 'admin' || role === 'helpdesk',
   });
 
-  const updateTicket = async (data) => {
+  const writeOINTicketStatus = async (nextStatus, extraMetadata = {}) => {
+    await upsertOperationStatus({
+      entity_type: 'ticket',
+      entity_id: id,
+      entity_name: getTicketLabel(ticket, id),
+      status: nextStatus || ticket?.status || 'unknown',
+      source_module: 'TicketDetail',
+      metadata: {
+        ticket_id: ticket?.ticket_id,
+        ticket_number: ticket?.ticket_number,
+        title: ticket?.title,
+        priority: ticket?.priority,
+        category: ticket?.category,
+        assigned_to: ticket?.assigned_to,
+        assigned_to_name: ticket?.assigned_to_name,
+        client_email: ticket?.client_email,
+        client_name: ticket?.client_name,
+        bank_name: ticket?.bank_name,
+        branch_name: ticket?.branch_name,
+        actor: getActorName(user),
+        actor_email: user?.email,
+        ...extraMetadata,
+      },
+    });
+  };
+
+  const logOINTicketEvent = async ({
+    event_type,
+    title,
+    description,
+    severity = 'info',
+    metadata = {},
+  }) => {
+    await logOperationEvent({
+      event_type,
+      entity_type: 'ticket',
+      entity_id: id,
+      title,
+      description,
+      actor_name: getActorName(user),
+      actor_id: user?.id || user?.email,
+      department: getActorDepartment(user, role),
+      severity,
+      metadata: {
+        ticket_id: ticket?.ticket_id,
+        ticket_number: ticket?.ticket_number,
+        ticket_title: ticket?.title,
+        current_status: ticket?.status,
+        actor_email: user?.email,
+        ...metadata,
+      },
+    });
+  };
+
+  const updateTicket = async (data, options = {}) => {
+    const now = new Date().toISOString();
+
     const { error } = await supabase
       .from('tickets')
       .update({
         ...data,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
       })
       .eq('id', id);
 
@@ -170,10 +252,35 @@ export default function TicketDetail() {
       entity_type: 'Ticket',
       entity_id: id,
       user_email: user.email,
-      user_name: user.full_name || user.name || user.email,
+      user_name: getActorName(user),
       details: JSON.stringify(data),
-      created_at: new Date().toISOString(),
+      created_at: now,
     });
+
+    await logOINTicketEvent({
+      event_type: options.eventType || 'ticket_updated',
+      title: options.title || 'Ticket Updated',
+      description:
+        options.description ||
+        `${getActorName(user)} updated ${getTicketLabel(ticket, id)}`,
+      severity: options.severity || getStatusSeverity(data.status),
+      metadata: {
+        update: data,
+        previous_status: ticket?.status,
+        new_status: data.status || ticket?.status,
+        source: 'TicketDetail.updateTicket',
+        ...(options.metadata || {}),
+      },
+    });
+
+    if (data.status || data.escalated !== undefined || data.assigned_to) {
+      await writeOINTicketStatus(data.status || ticket?.status || 'updated', {
+        update: data,
+        escalated: data.escalated ?? ticket?.escalated,
+        assigned_to: data.assigned_to || ticket?.assigned_to,
+        assigned_to_name: data.assigned_to_name || ticket?.assigned_to_name,
+      });
+    }
 
     queryClient.invalidateQueries({ queryKey: ['ticket', id] });
     queryClient.invalidateQueries({ queryKey: ['tickets'] });
@@ -195,10 +302,38 @@ export default function TicketDetail() {
     const ticketLink = `/tickets/${id}`;
 
     try {
-      await updateTicket({
-        assigned_to: engineerEmail,
-        assigned_to_name: eng?.full_name || engineerEmail,
+      await updateTicket(
+        {
+          assigned_to: engineerEmail,
+          assigned_to_name: eng?.full_name || engineerEmail,
+          status: 'assigned',
+        },
+        {
+          eventType: 'ticket_assigned',
+          title: 'Ticket Assigned',
+          description: `${ticketTitle} assigned to ${eng?.full_name || engineerEmail}`,
+          severity: 'info',
+          metadata: {
+            engineer_email: engineerEmail,
+            engineer_name: eng?.full_name || engineerEmail,
+          },
+        }
+      );
+
+      await upsertOperationStatus({
+        entity_type: 'engineer_assignment',
+        entity_id: `${id}-${engineerEmail}`,
+        entity_name: `${eng?.full_name || engineerEmail} assigned to ${getTicketLabel(ticket, id)}`,
         status: 'assigned',
+        source_module: 'Helpdesk',
+        metadata: {
+          ticket_id: id,
+          ticket_number: getTicketLabel(ticket, id),
+          engineer_email: engineerEmail,
+          engineer_name: eng?.full_name || engineerEmail,
+          assigned_by: getActorName(user),
+          assigned_by_email: user?.email,
+        },
       });
 
       const { data: notifyData, error: notifyError } = await supabase
@@ -249,7 +384,16 @@ export default function TicketDetail() {
       data.closed_date = new Date().toISOString();
     }
 
-    await updateTicket(data);
+    await updateTicket(data, {
+      eventType: 'ticket_status_changed',
+      title: `Ticket moved to ${newStatus}`,
+      description: `${getActorName(user)} changed ${getTicketLabel(ticket, id)} from ${ticket?.status || 'unknown'} to ${newStatus}`,
+      severity: getStatusSeverity(newStatus),
+      metadata: {
+        old_status: ticket?.status,
+        new_status: newStatus,
+      },
+    });
 
     if (newStatus === 'resolved' && ticket.client_email) {
       await supabase.from('notifications').insert({
@@ -273,16 +417,28 @@ export default function TicketDetail() {
     setSending(true);
 
     try {
+      const cleanComment = comment.trim();
+
       const { error } = await supabase.from('comments').insert({
         ticket_id: id,
         author_email: user.email,
-        author_name: user.full_name || user.name || user.email,
-        content: comment,
+        author_name: getActorName(user),
+        content: cleanComment,
         is_internal: isInternal,
         created_at: new Date().toISOString(),
       });
 
       if (error) throw error;
+
+      await logOINTicketEvent({
+        event_type: isInternal ? 'internal_note_added' : 'comment_added',
+        title: isInternal ? 'Internal Note Added' : 'Comment Added',
+        description: cleanComment,
+        severity: 'info',
+        metadata: {
+          internal: isInternal,
+        },
+      });
 
       setComment('');
       setIsInternal(false);
@@ -296,10 +452,37 @@ export default function TicketDetail() {
   };
 
   const handleRate = async () => {
-    await updateTicket({
-      rating,
-      rating_comment: ratingComment,
-    });
+    await updateTicket(
+      {
+        rating,
+        rating_comment: ratingComment,
+      },
+      {
+        eventType: 'ticket_rated',
+        title: 'Ticket Rated',
+        description: `${getTicketLabel(ticket, id)} was rated ${rating} star(s)`,
+        severity: 'info',
+        metadata: {
+          rating,
+          rating_comment: ratingComment,
+        },
+      }
+    );
+  };
+
+  const handleEscalate = async () => {
+    await updateTicket(
+      { escalated: true },
+      {
+        eventType: 'ticket_escalated',
+        title: 'Ticket Escalated',
+        description: `${getTicketLabel(ticket, id)} escalated by ${getActorName(user)}`,
+        severity: 'critical',
+        metadata: {
+          previous_escalated: ticket?.escalated || false,
+        },
+      }
+    );
   };
 
   if (isLoading) {
@@ -663,7 +846,7 @@ export default function TicketDetail() {
                     variant="destructive"
                     size="sm"
                     className="w-full"
-                    onClick={() => updateTicket({ escalated: true })}
+                    onClick={handleEscalate}
                   >
                     <AlertTriangle className="w-3.5 h-3.5 mr-1" />
                     Escalate

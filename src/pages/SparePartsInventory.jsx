@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useOutletContext, useLocation } from 'react-router-dom';
+import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -96,14 +96,14 @@ const stockClass = (item) => {
   const m = item.minimum_stock_level || 2;
 
   if (q === 0) {
-    return 'bg-red-500/15 text-red-300 border-red-200 dark:bg-red-950 dark:text-red-300';
+    return 'bg-red-500/15 text-red-300 border-red-500/30';
   }
 
   if (q <= m) {
-    return 'bg-amber-500/15 text-amber-300 border-amber-200 dark:bg-amber-950 dark:text-amber-300';
+    return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
   }
 
-  return 'bg-green-500/15 text-green-300 border-green-200 dark:bg-green-950 dark:text-green-300';
+  return 'bg-green-500/15 text-green-300 border-green-500/30';
 };
 
 const mvtClass = (t) =>
@@ -847,25 +847,49 @@ export default function SparePartsInventory() {
   };
 
   const REQ_STATUS = {
-    operations_pending: { label: 'Operations Review', color: 'bg-amber-500/15 text-amber-300' },
-    inventory_pending: { label: 'Inventory Review', color: 'bg-blue-50 text-blue-700' },
-    finance_pending: { label: 'Accounts Review', color: 'bg-purple-50 text-purple-700' },
-    ready_dispatch: { label: 'Ready to Dispatch', color: 'bg-green-500/15 text-green-300' },
-    rejected: { label: 'Rejected', color: 'bg-red-500/15 text-red-300' },
-    dispatched: { label: 'Dispatched', color: 'bg-blue-50 text-blue-700' },
-    received: { label: 'Received', color: 'bg-purple-50 text-purple-700' },
-    pending: { label: 'Pending', color: 'bg-amber-500/15 text-amber-300' },
+    operations_pending: {
+      label: 'Operations Review',
+      color: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    },
+    inventory_pending: {
+      label: 'Inventory Review',
+      color: 'bg-primary/15 text-primary border-primary/30',
+    },
+    finance_pending: {
+      label: 'Accounts Review',
+      color: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+    },
+    ready_dispatch: {
+      label: 'Ready to Dispatch',
+      color: 'bg-green-500/15 text-green-300 border-green-500/30',
+    },
+    rejected: {
+      label: 'Rejected',
+      color: 'bg-red-500/15 text-red-300 border-red-500/30',
+    },
+    dispatched: {
+      label: 'Dispatched',
+      color: 'bg-primary/15 text-primary border-primary/30',
+    },
+    received: {
+      label: 'Received',
+      color: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+    },
+    pending: {
+      label: 'Pending',
+      color: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    },
   };
 
   const URGENCY = {
-    low: 'bg-slate-100 text-slate-600',
-    medium: 'bg-blue-50 text-blue-700',
-    high: 'bg-amber-500/15 text-amber-300',
-    critical: 'bg-red-500/15 text-red-300',
+    low: 'bg-slate-800/80 text-slate-300 border-slate-700',
+    medium: 'bg-primary/15 text-primary border-primary/30',
+    high: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    critical: 'bg-red-500/15 text-red-300 border-red-500/30',
   };
 
   return (
-    <div className="space-y-5 pb-20">
+    <div className="space-y-5 pb-20 text-slate-100">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -888,7 +912,7 @@ export default function SparePartsInventory() {
                   className="hidden"
                   onChange={handleImportExcel}
                 />
-                <span className="inline-flex items-center gap-1.5 text-sm font-medium h-9 px-3 rounded-md border border-input bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] hover:bg-accent hover:text-accent-foreground transition-colors">
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium h-9 px-3 rounded-md border border-slate-700 bg-[#071225] text-slate-100 hover:bg-[#0b1f3a] hover:text-white transition-colors">
                   {importLoading ? (
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
@@ -924,19 +948,19 @@ export default function SparePartsInventory() {
 
       {canManage && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="p-3">
+          <Card className="p-3 border border-slate-700/70 bg-[#071225]/90 text-slate-100 shadow-sm">
             <p className="text-xs text-muted-foreground">Operations Approval</p>
             <p className="text-xl font-bold">{operationsPending}</p>
           </Card>
-          <Card className="p-3">
+          <Card className="p-3 border border-slate-700/70 bg-[#071225]/90 text-slate-100 shadow-sm">
             <p className="text-xs text-muted-foreground">Inventory Approval</p>
             <p className="text-xl font-bold">{inventoryPending}</p>
           </Card>
-          <Card className="p-3">
+          <Card className="p-3 border border-slate-700/70 bg-[#071225]/90 text-slate-100 shadow-sm">
             <p className="text-xs text-muted-foreground">Accounts / Waybill</p>
             <p className="text-xl font-bold">{financePending}</p>
           </Card>
-          <Card className="p-3">
+          <Card className="p-3 border border-slate-700/70 bg-[#071225]/90 text-slate-100 shadow-sm">
             <p className="text-xs text-muted-foreground">Dispatch Pending</p>
             <p className="text-xl font-bold">{dispatchPending}</p>
           </Card>
@@ -944,13 +968,13 @@ export default function SparePartsInventory() {
       )}
 
       {outStock.length > 0 && canManage && (
-        <div className="flex gap-3 p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl">
+        <div className="flex gap-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
           <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-red-800 dark:text-red-300">
+            <p className="text-sm font-semibold text-red-300">
               OUT OF STOCK — {outStock.length} item(s)
             </p>
-            <p className="text-xs text-red-700 dark:text-red-400">
+            <p className="text-xs text-red-300/80">
               {outStock
                 .slice(0, 6)
                 .map((p) => p.description)
@@ -962,13 +986,13 @@ export default function SparePartsInventory() {
       )}
 
       {lowStock.length > 0 && canManage && (
-        <div className="flex gap-3 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl">
+        <div className="flex gap-3 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
           <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+            <p className="text-sm font-semibold text-amber-300">
               LOW STOCK — {lowStock.length} item(s)
             </p>
-            <p className="text-xs text-amber-700 dark:text-amber-400">
+            <p className="text-xs text-amber-300/80">
               {lowStock
                 .slice(0, 6)
                 .map((p) => p.description)
@@ -981,9 +1005,9 @@ export default function SparePartsInventory() {
 
       <Tabs value={tab} onValueChange={setTab}>
         <div className="overflow-x-auto">
-          <TabsList>
-            {!isEngineer && <TabsTrigger value="inventory">Inventory</TabsTrigger>}
-            <TabsTrigger value="requests">
+          <TabsList className="bg-[#071225]/90 border border-slate-700/70 text-slate-200">
+            {!isEngineer && <TabsTrigger value="inventory" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Inventory</TabsTrigger>}
+            <TabsTrigger value="requests" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Requests{' '}
               {pending > 0 && (
                 <span className="ml-1 bg-primary text-primary-foreground rounded-full text-[10px] w-4 h-4 inline-flex items-center justify-center">
@@ -992,7 +1016,7 @@ export default function SparePartsInventory() {
               )}
             </TabsTrigger>
             {canManage && (
-              <TabsTrigger value="history">
+              <TabsTrigger value="history" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                 <History className="w-3.5 h-3.5 mr-1" />
                 Movement History
               </TabsTrigger>
@@ -1108,10 +1132,10 @@ export default function SparePartsInventory() {
               <Loader2 className="w-8 h-8 animate-spin text-primary" />
             </div>
           ) : (
-            <div className="border rounded-xl overflow-hidden">
+            <div className="border border-slate-700/70 bg-[#071225]/90 rounded-xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-muted/40 border-b text-xs text-muted-foreground uppercase">
+                  <thead className="bg-[#0b1b34]/90 border-b border-slate-700 text-xs text-slate-300 uppercase">
                     <tr>
                       <th className="text-left px-3 py-2.5">Part No.</th>
                       <th className="text-left px-3 py-2.5">Description</th>
@@ -1137,7 +1161,7 @@ export default function SparePartsInventory() {
                     </tr>
                   </thead>
 
-                  <tbody className="divide-y">
+                  <tbody className="divide-y divide-slate-800">
                     {filtered.length === 0 && (
                       <tr>
                         <td
@@ -1151,7 +1175,7 @@ export default function SparePartsInventory() {
                     )}
 
                     {filtered.map((item) => (
-                      <tr key={item.id} className="hover:bg-muted/20 transition-colors">
+                      <tr key={item.id} className="hover:bg-slate-800/40 transition-colors">
                         <td className="px-3 py-2.5 font-mono text-xs text-muted-foreground whitespace-nowrap">
                           {item.part_number || '—'}
                         </td>
@@ -1170,7 +1194,7 @@ export default function SparePartsInventory() {
                           <p className="text-muted-foreground">{item.device_model || ''}</p>
                         </td>
                         <td className="px-3 py-2.5 hidden lg:table-cell">
-                          <span className="text-xs bg-muted px-2 py-0.5 rounded-full">
+                          <span className="text-xs bg-slate-800/80 text-slate-200 px-2 py-0.5 rounded-full border border-slate-700/70">
                             {item.category_group}
                           </span>
                         </td>
@@ -1294,7 +1318,7 @@ export default function SparePartsInventory() {
               !['dispatched', 'received'].includes(req.dispatch_status);
 
             return (
-              <Card key={req.id} className="p-4">
+              <Card key={req.id} className="p-4 border border-slate-700/70 bg-[#071225]/90 text-slate-100 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -1331,19 +1355,19 @@ export default function SparePartsInventory() {
                     </p>
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-3 text-[11px]">
-                      <div className="rounded-lg border p-2">
+                      <div className="rounded-lg border border-slate-700/70 bg-[#08162d]/70 p-2">
                         <p className="text-muted-foreground">Operations</p>
                         <p className="font-semibold capitalize">{req.operations_status || 'pending_review'}</p>
                       </div>
-                      <div className="rounded-lg border p-2">
+                      <div className="rounded-lg border border-slate-700/70 bg-[#08162d]/70 p-2">
                         <p className="text-muted-foreground">Inventory</p>
                         <p className="font-semibold capitalize">{req.inventory_status || 'pending_review'}</p>
                       </div>
-                      <div className="rounded-lg border p-2">
+                      <div className="rounded-lg border border-slate-700/70 bg-[#08162d]/70 p-2">
                         <p className="text-muted-foreground">Accounts</p>
                         <p className="font-semibold capitalize">{req.finance_status || 'not_required'}</p>
                       </div>
-                      <div className="rounded-lg border p-2">
+                      <div className="rounded-lg border border-slate-700/70 bg-[#08162d]/70 p-2">
                         <p className="text-muted-foreground">Dispatch</p>
                         <p className="font-semibold capitalize">{req.dispatch_status || 'pending'}</p>
                       </div>
@@ -1450,10 +1474,10 @@ export default function SparePartsInventory() {
 
         {canManage && (
           <TabsContent value="history" className="mt-4">
-            <div className="border rounded-xl overflow-hidden">
+            <div className="border border-slate-700/70 bg-[#071225]/90 rounded-xl overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-muted/40 border-b text-xs text-muted-foreground uppercase">
+                  <thead className="bg-[#0b1b34]/90 border-b border-slate-700 text-xs text-slate-300 uppercase">
                     <tr>
                       <th className="text-left px-3 py-2.5">Date</th>
                       <th className="text-left px-3 py-2.5">Part</th>
@@ -1471,7 +1495,7 @@ export default function SparePartsInventory() {
                     </tr>
                   </thead>
 
-                  <tbody className="divide-y">
+                  <tbody className="divide-y divide-slate-800">
                     {movements.length === 0 && (
                       <tr>
                         <td
@@ -1485,7 +1509,7 @@ export default function SparePartsInventory() {
                     )}
 
                     {movements.map((m) => (
-                      <tr key={m.id} className="hover:bg-muted/20">
+                      <tr key={m.id} className="hover:bg-slate-800/40">
                         <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
                           {m.created_at
                             ? new Date(m.created_at).toLocaleDateString()
@@ -1534,7 +1558,7 @@ export default function SparePartsInventory() {
       </Tabs>
 
       <Dialog open={itemOpen} onOpenChange={setItemOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto border border-slate-700 bg-[#071225] text-slate-100">
           <DialogHeader>
             <DialogTitle>{editingItem ? 'Edit' : 'Add'} Inventory Item</DialogTitle>
           </DialogHeader>
@@ -1738,7 +1762,7 @@ export default function SparePartsInventory() {
       </Dialog>
 
       <Dialog open={reqOpen} onOpenChange={setReqOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto border border-slate-700 bg-[#071225] text-slate-100">
           <DialogHeader>
             <DialogTitle>Request Spare Part</DialogTitle>
           </DialogHeader>

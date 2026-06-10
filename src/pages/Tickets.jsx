@@ -671,7 +671,7 @@ export default function Tickets() {
 
       {rejectingTicket && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-card border rounded-2xl p-5 max-w-lg w-full space-y-4">
+          <div className="bg-slate-900/50 border rounded-2xl p-5 max-w-lg w-full space-y-4">
             <div>
               <h2 className="text-xl font-bold">
                 Reject Completion

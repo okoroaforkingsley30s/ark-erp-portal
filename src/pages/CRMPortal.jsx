@@ -232,7 +232,7 @@ export default function CRMPortal() {
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
 
-        <div className="rounded-xl border bg-card p-4">
+        <div className="rounded-xl border bg-slate-900/50 p-4">
           <p className="text-2xl font-bold">
             {leads.length}
           </p>
@@ -289,7 +289,7 @@ export default function CRMPortal() {
             (
               statusFilter === 'all'
                 ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-card border-border text-muted-foreground'
+                : 'bg-slate-900/50 border-border text-muted-foreground'
             )
           }
         >
@@ -305,7 +305,7 @@ export default function CRMPortal() {
               (
                 statusFilter === k
                   ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-card border-border text-muted-foreground'
+                  : 'bg-slate-900/50 border-border text-muted-foreground'
               )
             }
           >

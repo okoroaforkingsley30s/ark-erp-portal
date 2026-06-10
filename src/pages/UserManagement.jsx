@@ -554,7 +554,7 @@ export default function UserManagement() {
             'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
             (roleFilter === 'all'
               ? 'bg-primary text-primary-foreground border-primary'
-              : 'bg-card border-border text-muted-foreground')
+              : 'bg-slate-900/50 border-border text-muted-foreground')
           }
         >
           All ({users.length})
@@ -569,7 +569,7 @@ export default function UserManagement() {
               'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
               (roleFilter === r.value
                 ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-card border-border text-muted-foreground')
+                : 'bg-slate-900/50 border-border text-muted-foreground')
             }
           >
             {r.label} ({roleCounts[r.value]})

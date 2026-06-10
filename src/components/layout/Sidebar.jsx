@@ -68,6 +68,12 @@ const ALL_MENUS = [
     permission: 'live_map',
   },
   {
+  label: 'Operations Feed',
+  icon: Activity,
+  path: '/operations-feed',
+  permission: 'dashboard',
+},
+  {
     label: 'Tickets',
     icon: Ticket,
     path: '/tickets',

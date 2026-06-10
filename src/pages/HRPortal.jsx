@@ -410,7 +410,7 @@ export default function HRPortal() {
       </nav>
 
       <div className="md:hidden w-full absolute top-0 left-0 z-10">
-        <div className="flex gap-1 overflow-x-auto p-2 bg-card border-b">
+        <div className="flex gap-1 overflow-x-auto p-2 bg-slate-900/50 border-b">
           {NAV.map(n => (
             <button
               key={n.key}

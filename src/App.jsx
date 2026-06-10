@@ -44,6 +44,7 @@ import DeviceStatusBoard from '@/pages/DeviceStatusBoard';
 import DeviceAssignment from '@/pages/DeviceAssignment';
 import RegionalCoverage from '@/pages/RegionalCoverage';
 import OperationsDashboard from '@/pages/OperationsDashboard';
+import OperationsFeed from '@/pages/OperationsFeed';
 import ArkConnect from '@/pages/ArkConnect';
 import SLAAnalytics from '@/pages/SLAAnalytics';
 import OfficialMailInbox from '@/pages/OfficialMailInbox';
@@ -175,6 +176,7 @@ useEffect(() => {
         <Route path="/sla-analytics" element={<SLAAnalytics />} />
 
         <Route path="/ops-dashboard" element={<OperationsDashboard />} />
+        <Route path="/operations-feed" element={<OperationsFeed />} />
         <Route path="/banks" element={<BanksPage />} />
         <Route path="/branches" element={<BranchesPage />} />
         <Route path="/branches/:id/devices" element={<BranchDevices />} />

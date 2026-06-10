@@ -1,5 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
+  logOperationEvent,
+  upsertOperationStatus,
+} from '@/lib/operationsIntelligence';
+import {
   Home,
   ClipboardList,
   Ticket,
@@ -31,6 +35,84 @@ import {
 import { supabase } from '@/lib/supabaseClient';
 
 const EVIDENCE_BUCKET = 'ticket-evidence';
+const FIELD_DEPARTMENT = 'Field Engineering';
+
+const safeLogOperationEvent = async (payload) => {
+  try {
+    await logOperationEvent(payload);
+  } catch (error) {
+    console.warn('OIN event log skipped:', error);
+  }
+};
+
+const safeUpsertOperationStatus = async (payload) => {
+  try {
+    await upsertOperationStatus(payload);
+  } catch (error) {
+    console.warn('OIN status update skipped:', error);
+  }
+};
+
+const getActorName = (user) =>
+  user?.full_name || user?.name || user?.email || 'Field Engineer';
+
+const getTicketDisplayName = (ticket) =>
+  ticket?.ticket_number || ticket?.ticket_id || ticket?.id || 'Ticket';
+
+const getTicketSiteName = (ticket) =>
+  [
+    ticket?.bank_name || ticket?.client_name,
+    ticket?.branch_name || ticket?.branch || ticket?.site_name,
+    ticket?.terminal_id,
+  ]
+    .filter(Boolean)
+    .join(' • ');
+
+const getTicketLatitude = (ticket) =>
+  Number(
+    ticket?.current_latitude ||
+      ticket?.latitude ||
+      ticket?.site_latitude ||
+      ticket?.branch_latitude
+  ) || null;
+
+const getTicketLongitude = (ticket) =>
+  Number(
+    ticket?.current_longitude ||
+      ticket?.longitude ||
+      ticket?.site_longitude ||
+      ticket?.branch_longitude
+  ) || null;
+
+const getCurrentPosition = () =>
+  new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve({ latitude: null, longitude: null });
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      () => resolve({ latitude: null, longitude: null }),
+      { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+    );
+  });
+
+const ticketStatusToEngineerStatus = (status) => {
+  const clean = String(status || '').toLowerCase();
+
+  if (['traveling', 'in_transit', 'en_route'].includes(clean)) return 'traveling';
+  if (['arrived_on_site', 'arrived', 'on_site'].includes(clean)) return 'on_site';
+  if (['in_progress', 'working', 'pending_review'].includes(clean)) return 'working';
+  if (['accepted', 'assigned'].includes(clean)) return 'busy';
+
+  return 'online';
+};
 
 export default function FieldEngineerMobileApp({
   user,
@@ -207,6 +289,44 @@ export default function FieldEngineerMobileApp({
   ]);
 
   useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+
+    const heartbeat = async () => {
+      const now = new Date().toISOString();
+      const gps = await getCurrentPosition();
+
+      if (cancelled) return;
+
+      await safeUpsertOperationStatus({
+        entity_type: 'engineer',
+        entity_id: user?.id || user.email,
+        entity_name: getActorName(user),
+        status: 'online',
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        last_seen: now,
+        source_module: 'FEMobiHeartbeat',
+        metadata: {
+          email: user.email,
+          role: user.role,
+          department: user.department || FIELD_DEPARTMENT,
+          active_tab: activeTab,
+        },
+      });
+    };
+
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 60000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [user?.id, user?.email, user?.full_name, user?.name, user?.role, user?.department, activeTab]);
+
+  useEffect(() => {
     const handleMobileTab = (event) => {
       const tab = event?.detail?.tab;
 
@@ -261,30 +381,88 @@ export default function FieldEngineerMobileApp({
 };
 
   const updateTicketStatus = async (ticketId, status) => {
-  const now = new Date().toISOString();
+    const now = new Date().toISOString();
+    const ticket = tickets.find((t) => t.id === ticketId);
+    const actorName = getActorName(user);
+    const engineerStatus = ticketStatusToEngineerStatus(status);
+    const gps = await getCurrentPosition();
 
-  const statusTimeMap = {
-    accepted: { accepted_at: now },
-    traveling: { started_at: now },
-    arrived_on_site: { arrived_at: now },
-    in_progress: { started_at: now },
-    pending_review: { submitted_review_at: now },
-  };
+    const statusTimeMap = {
+      accepted: { accepted_at: now },
+      traveling: { started_at: now },
+      arrived_on_site: { arrived_at: now },
+      in_progress: { started_at: now },
+      pending_review: { submitted_review_at: now },
+    };
 
-  const { error } = await supabase
-    .from('tickets')
-    .update({
-      status,
-      updated_at: now,
-      ...(statusTimeMap[status] || {}),
-    })
-    .eq('id', ticketId);
+    const { error } = await supabase
+      .from('tickets')
+      .update({
+        status,
+        updated_at: now,
+        ...(statusTimeMap[status] || {}),
+      })
+      .eq('id', ticketId);
 
     if (error) {
       console.error('Ticket status update error:', error);
       alert('Could not update ticket status.');
       return;
     }
+
+    await safeLogOperationEvent({
+      event_type: 'ticket_status_changed',
+      entity_type: 'ticket',
+      entity_id: ticketId,
+      title: `${getTicketDisplayName(ticket)} moved to ${status.replaceAll('_', ' ')}`,
+      description: `${actorName} changed ${getTicketDisplayName(ticket)} to ${status.replaceAll('_', ' ')}`,
+      actor_name: actorName,
+      actor_id: user?.id || user?.email,
+      department: FIELD_DEPARTMENT,
+      severity: 'info',
+      metadata: {
+        ticket_number: getTicketDisplayName(ticket),
+        status,
+        site: getTicketSiteName(ticket),
+        engineer_email: user?.email,
+      },
+    });
+
+    await safeUpsertOperationStatus({
+      entity_type: 'ticket',
+      entity_id: ticketId,
+      entity_name: getTicketDisplayName(ticket),
+      status,
+      latitude: getTicketLatitude(ticket) || gps.latitude,
+      longitude: getTicketLongitude(ticket) || gps.longitude,
+      last_seen: now,
+      source_module: 'FieldEngineerMobile',
+      metadata: {
+        engineer: actorName,
+        engineer_email: user?.email,
+        site: getTicketSiteName(ticket),
+        terminal_id: ticket?.terminal_id,
+      },
+    });
+
+    await safeUpsertOperationStatus({
+      entity_type: 'engineer',
+      entity_id: user?.id || user?.email,
+      entity_name: actorName,
+      status: engineerStatus,
+      latitude: gps.latitude || getTicketLatitude(ticket),
+      longitude: gps.longitude || getTicketLongitude(ticket),
+      last_seen: now,
+      source_module: 'FEMobi',
+      metadata: {
+        email: user?.email,
+        role: user?.role,
+        department: user?.department || FIELD_DEPARTMENT,
+        current_ticket_id: ticketId,
+        current_ticket_number: getTicketDisplayName(ticket),
+        current_site_name: getTicketSiteName(ticket),
+      },
+    });
 
     fetchAssignedTickets();
   };
@@ -331,6 +509,23 @@ export default function FieldEngineerMobileApp({
       return;
     }
 
+    await safeLogOperationEvent({
+      event_type: 'support_request_sent',
+      entity_type: 'support_request',
+      entity_id: `${user?.email || 'engineer'}-${team}-${Date.now()}`,
+      title: `${team} support requested`,
+      description: `${getActorName(user)} requested ${team} support. ${note || ''}`,
+      actor_name: getActorName(user),
+      actor_id: user?.id || user?.email,
+      department: FIELD_DEPARTMENT,
+      severity: 'info',
+      metadata: {
+        team,
+        note,
+        engineer_email: user?.email,
+      },
+    });
+
     alert(`${team} support request sent.`);
   };
 
@@ -350,6 +545,36 @@ export default function FieldEngineerMobileApp({
   };
 
   const logout = async () => {
+    const now = new Date().toISOString();
+
+    await safeUpsertOperationStatus({
+      entity_type: 'engineer',
+      entity_id: user?.id || user?.email,
+      entity_name: getActorName(user),
+      status: 'offline',
+      last_seen: now,
+      source_module: 'FEMobiLogout',
+      metadata: {
+        email: user?.email,
+        reason: 'Engineer signed out from FEMobi',
+      },
+    });
+
+    await safeLogOperationEvent({
+      event_type: 'engineer_logout',
+      entity_type: 'engineer',
+      entity_id: user?.id || user?.email,
+      title: 'Engineer signed out',
+      description: `${getActorName(user)} signed out from FEMobi`,
+      actor_name: getActorName(user),
+      actor_id: user?.id || user?.email,
+      department: FIELD_DEPARTMENT,
+      severity: 'info',
+      metadata: {
+        email: user?.email,
+      },
+    });
+
     await supabase.auth.signOut();
     window.location.href = '/welcome';
   };
@@ -1433,6 +1658,63 @@ function TicketDetailsModal({
         created_at: now,
       });
 
+      await safeLogOperationEvent({
+        event_type: 'part_redirect_created',
+        entity_type: 'part_request',
+        entity_id: partRequest.id,
+        title: `${getTicketDisplayName(ticket)} redirected to ${partType === 'bank' ? 'Pending on Bank' : 'Pending on Parts'}`,
+        description: `${getActorName(user)} requested ${partQty} x ${(selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim()} for ${getTicketDisplayName(ticket)}`,
+        actor_name: getActorName(user),
+        actor_id: user?.id || user?.email,
+        department: FIELD_DEPARTMENT,
+        severity: partType === 'bank' ? 'warning' : 'info',
+        metadata: {
+          ticket_id: ticket.id,
+          ticket_number: getTicketDisplayName(ticket),
+          request_type: partType,
+          part_name: (selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim(),
+          quantity: Number(partQty || 1),
+          reason: partReason.trim(),
+          engineer_email: user?.email,
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+        entity_name: getTicketDisplayName(ticket),
+        status: ticketStatus,
+        latitude: getTicketLatitude(ticket),
+        longitude: getTicketLongitude(ticket),
+        last_seen: now,
+        source_module: 'FEMobiPartRedirect',
+        metadata: {
+          linked_part_request_id: partRequest.id,
+          part_request_type: partType,
+          part_name: (selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim(),
+          quantity: Number(partQty || 1),
+          engineer: getActorName(user),
+          engineer_email: user?.email,
+          site: getTicketSiteName(ticket),
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'part_request',
+        entity_id: partRequest.id,
+        entity_name: (selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim(),
+        status: 'pending_operations',
+        last_seen: now,
+        source_module: 'FEMobiPartRedirect',
+        metadata: {
+          ticket_id: ticket.id,
+          ticket_number: getTicketDisplayName(ticket),
+          request_type: partType,
+          quantity: Number(partQty || 1),
+          current_department: 'operations',
+        },
+      });
+
       alert(
         partType === 'bank'
           ? 'Call redirected to Pending on Bank for Operations review.'
@@ -1526,6 +1808,60 @@ function TicketDetailsModal({
       if (error) {
         throw error;
       }
+
+      await safeLogOperationEvent({
+        event_type: 'ticket_submitted_for_review',
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+        title: `${getTicketDisplayName(ticket)} submitted for review`,
+        description: `${getActorName(user)} submitted completion report for ${getTicketDisplayName(ticket)}`,
+        actor_name: getActorName(user),
+        actor_id: user?.id || user?.email,
+        department: FIELD_DEPARTMENT,
+        severity: 'info',
+        metadata: {
+          ticket_number: getTicketDisplayName(ticket),
+          before_photos: allBeforePhotos.length,
+          after_photos: allAfterPhotos.length,
+          videos: allVideos.length,
+          engineer_email: user?.email,
+          site: getTicketSiteName(ticket),
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+        entity_name: getTicketDisplayName(ticket),
+        status: 'pending_review',
+        latitude: getTicketLatitude(ticket),
+        longitude: getTicketLongitude(ticket),
+        last_seen: now,
+        source_module: 'FEMobiCompletionReview',
+        metadata: {
+          completion_status: 'pending',
+          engineer: getActorName(user),
+          engineer_email: user?.email,
+          site: getTicketSiteName(ticket),
+          evidence_photos: allBeforePhotos.length + allAfterPhotos.length,
+          evidence_videos: allVideos.length,
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'engineer',
+        entity_id: user?.id || user?.email,
+        entity_name: getActorName(user),
+        status: 'working',
+        last_seen: now,
+        source_module: 'FEMobiCompletionReview',
+        metadata: {
+          email: user?.email,
+          current_ticket_id: ticket.id,
+          current_ticket_number: getTicketDisplayName(ticket),
+          current_site_name: getTicketSiteName(ticket),
+        },
+      });
 
       alert('Job submitted for Helpdesk/Operations review.');
       onCompleted();
@@ -2218,7 +2554,7 @@ function PartsScreen({ tickets, user }) {
         partName
       ).trim();
 
-      const { error } = await supabase.from('part_requests').insert({
+      const { data: partRequest, error } = await supabase.from('part_requests').insert({
         ticket_id: selectedTicket?.id || null,
         ticket_number: selectedTicket
           ? selectedTicket.ticket_number || selectedTicket.ticket_id || selectedTicket.id
@@ -2240,10 +2576,66 @@ function PartsScreen({ tickets, user }) {
         current_department: 'operations',
         created_at: now,
         updated_at: now,
-      });
+      }).select().single();
 
       if (error) {
         throw error;
+      }
+
+      await safeLogOperationEvent({
+        event_type: 'part_request_created',
+        entity_type: 'part_request',
+        entity_id: partRequest?.id || `${user?.email || 'engineer'}-${Date.now()}`,
+        title: `Part request created: ${finalPartName}`,
+        description: `${getActorName(user)} requested ${quantity || 1} x ${finalPartName}${selectedTicket ? ` for ${getTicketDisplayName(selectedTicket)}` : ''}`,
+        actor_name: getActorName(user),
+        actor_id: user?.id || user?.email,
+        department: FIELD_DEPARTMENT,
+        severity: 'info',
+        metadata: {
+          ticket_id: selectedTicket?.id || null,
+          ticket_number: selectedTicket ? getTicketDisplayName(selectedTicket) : null,
+          part_name: finalPartName,
+          quantity: Number(quantity || 1),
+          reason: reason.trim(),
+          engineer_email: user?.email,
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'part_request',
+        entity_id: partRequest?.id || `${user?.email || 'engineer'}-${Date.now()}`,
+        entity_name: finalPartName,
+        status: 'pending_operations',
+        last_seen: now,
+        source_module: 'FEMobiPartsRequest',
+        metadata: {
+          ticket_id: selectedTicket?.id || null,
+          ticket_number: selectedTicket ? getTicketDisplayName(selectedTicket) : null,
+          quantity: Number(quantity || 1),
+          current_department: 'operations',
+          engineer_email: user?.email,
+        },
+      });
+
+      if (selectedTicket?.id) {
+        await safeUpsertOperationStatus({
+          entity_type: 'ticket',
+          entity_id: selectedTicket.id,
+          entity_name: getTicketDisplayName(selectedTicket),
+          status: selectedTicket.status || 'part_requested',
+          latitude: getTicketLatitude(selectedTicket),
+          longitude: getTicketLongitude(selectedTicket),
+          last_seen: now,
+          source_module: 'FEMobiPartsRequest',
+          metadata: {
+            linked_part_request_id: partRequest?.id,
+            part_name: finalPartName,
+            quantity: Number(quantity || 1),
+            engineer: getActorName(user),
+            engineer_email: user?.email,
+          },
+        });
       }
 
       alert('Part request sent to Operations, Inventory, and Accounts workflow.');
@@ -2776,6 +3168,30 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
 
   useEffect(() => {
     if (!user?.email) return;
+    useEffect(() => {
+  if (!user?.email) return;
+
+  const heartbeat = async () => {
+    await upsertOperationStatus({
+      entity_type: 'engineer',
+      entity_id: user.id || user.email,
+      entity_name:
+        user.full_name || user.name || user.email,
+      status: 'online',
+      last_seen: new Date().toISOString(),
+      source_module: 'FEMobi',
+      metadata: {
+        email: user.email,
+      },
+    });
+  };
+
+  heartbeat();
+
+  const timer = setInterval(heartbeat, 60000);
+
+  return () => clearInterval(timer);
+}, [user]);
 
     const channel = supabase
       .channel(`femobi-chat-${chat.id}-${user.email}`)

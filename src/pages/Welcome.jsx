@@ -383,7 +383,7 @@ export default function Welcome() {
   }
 
   return (
-    <div className="min-h-screen bg-[#06102f] text-white overflow-hidden">
+    <div className="min-h-screen bg-[#06102f] text-white overflow-x-hidden">
       {/* MOBILE VIEW */}
       <div className="md:hidden min-h-screen relative flex flex-col justify-center px-6 py-8 bg-gradient-to-br from-[#06102f] via-[#08153d] to-[#102969]">
         <div className="absolute top-[-120px] right-[-120px] w-80 h-80 rounded-full bg-[#123b91]/25" />
@@ -459,68 +459,72 @@ export default function Welcome() {
       </div>
 
       {/* DESKTOP VIEW */}
-      <div className="hidden md:flex min-h-screen bg-[#06102f] overflow-hidden">
-        <div className="w-[58%] min-h-screen flex items-center justify-center overflow-hidden bg-[#06102f]">
-          <img
-            src="/ark-desktop-hero.png"
-            alt="ARK ONE Portal"
-            className="w-full h-full object-contain"
-          />
-        </div>
-
-        <div className="w-[42%] min-h-screen relative bg-gradient-to-br from-[#020817] via-[#061430] to-[#071942]">
-          <div className="absolute top-8 right-10 z-20 flex items-center gap-6 text-white">
-            <button
-              type="button"
-              onClick={() => navigate('/ark-connect')}
-              className="flex items-center gap-2 font-semibold hover:text-[#ff5a00] transition"
-            >
-              <Headphones className="w-5 h-5" />
-              Support
-            </button>
-
-            <div className="h-8 w-px bg-white/20" />
-
-            <button
-              type="button"
-              className="w-10 h-10 rounded-full border border-white/20 bg-white/5 flex items-center justify-center hover:border-[#ff5a00]"
-            >
-              <Moon className="w-5 h-5" />
-            </button>
+      <div className="hidden md:block min-h-screen bg-[#06102f]">
+        <div className="min-h-screen lg:grid lg:grid-cols-[minmax(0,56%)_minmax(430px,44%)]">
+          {/* HERO IMAGE */}
+          <div className="bg-[#06102f] flex items-center justify-center px-5 py-5 lg:sticky lg:top-0 lg:h-screen lg:px-6 lg:py-6">
+            <img
+              src="/ark-desktop-hero.png"
+              alt="ARK ONE Portal"
+              className="block w-full max-w-full h-auto max-h-[42vh] lg:max-h-[calc(100vh-3rem)] object-contain"
+            />
           </div>
 
-          <div className="h-full flex items-center justify-center px-10">
-            <div className="w-full max-w-[580px] rounded-[30px] border border-white/15 bg-[#071942]/90 backdrop-blur-xl p-10 shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
-              {authMode === 'pending' ? (
-                <PendingApproval onBackToSignin={() => setAuthMode('signin')} />
-              ) : (
-                <AuthForm desktop {...authFormProps} />
-              )}
+          {/* LOGIN SECTION */}
+          <div className="relative min-h-screen bg-gradient-to-br from-[#020817] via-[#061430] to-[#071942] flex flex-col lg:max-h-screen lg:overflow-y-auto">
+            <div className="sticky top-0 z-30 flex items-center justify-end gap-5 text-white px-6 lg:px-8 py-4 bg-[#020817]/75 backdrop-blur-md border-b border-white/10">
+              <button
+                type="button"
+                onClick={() => navigate('/ark-connect')}
+                className="flex items-center gap-2 font-semibold hover:text-[#ff5a00] transition"
+              >
+                <Headphones className="w-5 h-5" />
+                Support
+              </button>
 
-              <div className="mt-10 flex items-center gap-4 text-slate-400 text-sm">
-                <div className="h-px bg-white/10 flex-1" />
-                Download App
-                <div className="h-px bg-white/10 flex-1" />
-              </div>
+              <div className="h-8 w-px bg-white/20" />
 
-              <div className="grid grid-cols-2 gap-4 mt-6">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-16 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
-                >
-                  <Monitor className="w-5 h-5 mr-3 text-[#ff5a00]" />
-                  Windows
-                </Button>
+              <button
+                type="button"
+                className="w-10 h-10 rounded-full border border-white/20 bg-white/5 flex items-center justify-center hover:border-[#ff5a00]"
+              >
+                <Moon className="w-5 h-5" />
+              </button>
+            </div>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-16 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
-                >
-                  <Smartphone className="w-5 h-5 mr-3 text-[#ff5a00]" />
-                  Android
-                </Button>
+            <div className="flex-1 flex items-center justify-center px-5 sm:px-8 lg:px-8 py-6">
+              <div className="w-full max-w-[540px] rounded-[30px] border border-white/15 bg-[#071942]/90 backdrop-blur-xl p-6 sm:p-8 xl:p-9 shadow-[0_30px_90px_rgba(0,0,0,0.65)]">
+                {authMode === 'pending' ? (
+                  <PendingApproval onBackToSignin={() => setAuthMode('signin')} />
+                ) : (
+                  <AuthForm desktop {...authFormProps} />
+                )}
+
+                <div className="mt-8 flex items-center gap-4 text-slate-400 text-sm">
+                  <div className="h-px bg-white/10 flex-1" />
+                  Download App
+                  <div className="h-px bg-white/10 flex-1" />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4 mt-5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-14 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
+                  >
+                    <Monitor className="w-5 h-5 mr-3 text-[#ff5a00]" />
+                    Windows
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-14 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
+                  >
+                    <Smartphone className="w-5 h-5 mr-3 text-[#ff5a00]" />
+                    Android
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
