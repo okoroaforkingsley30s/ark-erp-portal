@@ -129,7 +129,7 @@ export default function OfficialMailInbox({ user }) {
         <MailDashboardStats emails={emails} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] border rounded-xl overflow-hidden flex-1 min-h-0">
-          <div className="border-r bg-card min-h-0">
+          <div className="border-r bg-slate-900/50 min-h-0">
             <MailList
               emails={filteredEmails}
               selectedId={selectedEmail?.id}

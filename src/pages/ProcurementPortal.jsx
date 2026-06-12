@@ -324,7 +324,7 @@ export default function ProcurementPortal() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-xl border bg-card p-4">
+        <div className="rounded-xl border bg-slate-900/50 p-4">
           <p className="text-2xl font-bold">
             {requests.length}
           </p>
@@ -391,7 +391,7 @@ export default function ProcurementPortal() {
               'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
               (statusFilter === s
                 ? 'bg-primary text-primary-foreground border-primary'
-                : 'bg-card border-border text-muted-foreground')
+                : 'bg-slate-900/50 border-border text-muted-foreground')
             }
           >
             {s === 'all'
