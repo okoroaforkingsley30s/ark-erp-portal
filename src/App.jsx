@@ -27,6 +27,7 @@ import StaffDirectory from '@/pages/StaffDirectory';
 import SiteMonitor from '@/pages/SiteMonitor';
 import EngineerBoard from '@/pages/EngineerBoard';
 import SparePartsInventory from '@/pages/SparePartsInventory';
+import PartsScreen from "@/pages/PartsScreen";
 import FieldOperations from '@/pages/FieldOperations';
 import DeviceManagement from '@/pages/DeviceManagement';
 import HRPortal from '@/pages/HRPortal';
@@ -44,12 +45,17 @@ import DeviceStatusBoard from '@/pages/DeviceStatusBoard';
 import DeviceAssignment from '@/pages/DeviceAssignment';
 import RegionalCoverage from '@/pages/RegionalCoverage';
 import OperationsDashboard from '@/pages/OperationsDashboard';
+import OperationsPartRequests from "@/pages/OperationsPartRequests";
+import InventoryPartRequests from "@/pages/InventoryPartRequests";
+import RRConsumableRequests from "@/pages/RRConsumableRequests";
+import OperationsFeed from '@/pages/OperationsFeed';
 import ArkConnect from '@/pages/ArkConnect';
 import SLAAnalytics from '@/pages/SLAAnalytics';
 import OfficialMailInbox from '@/pages/OfficialMailInbox';
 import ProcurementLPO from '@/pages/ProcurementLPO';
 import ChangePassword from '@/pages/ChangePassword';
 import DataImport from '@/pages/DataImport';
+import RRPartRequests from "@/pages/RRPartRequests";
 import RepairRefurbish from '@/pages/RepairRefurbish';
 
 const updateUserActivity = async (user, online = true, login = false) => {
@@ -162,6 +168,8 @@ useEffect(() => {
         <Route path="/engineers" element={<EngineerBoard />} />
         <Route path="/spare-parts" element={<SparePartsInventory mode="inventory" />} />
         <Route path="/part-requests" element={<SparePartsInventory mode="requests" />} />
+        <Route path="/parts" element={<PartsScreen />} />
+        <Route path="/inventory/part-requests" element={<InventoryPartRequests />} />
         <Route path="/field-ops" element={<FieldOperations />} />
         <Route path="/devices" element={<DeviceManagement />} />
 
@@ -175,6 +183,8 @@ useEffect(() => {
         <Route path="/sla-analytics" element={<SLAAnalytics />} />
 
         <Route path="/ops-dashboard" element={<OperationsDashboard />} />
+        <Route path="/operations/part-requests" element={<OperationsPartRequests />} />
+        <Route path="/operations-feed" element={<OperationsFeed />} />
         <Route path="/banks" element={<BanksPage />} />
         <Route path="/branches" element={<BranchesPage />} />
         <Route path="/branches/:id/devices" element={<BranchDevices />} />
@@ -191,6 +201,11 @@ useEffect(() => {
         <Route path="/data-import" element={<DataImport />} />
 
         <Route path="/repair-refurbish" element={<RepairRefurbish />} />
+        <Route
+  path="/rr-part-requests"
+  element={<RRPartRequests />}
+/>
+        <Route path="/rr-consumable-requests" element={<RRConsumableRequests />} />
         <Route path="/repair-jobs" element={<RepairRefurbish />} />
       </Route>
 

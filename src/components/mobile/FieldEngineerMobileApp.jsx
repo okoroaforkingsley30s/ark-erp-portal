@@ -1,5 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
+  logOperationEvent,
+  upsertOperationStatus,
+} from '@/lib/operationsIntelligence';
+import { logPartLifecycle } from '@/lib/partLifecycle';
+import {
   Home,
   ClipboardList,
   Ticket,
@@ -31,6 +36,92 @@ import {
 import { supabase } from '@/lib/supabaseClient';
 
 const EVIDENCE_BUCKET = 'ticket-evidence';
+const FIELD_DEPARTMENT = 'Field Engineering';
+
+const safeLogOperationEvent = async (payload) => {
+  try {
+    await logOperationEvent(payload);
+  } catch (error) {
+    console.warn('OIN event log skipped:', error);
+  }
+};
+
+const safeLogPartLifecycle = async (payload) => {
+  try {
+    await logPartLifecycle(payload);
+  } catch (error) {
+    console.warn('Part lifecycle log skipped:', error);
+  }
+};
+
+const safeUpsertOperationStatus = async (payload) => {
+  try {
+    await upsertOperationStatus(payload);
+  } catch (error) {
+    console.warn('OIN status update skipped:', error);
+  }
+};
+
+const getActorName = (user) =>
+  user?.full_name || user?.name || user?.email || 'Field Engineer';
+
+const getTicketDisplayName = (ticket) =>
+  ticket?.ticket_number || ticket?.ticket_id || ticket?.id || 'Ticket';
+
+const getTicketSiteName = (ticket) =>
+  [
+    ticket?.bank_name || ticket?.client_name,
+    ticket?.branch_name || ticket?.branch || ticket?.site_name,
+    ticket?.terminal_id,
+  ]
+    .filter(Boolean)
+    .join(' • ');
+
+const getTicketLatitude = (ticket) =>
+  Number(
+    ticket?.current_latitude ||
+      ticket?.latitude ||
+      ticket?.site_latitude ||
+      ticket?.branch_latitude
+  ) || null;
+
+const getTicketLongitude = (ticket) =>
+  Number(
+    ticket?.current_longitude ||
+      ticket?.longitude ||
+      ticket?.site_longitude ||
+      ticket?.branch_longitude
+  ) || null;
+
+const getCurrentPosition = () =>
+  new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve({ latitude: null, longitude: null });
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      },
+      () => resolve({ latitude: null, longitude: null }),
+      { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
+    );
+  });
+
+const ticketStatusToEngineerStatus = (status) => {
+  const clean = String(status || '').toLowerCase();
+
+  if (['traveling', 'in_transit', 'en_route'].includes(clean)) return 'traveling';
+  if (['arrived_on_site', 'arrived', 'on_site'].includes(clean)) return 'on_site';
+  if (['in_progress', 'working', 'pending_review'].includes(clean)) return 'working';
+  if (['accepted', 'assigned'].includes(clean)) return 'busy';
+
+  return 'online';
+};
 
 export default function FieldEngineerMobileApp({
   user,
@@ -207,6 +298,44 @@ export default function FieldEngineerMobileApp({
   ]);
 
   useEffect(() => {
+    if (!user?.email) return;
+
+    let cancelled = false;
+
+    const heartbeat = async () => {
+      const now = new Date().toISOString();
+      const gps = await getCurrentPosition();
+
+      if (cancelled) return;
+
+      await safeUpsertOperationStatus({
+        entity_type: 'engineer',
+        entity_id: user?.id || user.email,
+        entity_name: getActorName(user),
+        status: 'online',
+        latitude: gps.latitude,
+        longitude: gps.longitude,
+        last_seen: now,
+        source_module: 'FEMobiHeartbeat',
+        metadata: {
+          email: user.email,
+          role: user.role,
+          department: user.department || FIELD_DEPARTMENT,
+          active_tab: activeTab,
+        },
+      });
+    };
+
+    heartbeat();
+    const timer = window.setInterval(heartbeat, 60000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [user?.id, user?.email, user?.full_name, user?.name, user?.role, user?.department, activeTab]);
+
+  useEffect(() => {
     const handleMobileTab = (event) => {
       const tab = event?.detail?.tab;
 
@@ -261,30 +390,88 @@ export default function FieldEngineerMobileApp({
 };
 
   const updateTicketStatus = async (ticketId, status) => {
-  const now = new Date().toISOString();
+    const now = new Date().toISOString();
+    const ticket = tickets.find((t) => t.id === ticketId);
+    const actorName = getActorName(user);
+    const engineerStatus = ticketStatusToEngineerStatus(status);
+    const gps = await getCurrentPosition();
 
-  const statusTimeMap = {
-    accepted: { accepted_at: now },
-    traveling: { started_at: now },
-    arrived_on_site: { arrived_at: now },
-    in_progress: { started_at: now },
-    pending_review: { submitted_review_at: now },
-  };
+    const statusTimeMap = {
+      accepted: { accepted_at: now },
+      traveling: { started_at: now },
+      arrived_on_site: { arrived_at: now },
+      in_progress: { started_at: now },
+      pending_review: { submitted_review_at: now },
+    };
 
-  const { error } = await supabase
-    .from('tickets')
-    .update({
-      status,
-      updated_at: now,
-      ...(statusTimeMap[status] || {}),
-    })
-    .eq('id', ticketId);
+    const { error } = await supabase
+      .from('tickets')
+      .update({
+        status,
+        updated_at: now,
+        ...(statusTimeMap[status] || {}),
+      })
+      .eq('id', ticketId);
 
     if (error) {
       console.error('Ticket status update error:', error);
       alert('Could not update ticket status.');
       return;
     }
+
+    await safeLogOperationEvent({
+      event_type: 'ticket_status_changed',
+      entity_type: 'ticket',
+      entity_id: ticketId,
+      title: `${getTicketDisplayName(ticket)} moved to ${status.replaceAll('_', ' ')}`,
+      description: `${actorName} changed ${getTicketDisplayName(ticket)} to ${status.replaceAll('_', ' ')}`,
+      actor_name: actorName,
+      actor_id: user?.id || user?.email,
+      department: FIELD_DEPARTMENT,
+      severity: 'info',
+      metadata: {
+        ticket_number: getTicketDisplayName(ticket),
+        status,
+        site: getTicketSiteName(ticket),
+        engineer_email: user?.email,
+      },
+    });
+
+    await safeUpsertOperationStatus({
+      entity_type: 'ticket',
+      entity_id: ticketId,
+      entity_name: getTicketDisplayName(ticket),
+      status,
+      latitude: getTicketLatitude(ticket) || gps.latitude,
+      longitude: getTicketLongitude(ticket) || gps.longitude,
+      last_seen: now,
+      source_module: 'FieldEngineerMobile',
+      metadata: {
+        engineer: actorName,
+        engineer_email: user?.email,
+        site: getTicketSiteName(ticket),
+        terminal_id: ticket?.terminal_id,
+      },
+    });
+
+    await safeUpsertOperationStatus({
+      entity_type: 'engineer',
+      entity_id: user?.id || user?.email,
+      entity_name: actorName,
+      status: engineerStatus,
+      latitude: gps.latitude || getTicketLatitude(ticket),
+      longitude: gps.longitude || getTicketLongitude(ticket),
+      last_seen: now,
+      source_module: 'FEMobi',
+      metadata: {
+        email: user?.email,
+        role: user?.role,
+        department: user?.department || FIELD_DEPARTMENT,
+        current_ticket_id: ticketId,
+        current_ticket_number: getTicketDisplayName(ticket),
+        current_site_name: getTicketSiteName(ticket),
+      },
+    });
 
     fetchAssignedTickets();
   };
@@ -331,6 +518,23 @@ export default function FieldEngineerMobileApp({
       return;
     }
 
+    await safeLogOperationEvent({
+      event_type: 'support_request_sent',
+      entity_type: 'support_request',
+      entity_id: `${user?.email || 'engineer'}-${team}-${Date.now()}`,
+      title: `${team} support requested`,
+      description: `${getActorName(user)} requested ${team} support. ${note || ''}`,
+      actor_name: getActorName(user),
+      actor_id: user?.id || user?.email,
+      department: FIELD_DEPARTMENT,
+      severity: 'info',
+      metadata: {
+        team,
+        note,
+        engineer_email: user?.email,
+      },
+    });
+
     alert(`${team} support request sent.`);
   };
 
@@ -350,6 +554,36 @@ export default function FieldEngineerMobileApp({
   };
 
   const logout = async () => {
+    const now = new Date().toISOString();
+
+    await safeUpsertOperationStatus({
+      entity_type: 'engineer',
+      entity_id: user?.id || user?.email,
+      entity_name: getActorName(user),
+      status: 'offline',
+      last_seen: now,
+      source_module: 'FEMobiLogout',
+      metadata: {
+        email: user?.email,
+        reason: 'Engineer signed out from FEMobi',
+      },
+    });
+
+    await safeLogOperationEvent({
+      event_type: 'engineer_logout',
+      entity_type: 'engineer',
+      entity_id: user?.id || user?.email,
+      title: 'Engineer signed out',
+      description: `${getActorName(user)} signed out from FEMobi`,
+      actor_name: getActorName(user),
+      actor_id: user?.id || user?.email,
+      department: FIELD_DEPARTMENT,
+      severity: 'info',
+      metadata: {
+        email: user?.email,
+      },
+    });
+
     await supabase.auth.signOut();
     window.location.href = '/welcome';
   };
@@ -1402,6 +1636,55 @@ function TicketDetailsModal({
         throw requestError;
       }
 
+      await safeLogPartLifecycle({
+  part_request_id: partRequest.id,
+  ticket_id: ticket.id,
+
+  part_name: (
+    selectedInventoryPart?.part_name ||
+    selectedInventoryPart?.description ||
+    partName
+  ).trim(),
+
+  part_number: selectedInventoryPart?.part_number || null,
+  serial_number: selectedInventoryPart?.serial_number || null,
+
+  movement_type:
+    partType === 'bank'
+      ? 'field_bank_damage_part_requested'
+      : 'field_consumable_part_requested',
+
+  from_location:
+    ticket.branch_name ||
+    ticket.branch ||
+    ticket.site_name ||
+    ticket.bank_name ||
+    null,
+
+  to_location: 'Operations Queue',
+
+  from_department: 'Field Engineering',
+  to_department: 'Operations',
+
+  issued_to_name: user?.full_name || user?.name || user?.email,
+  issued_to_email: user?.email,
+
+  quantity: Number(partQty || 1),
+
+  status_before: 'field_issue_identified',
+  status_after:
+    partType === 'bank'
+      ? 'pending_bank_operations_review'
+      : 'pending_operations_review',
+
+  notes: partReason.trim(),
+  evidence: uploadedPartEvidence,
+
+  actor_name: user?.full_name || user?.name || user?.email,
+  actor_email: user?.email,
+  actor_department: 'Field Engineering',
+});
+
       const { error: ticketError } = await supabase
         .from('tickets')
         .update({
@@ -1431,6 +1714,63 @@ function TicketDetailsModal({
         sound: 'bell',
         link: '/spare-parts',
         created_at: now,
+      });
+
+      await safeLogOperationEvent({
+        event_type: 'part_redirect_created',
+        entity_type: 'part_request',
+        entity_id: partRequest.id,
+        title: `${getTicketDisplayName(ticket)} redirected to ${partType === 'bank' ? 'Pending on Bank' : 'Pending on Parts'}`,
+        description: `${getActorName(user)} requested ${partQty} x ${(selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim()} for ${getTicketDisplayName(ticket)}`,
+        actor_name: getActorName(user),
+        actor_id: user?.id || user?.email,
+        department: FIELD_DEPARTMENT,
+        severity: partType === 'bank' ? 'warning' : 'info',
+        metadata: {
+          ticket_id: ticket.id,
+          ticket_number: getTicketDisplayName(ticket),
+          request_type: partType,
+          part_name: (selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim(),
+          quantity: Number(partQty || 1),
+          reason: partReason.trim(),
+          engineer_email: user?.email,
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+        entity_name: getTicketDisplayName(ticket),
+        status: ticketStatus,
+        latitude: getTicketLatitude(ticket),
+        longitude: getTicketLongitude(ticket),
+        last_seen: now,
+        source_module: 'FEMobiPartRedirect',
+        metadata: {
+          linked_part_request_id: partRequest.id,
+          part_request_type: partType,
+          part_name: (selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim(),
+          quantity: Number(partQty || 1),
+          engineer: getActorName(user),
+          engineer_email: user?.email,
+          site: getTicketSiteName(ticket),
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'part_request',
+        entity_id: partRequest.id,
+        entity_name: (selectedInventoryPart?.part_name || selectedInventoryPart?.description || partName).trim(),
+        status: 'pending_operations',
+        last_seen: now,
+        source_module: 'FEMobiPartRedirect',
+        metadata: {
+          ticket_id: ticket.id,
+          ticket_number: getTicketDisplayName(ticket),
+          request_type: partType,
+          quantity: Number(partQty || 1),
+          current_department: 'operations',
+        },
       });
 
       alert(
@@ -1526,6 +1866,60 @@ function TicketDetailsModal({
       if (error) {
         throw error;
       }
+
+      await safeLogOperationEvent({
+        event_type: 'ticket_submitted_for_review',
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+        title: `${getTicketDisplayName(ticket)} submitted for review`,
+        description: `${getActorName(user)} submitted completion report for ${getTicketDisplayName(ticket)}`,
+        actor_name: getActorName(user),
+        actor_id: user?.id || user?.email,
+        department: FIELD_DEPARTMENT,
+        severity: 'info',
+        metadata: {
+          ticket_number: getTicketDisplayName(ticket),
+          before_photos: allBeforePhotos.length,
+          after_photos: allAfterPhotos.length,
+          videos: allVideos.length,
+          engineer_email: user?.email,
+          site: getTicketSiteName(ticket),
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+        entity_name: getTicketDisplayName(ticket),
+        status: 'pending_review',
+        latitude: getTicketLatitude(ticket),
+        longitude: getTicketLongitude(ticket),
+        last_seen: now,
+        source_module: 'FEMobiCompletionReview',
+        metadata: {
+          completion_status: 'pending',
+          engineer: getActorName(user),
+          engineer_email: user?.email,
+          site: getTicketSiteName(ticket),
+          evidence_photos: allBeforePhotos.length + allAfterPhotos.length,
+          evidence_videos: allVideos.length,
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'engineer',
+        entity_id: user?.id || user?.email,
+        entity_name: getActorName(user),
+        status: 'working',
+        last_seen: now,
+        source_module: 'FEMobiCompletionReview',
+        metadata: {
+          email: user?.email,
+          current_ticket_id: ticket.id,
+          current_ticket_number: getTicketDisplayName(ticket),
+          current_site_name: getTicketSiteName(ticket),
+        },
+      });
 
       alert('Job submitted for Helpdesk/Operations review.');
       onCompleted();
@@ -2145,6 +2539,34 @@ function PartsScreen({ tickets, user }) {
   const [inventoryParts, setInventoryParts] = useState([]);
   const [loadingInventoryParts, setLoadingInventoryParts] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [myPartRequests, setMyPartRequests] = useState([]);
+  const [loadingMyRequests, setLoadingMyRequests] = useState(false);
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [expandedRequestId, setExpandedRequestId] = useState(null);
+
+  const clean = (value) => String(value || '').toLowerCase();
+
+  const fetchMyPartRequests = useCallback(async () => {
+    if (!user?.email) return;
+
+    setLoadingMyRequests(true);
+
+    const { data, error } = await supabase
+      .from('part_requests')
+      .select('*')
+      .eq('engineer_email', user.email)
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error('My part requests fetch error:', error);
+      setMyPartRequests([]);
+    } else {
+      setMyPartRequests(data || []);
+    }
+
+    setLoadingMyRequests(false);
+  }, [user?.email]);
 
   useEffect(() => {
     let active = true;
@@ -2176,10 +2598,13 @@ function PartsScreen({ tickets, user }) {
     };
   }, []);
 
+  useEffect(() => {
+    fetchMyPartRequests();
+  }, [fetchMyPartRequests]);
+
   const matchingInventoryParts = inventoryParts
     .filter((part) => {
       const query = partName.trim().toLowerCase();
-
       if (query.length < 2) return false;
 
       return [
@@ -2195,6 +2620,125 @@ function PartsScreen({ tickets, user }) {
         .includes(query);
     })
     .slice(0, 8);
+
+  const getRequestStage = (request) => {
+    const operations = clean(request.operations_status || request.approval_status);
+    const inventory = clean(request.inventory_status);
+    const finance = clean(request.finance_status);
+    const dispatch = clean(request.dispatch_status);
+    const currentDepartment = clean(request.current_department);
+    const requestType = clean(request.request_type);
+    const reasonCategory = clean(request.reason_category);
+    const status = clean(request.status || request.part_status);
+
+    if (dispatch.includes('returned') || status.includes('returned') || currentDepartment.includes('returned')) {
+      return 'returned';
+    }
+
+    if (requestType === 'bank' || reasonCategory.includes('damaged') || status.includes('failed') || status.includes('faulty')) {
+      return 'failed';
+    }
+
+    if (dispatch.includes('used') || status.includes('used') || status.includes('installed') || status.includes('consumed')) {
+      return 'used';
+    }
+
+    if (dispatch.includes('dispatched') || dispatch.includes('delivered') || dispatch.includes('issued') || currentDepartment.includes('field')) {
+      return 'dispatched';
+    }
+
+    if (
+      operations.includes('pending') ||
+      inventory.includes('pending') ||
+      finance.includes('pending') ||
+      currentDepartment.includes('operations') ||
+      currentDepartment.includes('inventory') ||
+      currentDepartment.includes('finance')
+    ) {
+      return 'waiting';
+    }
+
+    return 'all';
+  };
+
+  const partSummary = [
+    {
+      key: 'all',
+      title: 'All Requests',
+      count: myPartRequests.length,
+      desc: 'Every part request',
+      tone: 'text-blue-400 border-blue-500/40 bg-blue-500/10',
+    },
+    {
+      key: 'waiting',
+      title: 'Waiting Approval',
+      count: myPartRequests.filter((r) => getRequestStage(r) === 'waiting').length,
+      desc: 'Operations / Inventory / Accounts',
+      tone: 'text-yellow-400 border-yellow-500/40 bg-yellow-500/10',
+    },
+    {
+      key: 'dispatched',
+      title: 'Dispatched',
+      count: myPartRequests.filter((r) => getRequestStage(r) === 'dispatched').length,
+      desc: 'Issued to field',
+      tone: 'text-green-400 border-green-500/40 bg-green-500/10',
+    },
+    {
+      key: 'failed',
+      title: 'Failed Parts',
+      count: myPartRequests.filter((r) => getRequestStage(r) === 'failed').length,
+      desc: 'Bank damage / field failure',
+      tone: 'text-red-400 border-red-500/40 bg-red-500/10',
+    },
+    {
+      key: 'returned',
+      title: 'Returned Parts',
+      count: myPartRequests.filter((r) => getRequestStage(r) === 'returned').length,
+      desc: 'Returned to inventory/RR',
+      tone: 'text-cyan-400 border-cyan-500/40 bg-cyan-500/10',
+    },
+    {
+      key: 'used',
+      title: 'Used Parts',
+      count: myPartRequests.filter((r) => getRequestStage(r) === 'used').length,
+      desc: 'Installed / consumed',
+      tone: 'text-purple-400 border-purple-500/40 bg-purple-500/10',
+    },
+  ];
+
+  const filteredRequests =
+    activeFilter === 'all'
+      ? myPartRequests
+      : myPartRequests.filter((request) => getRequestStage(request) === activeFilter);
+
+  const statusPillClass = (value) => {
+    const v = clean(value);
+    if (v.includes('approved') || v.includes('complete') || v.includes('dispatched')) {
+      return 'bg-green-500/10 text-green-300 border-green-500/30';
+    }
+    if (v.includes('reject') || v.includes('failed') || v.includes('damage')) {
+      return 'bg-red-500/10 text-red-300 border-red-500/30';
+    }
+    if (v.includes('pending') || v.includes('review') || v.includes('waiting')) {
+      return 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30';
+    }
+    return 'bg-slate-800 text-slate-300 border-slate-700';
+  };
+
+  const StatusPill = ({ value, fallback = 'pending' }) => (
+    <span className={`inline-flex items-center rounded-full border px-2 py-1 text-[10px] font-semibold capitalize ${statusPillClass(value || fallback)}`}>
+      {String(value || fallback).replaceAll('_', ' ')}
+    </span>
+  );
+
+  const FlowStep = ({ title, value }) => (
+    <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
+      <p className="text-[10px] uppercase tracking-wide text-slate-500">{title}</p>
+      <div className="mt-2">
+        <StatusPill value={value} />
+      </div>
+    </div>
+  );
 
   const submitPartRequest = async () => {
     if (!partName.trim()) {
@@ -2218,32 +2762,116 @@ function PartsScreen({ tickets, user }) {
         partName
       ).trim();
 
-      const { error } = await supabase.from('part_requests').insert({
-        ticket_id: selectedTicket?.id || null,
-        ticket_number: selectedTicket
-          ? selectedTicket.ticket_number || selectedTicket.ticket_id || selectedTicket.id
-          : null,
-        engineer_email: user?.email,
-        engineer_name: user?.full_name || user?.name || user?.email,
-        part_name: finalPartName,
-        quantity: Number(quantity || 1),
-        request_type: 'consumable',
-        reason_category: selectedTicket ? 'permanent_resolution' : 'engineer_part_request',
-        reason_note: selectedInventoryPart
-          ? `${reason.trim()}\n\nSelected inventory item: ${finalPartName} | Part No: ${selectedInventoryPart.part_number || 'N/A'} | Available Stock: ${selectedInventoryPart.quantity_available || 0}`
-          : reason.trim(),
-        approval_status: 'pending_operations',
-        operations_status: 'pending_review',
-        inventory_status: 'pending_review',
-        finance_status: 'pending_dispatch_cost_review',
-        dispatch_status: 'pending',
-        current_department: 'operations',
-        created_at: now,
-        updated_at: now,
-      });
+      const { data: partRequest, error } = await supabase
+        .from('part_requests')
+        .insert({
+          ticket_id: selectedTicket?.id || null,
+          ticket_number: selectedTicket
+            ? selectedTicket.ticket_number || selectedTicket.ticket_id || selectedTicket.id
+            : null,
+          engineer_email: user?.email,
+          engineer_name: user?.full_name || user?.name || user?.email,
+          part_name: finalPartName,
+          quantity: Number(quantity || 1),
+          request_type: 'consumable',
+          reason_category: selectedTicket ? 'permanent_resolution' : 'engineer_part_request',
+          reason_note: selectedInventoryPart
+            ? `${reason.trim()}\n\nSelected inventory item: ${finalPartName} | Part No: ${selectedInventoryPart.part_number || 'N/A'} | Available Stock: ${selectedInventoryPart.quantity_available || 0}`
+            : reason.trim(),
+          approval_status: 'pending_operations',
+          operations_status: 'pending_review',
+          inventory_status: 'pending_review',
+          finance_status: 'pending_dispatch_cost_review',
+          dispatch_status: 'pending',
+          current_department: 'operations',
+          created_at: now,
+          updated_at: now,
+        })
+        .select()
+        .single();
 
       if (error) {
         throw error;
+      }
+
+      await safeLogPartLifecycle({
+        part_request_id: partRequest?.id || null,
+        ticket_id: selectedTicket?.id || null,
+        part_id: selectedInventoryPart?.id || null,
+        part_name: finalPartName,
+        part_number: selectedInventoryPart?.part_number || null,
+        serial_number: selectedInventoryPart?.serial_number || null,
+        movement_type: 'engineer_part_requested',
+        from_location: selectedTicket ? getTicketSiteName(selectedTicket) : 'Field Engineer',
+        to_location: 'Operations Queue',
+        from_department: FIELD_DEPARTMENT,
+        to_department: 'Operations',
+        issued_to_name: getActorName(user),
+        issued_to_email: user?.email,
+        quantity: Number(quantity || 1),
+        status_before: null,
+        status_after: 'pending_operations_review',
+        notes: reason.trim(),
+        evidence: [],
+        actor_name: getActorName(user),
+        actor_email: user?.email,
+        actor_department: FIELD_DEPARTMENT,
+      });
+
+      await safeLogOperationEvent({
+        event_type: 'part_request_created',
+        entity_type: 'part_request',
+        entity_id: partRequest?.id || `${user?.email || 'engineer'}-${Date.now()}`,
+        title: `Part request created: ${finalPartName}`,
+        description: `${getActorName(user)} requested ${quantity || 1} x ${finalPartName}${selectedTicket ? ` for ${getTicketDisplayName(selectedTicket)}` : ''}`,
+        actor_name: getActorName(user),
+        actor_id: user?.id || user?.email,
+        department: FIELD_DEPARTMENT,
+        severity: 'info',
+        metadata: {
+          ticket_id: selectedTicket?.id || null,
+          ticket_number: selectedTicket ? getTicketDisplayName(selectedTicket) : null,
+          part_name: finalPartName,
+          quantity: Number(quantity || 1),
+          reason: reason.trim(),
+          engineer_email: user?.email,
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'part_request',
+        entity_id: partRequest?.id || `${user?.email || 'engineer'}-${Date.now()}`,
+        entity_name: finalPartName,
+        status: 'pending_operations',
+        last_seen: now,
+        source_module: 'FEMobiPartsRequest',
+        metadata: {
+          ticket_id: selectedTicket?.id || null,
+          ticket_number: selectedTicket ? getTicketDisplayName(selectedTicket) : null,
+          quantity: Number(quantity || 1),
+          current_department: 'operations',
+          engineer_email: user?.email,
+        },
+      });
+
+      if (selectedTicket?.id) {
+        await safeUpsertOperationStatus({
+          entity_type: 'ticket',
+          entity_id: selectedTicket.id,
+          entity_name: getTicketDisplayName(selectedTicket),
+          status: selectedTicket.status || 'part_requested',
+          latitude: getTicketLatitude(selectedTicket),
+          longitude: getTicketLongitude(selectedTicket),
+          last_seen: now,
+          source_module: 'FEMobiPartsRequest',
+          metadata: {
+            linked_part_request_id: partRequest?.id,
+            part_name: finalPartName,
+            quantity: Number(quantity || 1),
+            engineer: getActorName(user),
+            engineer_email: user?.email,
+          },
+        });
       }
 
       alert('Part request sent to Operations, Inventory, and Accounts workflow.');
@@ -2253,6 +2881,7 @@ function PartsScreen({ tickets, user }) {
       setQuantity('1');
       setReason('');
       setSelectedInventoryPart(null);
+      fetchMyPartRequests();
     } catch (err) {
       console.error('Parts request error:', err);
       alert(`Could not submit parts request: ${err.message || 'Unknown error'}`);
@@ -2263,7 +2892,118 @@ function PartsScreen({ tickets, user }) {
 
   return (
     <div className="space-y-4">
-      <PageTitle title="Parts" subtitle="Request parts for temporary repairs, permanent resolution, and inventory dispatch." />
+      <PageTitle title="Parts" subtitle="Request parts and track approval, dispatch, usage, failed parts, and returns." />
+
+      <div className="grid grid-cols-2 gap-3">
+        {partSummary.map((card) => (
+          <button
+            key={card.key}
+            type="button"
+            onClick={() => setActiveFilter(card.key)}
+            className={`rounded-2xl border p-4 text-left active:scale-[0.98] ${
+              activeFilter === card.key
+                ? `${card.tone} ring-1 ring-orange-400/40`
+                : 'bg-slate-900 border-slate-800'
+            }`}
+          >
+            <p className="text-2xl font-bold text-white">{card.count}</p>
+            <h3 className="text-sm font-bold text-white mt-1">{card.title}</h3>
+            <p className="text-[11px] text-slate-400 mt-1">{card.desc}</p>
+          </button>
+        ))}
+      </div>
+
+      <SectionCard title="My Part Requests">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-slate-400">
+              Showing {filteredRequests.length} request{filteredRequests.length !== 1 ? 's' : ''}
+            </p>
+
+            <button
+              type="button"
+              onClick={fetchMyPartRequests}
+              className="rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-xs text-slate-200 active:bg-orange-500 active:text-white"
+            >
+              {loadingMyRequests ? 'Refreshing...' : 'Refresh'}
+            </button>
+          </div>
+
+          {loadingMyRequests ? (
+            <EmptyText text="Loading your part requests..." />
+          ) : filteredRequests.length === 0 ? (
+            <EmptyText text="No part request found for this category." />
+          ) : (
+            <div className="space-y-3">
+              {filteredRequests.map((request) => {
+                const isExpanded = expandedRequestId === request.id;
+                const stage = getRequestStage(request);
+
+                return (
+                  <div key={request.id} className="rounded-2xl bg-slate-950 border border-slate-800 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedRequestId(isExpanded ? null : request.id)}
+                      className="w-full p-4 text-left active:bg-slate-900"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs text-orange-400">
+                            {request.ticket_number || 'General Part Request'}
+                          </p>
+                          <h3 className="font-bold text-white mt-1 truncate">
+                            {request.part_name || 'Requested Part'}
+                          </h3>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Qty: {request.quantity || 1} · {formatDate(request.created_at)}
+                          </p>
+                        </div>
+
+                        <StatusPill
+                          value={stage === 'waiting' ? request.current_department || request.operations_status : stage}
+                        />
+                      </div>
+
+                      <p className="text-xs text-slate-500 mt-3 line-clamp-2">
+                        {request.reason_note || 'No request note supplied.'}
+                      </p>
+
+                      <p className="text-[11px] text-orange-400 mt-3 font-semibold">
+                        Tap to {isExpanded ? 'hide' : 'show'} part flow
+                      </p>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-slate-800 p-4 space-y-4">
+                        <div className="grid grid-cols-2 gap-2">
+                          <FlowStep title="Operations" value={request.operations_status || request.approval_status} />
+                          <FlowStep title="Inventory" value={request.inventory_status} />
+                          <FlowStep title="Accounts" value={request.finance_status} />
+                          <FlowStep title="Dispatch" value={request.dispatch_status} />
+                        </div>
+
+                        <div className="rounded-xl bg-slate-900 border border-slate-800 p-3">
+                          <p className="text-xs text-slate-500 mb-1">Current Department</p>
+                          <p className="text-sm text-white capitalize">
+                            {(request.current_department || 'operations').replaceAll('_', ' ')}
+                          </p>
+                        </div>
+
+                        <div className="rounded-xl bg-slate-900 border border-slate-800 p-3">
+                          <p className="text-xs text-slate-500 mb-1">Request Note</p>
+                          <p className="text-sm text-slate-300 whitespace-pre-wrap">
+                            {request.reason_note || 'No note supplied.'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </SectionCard>
 
       <SectionCard title="New Parts Request">
         <div className="space-y-3">
@@ -2321,13 +3061,7 @@ function PartsScreen({ tickets, user }) {
                     </p>
                     <p className="text-xs text-slate-400">
                       Part No: {part.part_number || 'N/A'} · Stock:{' '}
-                      <span
-                        className={
-                          Number(part.quantity_available || 0) > 0
-                            ? 'text-green-400'
-                            : 'text-red-400'
-                        }
-                      >
+                      <span className={Number(part.quantity_available || 0) > 0 ? 'text-green-400' : 'text-red-400'}>
                         {part.quantity_available || 0} available
                       </span>
                     </p>
@@ -2344,15 +3078,12 @@ function PartsScreen({ tickets, user }) {
 
             {selectedInventoryPart && (
               <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-3">
-                <p className="text-xs text-green-300 font-semibold">
-                  Selected from inventory
-                </p>
+                <p className="text-xs text-green-300 font-semibold">Selected from inventory</p>
                 <p className="text-sm text-white">
                   {selectedInventoryPart.part_name || selectedInventoryPart.description}
                 </p>
                 <p className="text-xs text-slate-300">
-                  Part No: {selectedInventoryPart.part_number || 'N/A'} · Available:{' '}
-                  {selectedInventoryPart.quantity_available || 0}
+                  Part No: {selectedInventoryPart.part_number || 'N/A'} · Available: {selectedInventoryPart.quantity_available || 0}
                 </p>
                 <button
                   type="button"
@@ -2395,6 +3126,7 @@ function PartsScreen({ tickets, user }) {
     </div>
   );
 }
+
 
 function ConnectScreen({
   user,
@@ -2776,6 +3508,30 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
 
   useEffect(() => {
     if (!user?.email) return;
+    useEffect(() => {
+  if (!user?.email) return;
+
+  const heartbeat = async () => {
+    await upsertOperationStatus({
+      entity_type: 'engineer',
+      entity_id: user.id || user.email,
+      entity_name:
+        user.full_name || user.name || user.email,
+      status: 'online',
+      last_seen: new Date().toISOString(),
+      source_module: 'FEMobi',
+      metadata: {
+        email: user.email,
+      },
+    });
+  };
+
+  heartbeat();
+
+  const timer = setInterval(heartbeat, 60000);
+
+  return () => clearInterval(timer);
+}, [user]);
 
     const channel = supabase
       .channel(`femobi-chat-${chat.id}-${user.email}`)

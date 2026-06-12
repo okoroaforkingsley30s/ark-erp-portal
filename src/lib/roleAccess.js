@@ -1,49 +1,5 @@
 export const ROLE_ACCESS = {
-  admin: [
-    'dashboard',
-    'sla_analytics',
-    'live_map',
-    'tickets',
-    'repair_jobs',
-    'site_monitor',
-    'engineering',
-    'field_ops',
-
-    'operations',
-    'ops_dashboard',
-    'banks',
-    'branches',
-    'devices',
-    'device_status',
-    'assignments',
-    'regional_view',
-    'field_engineers',
-
-    'assets_section',
-    'assets',
-    'inventory',
-    'parts_request',
-
-    'business',
-    'finance',
-    'procurement',
-    'purchase_orders',
-    'crm',
-    'hr',
-
-    'users',
-    'staff_directory',
-    'departments',
-    'audit_logs',
-'reports',
-'notifications',
-'data_import',
-'settings',
-
-    'communication',
-    'official_mail',
-    'ark_connect',
-  ],
+  admin: ['*'],
 
   ceo: [
     'dashboard',
@@ -77,7 +33,6 @@ export const ROLE_ACCESS = {
     'site_monitor',
     'engineering',
     'field_ops',
-
     'operations',
     'ops_dashboard',
     'banks',
@@ -87,15 +42,12 @@ export const ROLE_ACCESS = {
     'assignments',
     'regional_view',
     'field_engineers',
-
     'assets_section',
     'assets',
     'inventory',
-
     'business',
     'finance',
     'hr',
-
     'reports',
     'notifications',
     'communication',
@@ -111,7 +63,6 @@ export const ROLE_ACCESS = {
     'engineering',
     'field_ops',
     'data_import',
-
     'operations',
     'ops_dashboard',
     'banks',
@@ -121,15 +72,12 @@ export const ROLE_ACCESS = {
     'assignments',
     'regional_view',
     'field_engineers',
-
     'assets_section',
     'assets',
     'inventory',
-
     'business',
     'finance',
     'hr',
-
     'reports',
     'notifications',
     'communication',
@@ -145,7 +93,6 @@ export const ROLE_ACCESS = {
     'site_monitor',
     'engineering',
     'field_ops',
-
     'operations',
     'ops_dashboard',
     'banks',
@@ -155,11 +102,8 @@ export const ROLE_ACCESS = {
     'assignments',
     'regional_view',
     'field_engineers',
-
     'assets_section',
     'assets',
-    'inventory',
-
     'reports',
     'notifications',
     'communication',
@@ -172,11 +116,9 @@ export const ROLE_ACCESS = {
     'tickets',
     'field_ops',
     'engineering',
-
     'assets_section',
     'assets',
     'parts_request',
-
     'notifications',
     'communication',
     'official_mail',
@@ -185,13 +127,10 @@ export const ROLE_ACCESS = {
 
   repair_head: [
     'dashboard',
-    'repair_jobs',
     'tickets',
-
-    'assets_section',
-    'inventory',
-    'parts_request',
-
+    'repair_jobs',
+    'rr_intake',
+    'rr_consumables',
     'reports',
     'notifications',
     'communication',
@@ -202,8 +141,7 @@ export const ROLE_ACCESS = {
   repair_technician: [
     'dashboard',
     'repair_jobs',
-    'parts_request',
-
+    'rr_consumables',
     'notifications',
     'communication',
     'official_mail',
@@ -214,7 +152,6 @@ export const ROLE_ACCESS = {
     'dashboard',
     'hr',
     'staff_directory',
-
     'notifications',
     'communication',
     'official_mail',
@@ -223,11 +160,9 @@ export const ROLE_ACCESS = {
 
   inventory: [
     'dashboard',
-
     'assets_section',
     'inventory',
     'parts_request',
-
     'notifications',
     'communication',
     'official_mail',
@@ -238,7 +173,6 @@ export const ROLE_ACCESS = {
     'dashboard',
     'business',
     'finance',
-
     'notifications',
     'communication',
     'official_mail',
@@ -250,7 +184,6 @@ export const ROLE_ACCESS = {
     'business',
     'procurement',
     'purchase_orders',
-
     'notifications',
     'communication',
     'official_mail',
@@ -261,7 +194,6 @@ export const ROLE_ACCESS = {
     'dashboard',
     'business',
     'crm',
-
     'notifications',
     'communication',
     'official_mail',
@@ -284,7 +216,7 @@ export const ROLE_HOME = {
   manager: '/dashboard',
   helpdesk: '/tickets',
   engineer: '/tickets',
-  repair_head: '/repair-jobs',
+  repair_head: '/rr-part-requests',
   repair_technician: '/repair-jobs',
   hr: '/hr',
   inventory: '/spare-parts',

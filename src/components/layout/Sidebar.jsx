@@ -36,6 +36,9 @@ import {
   FileText,
   Mail,
   FileSpreadsheet,
+  Wrench,
+  PackageCheck,
+  Inbox,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -68,6 +71,12 @@ const ALL_MENUS = [
     permission: 'live_map',
   },
   {
+    label: 'Operations Feed',
+    icon: Activity,
+    path: '/operations-feed',
+    permission: 'dashboard',
+  },
+  {
     label: 'Tickets',
     icon: Ticket,
     path: '/tickets',
@@ -79,6 +88,30 @@ const ALL_MENUS = [
     path: '/repair-jobs',
     permission: 'repair_jobs',
   },
+  {
+  label: 'Ops Part Requests',
+  icon: Boxes,
+  path: '/operations/part-requests',
+  permission: 'operations',
+},
+{
+  label: "RR Intake & Assignment",
+  icon: Inbox,
+  path: "/rr-part-requests",
+  permission: "rr_intake",
+},
+{
+  label: 'RR Consumables',
+  icon: PackageCheck,
+  path: '/rr-consumable-requests',
+  permission: 'repair_jobs',
+},
+{
+  label: 'Inventory Requests',
+  icon: Boxes,
+  path: '/inventory/part-requests',
+  permission: 'inventory',
+},
   {
     label: 'Site Monitor',
     icon: Radio,
@@ -164,9 +197,9 @@ const ALL_MENUS = [
     permission: 'inventory',
   },
   {
-    label: 'Request Parts',
+    label: 'Parts Workflow',
     icon: Boxes,
-    path: '/spare-parts?tab=requests',
+    path: '/parts',
     permission: 'parts_request',
   },
 
@@ -242,17 +275,18 @@ const ALL_MENUS = [
     permission: 'notifications',
   },
   {
-  label: 'Data Import',
-  icon: FileSpreadsheet,
-  path: '/data-import',
-  permission: 'data_import',
-},
-{
-  label: 'Settings',
-  icon: Settings,
-  path: '/settings',
-  permission: 'settings',
-},
+    label: 'Data Import',
+    icon: FileSpreadsheet,
+    path: '/data-import',
+    permission: 'data_import',
+  },
+  {
+    label: 'Settings',
+    icon: Settings,
+    path: '/settings',
+    permission: 'settings',
+  },
+
   { section: 'Communication', permission: 'communication' },
 
   {
@@ -320,10 +354,10 @@ function Sidebar({
       </div>
 
       <nav
-  ref={navRef}
-  className="flex-1 p-2 overflow-y-auto"
-  style={{ WebkitOverflowScrolling: 'touch' }}
->
+        ref={navRef}
+        className="flex-1 p-2 overflow-y-auto"
+        style={{ WebkitOverflowScrolling: 'touch' }}
+      >
         {filteredMenu.map((item, idx) => {
           if (item.section) {
             if (collapsed) return null;
