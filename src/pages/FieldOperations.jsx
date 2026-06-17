@@ -338,7 +338,7 @@ export default function FieldOperations() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+        <h1 className="text-3xl font-bold flex items-center gap-2 text-white">
           <Navigation className="w-6 h-6 text-primary" />
           Field Operations
         </h1>

@@ -226,7 +226,7 @@ export default function RegionalCoverage() {
 
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div>
-                  <p className="text-xl font-bold">
+                  <p className="text-2xl font-bold text-[#ff5a00]">
                     {
                       r.engineers
                         .length
@@ -239,7 +239,7 @@ export default function RegionalCoverage() {
                 </div>
 
                 <div>
-                  <p className="text-xl font-bold">
+                  <p className="text-2xl font-bold text-[#ff5a00]">
                     {
                       r.deviceCount
                     }

@@ -1,4 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -13,6 +14,8 @@ import {
 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { canAccess } from "@/lib/roleAccess";
+import { canDoOperationAction, getOperationState, workflowCan, OPERATION_ALLOWED_ACTIONS } from "@/lib/workflowRules";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -142,6 +145,25 @@ async function fetchOperationsPartRequests() {
 }
 
 async function updateOperationsStatus({ id, action }) {
+  const { data: currentRequest, error: currentError } = await supabase
+    .from("part_requests")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (currentError) throw currentError;
+
+  const actionMap = {
+    approve: "approve_operations",
+    reject: "reject_operations",
+    send_inventory: "send_inventory",
+  };
+
+  const workflowAction = actionMap[action];
+  if (!workflowCan(OPERATION_ALLOWED_ACTIONS, getOperationState(currentRequest), workflowAction)) {
+    throw new Error("This request is not at the correct Operations workflow stage for this action.");
+  }
+
   let updateData = {};
   let actionText = "";
 
@@ -219,6 +241,9 @@ async function updateOperationsStatus({ id, action }) {
 
 export default function OperationsPartRequests() {
   const qc = useQueryClient();
+  const outlet = useOutletContext() || {};
+  const user = outlet.user || outlet.profile || outlet.currentUser || null;
+  const role = user?.role || user?.user_role || user?.position || "";
 
   const [active, setActive] = useState("pending");
   const [search, setSearch] = useState("");
@@ -331,13 +356,15 @@ export default function OperationsPartRequests() {
             </p>
           </div>
 
-          <Button
-            onClick={() => window.print()}
-            className="gap-2 bg-[#ff5a00] hover:bg-[#e24f00] text-white"
-          >
-            <Printer className="h-4 w-4" />
-            Print Report
-          </Button>
+          {canAccess(role, "print_operations_report") && (
+            <Button
+              onClick={() => window.print()}
+              className="gap-2 bg-[#ff5a00] hover:bg-[#e24f00] text-white"
+            >
+              <Printer className="h-4 w-4" />
+              Print Report
+            </Button>
+          )}
         </div>
       </div>
 
@@ -528,50 +555,56 @@ export default function OperationsPartRequests() {
 
                             <td className="p-3 border border-white/10 no-print">
                               <div className="flex flex-wrap gap-2">
-                                <Button
-                                  size="sm"
-                                  className="bg-green-600 hover:bg-green-700 text-white"
-                                  disabled={mutation.isPending}
-                                  onClick={() =>
-                                    mutation.mutate({
-                                      id: request.id,
-                                      action: "approve",
-                                    })
-                                  }
-                                >
-                                  <CheckCircle className="h-4 w-4 mr-1" />
-                                  Approve
-                                </Button>
+                                {canDoOperationAction(request, "approve_operations", user) && (
+                                  <Button
+                                    size="sm"
+                                    className="bg-green-600 hover:bg-green-700 text-white"
+                                    disabled={mutation.isPending}
+                                    onClick={() =>
+                                      mutation.mutate({
+                                        id: request.id,
+                                        action: "approve",
+                                      })
+                                    }
+                                  >
+                                    <CheckCircle className="h-4 w-4 mr-1" />
+                                    Approve
+                                  </Button>
+                                )}
 
-                                <Button
-                                  size="sm"
-                                  className="bg-[#ff5a00] hover:bg-[#e24f00] text-white"
-                                  disabled={mutation.isPending}
-                                  onClick={() =>
-                                    mutation.mutate({
-                                      id: request.id,
-                                      action: "send_inventory",
-                                    })
-                                  }
-                                >
-                                  <Send className="h-4 w-4 mr-1" />
-                                  Send Inventory
-                                </Button>
+                                {canDoOperationAction(request, "send_inventory", user) && (
+                                  <Button
+                                    size="sm"
+                                    className="bg-[#ff5a00] hover:bg-[#e24f00] text-white"
+                                    disabled={mutation.isPending}
+                                    onClick={() =>
+                                      mutation.mutate({
+                                        id: request.id,
+                                        action: "send_inventory",
+                                      })
+                                    }
+                                  >
+                                    <Send className="h-4 w-4 mr-1" />
+                                    Send Inventory
+                                  </Button>
+                                )}
 
-                                <Button
-                                  size="sm"
-                                  variant="destructive"
-                                  disabled={mutation.isPending}
-                                  onClick={() =>
-                                    mutation.mutate({
-                                      id: request.id,
-                                      action: "reject",
-                                    })
-                                  }
-                                >
-                                  <XCircle className="h-4 w-4 mr-1" />
-                                  Reject
-                                </Button>
+                                {canDoOperationAction(request, "reject_operations", user) && (
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    disabled={mutation.isPending}
+                                    onClick={() =>
+                                      mutation.mutate({
+                                        id: request.id,
+                                        action: "reject",
+                                      })
+                                    }
+                                  >
+                                    <XCircle className="h-4 w-4 mr-1" />
+                                    Reject
+                                  </Button>
+                                )}
 
                                 <Button
                                   size="sm"

@@ -8,6 +8,8 @@ import { supabase } from "@/integrations/supabase/client";
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import ProtectedRoute from '@/components/ProtectedRoute';
+import { ROUTE_PERMISSIONS } from '@/lib/roleAccess';
 
 import Welcome from '@/pages/Welcome';
 import AppLayout from '@/components/layout/AppLayout';
@@ -46,9 +48,9 @@ import DeviceAssignment from '@/pages/DeviceAssignment';
 import RegionalCoverage from '@/pages/RegionalCoverage';
 import OperationsDashboard from '@/pages/OperationsDashboard';
 import OperationsPartRequests from "@/pages/OperationsPartRequests";
+import OperationsFeed from "@/pages/OperationsFeed";
 import InventoryPartRequests from "@/pages/InventoryPartRequests";
 import RRConsumableRequests from "@/pages/RRConsumableRequests";
-import OperationsFeed from '@/pages/OperationsFeed';
 import ArkConnect from '@/pages/ArkConnect';
 import SLAAnalytics from '@/pages/SLAAnalytics';
 import OfficialMailInbox from '@/pages/OfficialMailInbox';
@@ -57,10 +59,9 @@ import ChangePassword from '@/pages/ChangePassword';
 import DataImport from '@/pages/DataImport';
 import RRPartRequests from "@/pages/RRPartRequests";
 import RepairRefurbish from '@/pages/RepairRefurbish';
+import InventoryAnalytics from '@/pages/InventoryAnalytics';
 
 const updateUserActivity = async (user, online = true, login = false) => {
-  console.log("TRACKING USER:", user?.email);
-
   if (!user?.email) return;
 
   const updates = {
@@ -68,68 +69,52 @@ const updateUserActivity = async (user, online = true, login = false) => {
     online_status: online,
   };
 
-  if (login) {
-    updates.last_login = new Date().toISOString();
-  }
+  if (login) updates.last_login = new Date().toISOString();
 
-  const { data, error } = await supabase
+  await supabase
     .from("user_profiles")
     .update(updates)
-    .eq("user_email", user.email)
-    .select();
-
-  console.log("ACTIVITY UPDATE RESULT:", { data, error });
+    .eq("user_email", user.email);
 };
 
+const SecurePage = ({ path, children }) => (
+  <ProtectedRoute permission={ROUTE_PERMISSIONS[path]}>{children}</ProtectedRoute>
+);
+
 const AuthenticatedApp = () => {
-  const {
-  isLoadingAuth,
-  isLoadingPublicSettings,
-  authError,
-  navigateToLogin,
-} = useAuth();
+  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
 
-useEffect(() => {
-  let interval;
+  useEffect(() => {
+    let interval;
 
-  const startActivityTracking = async () => {
-    const { data } = await supabase.auth.getUser();
-    const user = data?.user;
+    const startActivityTracking = async () => {
+      const { data } = await supabase.auth.getUser();
+      const user = data?.user;
+      if (!user) return;
 
-    if (!user) return;
+      await updateUserActivity(user, true, true);
+      interval = setInterval(() => updateUserActivity(user, true, false), 60000);
+    };
 
-    await updateUserActivity(user, true, true);
-
-    interval = setInterval(() => {
-      updateUserActivity(user, true, false);
-    }, 60000);
-  };
-
-  startActivityTracking();
-
-  return () => {
-    if (interval) clearInterval(interval);
-  };
-}, []);
+    startActivityTracking();
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, []);
 
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]">
         <div className="flex flex-col items-center gap-4">
           <div className="w-10 h-10 border-4 border-[#ff5a00]/20 border-t-[#ff5a00] rounded-full animate-spin" />
-          <p className="text-sm text-slate-200 font-medium">
-            ARK ONE Portal
-          </p>
+          <p className="text-sm text-slate-200 font-medium">ARK ONE Portal</p>
         </div>
       </div>
     );
   }
 
   if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    }
-
+    if (authError.type === 'user_not_registered') return <UserNotRegisteredError />;
     if (authError.type === 'auth_required') {
       navigateToLogin();
       return null;
@@ -148,65 +133,72 @@ useEffect(() => {
       <Route path="/reset-password" element={<ChangePassword />} />
       <Route path="/change-password" element={<ChangePassword />} />
 
-      <Route element={<AppLayout />}>
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/tickets" element={<Tickets />} />
-        <Route path="/tickets/:id" element={<TicketDetail />} />
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AppLayout />}>
+          <Route path="/dashboard" element={<SecurePage path="/dashboard"><Dashboard /></SecurePage>} />
+          <Route path="/tickets" element={<SecurePage path="/tickets"><Tickets /></SecurePage>} />
+          <Route path="/tickets/:id" element={<SecurePage path="/tickets/:id"><TicketDetail /></SecurePage>} />
 
-        <Route path="/users" element={<UserManagement />} />
-        <Route path="/departments" element={<Departments />} />
-        <Route path="/workflows" element={<Workflows />} />
-        <Route path="/reports" element={<Reports />} />
-        <Route path="/notifications" element={<Notifications />} />
-        <Route path="/audit-logs" element={<AuditLogs />} />
-        <Route path="/settings" element={<Settings />} />
+          <Route path="/users" element={<SecurePage path="/users"><UserManagement /></SecurePage>} />
+          <Route path="/departments" element={<SecurePage path="/departments"><Departments /></SecurePage>} />
+          <Route path="/workflows" element={<SecurePage path="/workflows"><Workflows /></SecurePage>} />
+          <Route path="/reports" element={<SecurePage path="/reports"><Reports /></SecurePage>} />
+          <Route path="/notifications" element={<SecurePage path="/notifications"><Notifications /></SecurePage>} />
+          <Route path="/audit-logs" element={<SecurePage path="/audit-logs"><AuditLogs /></SecurePage>} />
+          <Route path="/settings" element={<SecurePage path="/settings"><Settings /></SecurePage>} />
 
-        <Route path="/machines" element={<Machines />} />
-        <Route path="/assets" element={<Assets />} />
-        <Route path="/staff" element={<StaffDirectory />} />
-        <Route path="/sites" element={<SiteMonitor />} />
-        <Route path="/engineers" element={<EngineerBoard />} />
-        <Route path="/spare-parts" element={<SparePartsInventory mode="inventory" />} />
-        <Route path="/part-requests" element={<SparePartsInventory mode="requests" />} />
-        <Route path="/parts" element={<PartsScreen />} />
-        <Route path="/inventory/part-requests" element={<InventoryPartRequests />} />
-        <Route path="/field-ops" element={<FieldOperations />} />
-        <Route path="/devices" element={<DeviceManagement />} />
-
-        <Route path="/hr" element={<HRPortal />} />
-        <Route path="/finance" element={<FinancePortal />} />
-        <Route path="/crm" element={<CRMPortal />} />
-        <Route path="/procurement" element={<ProcurementPortal />} />
-        <Route path="/manager" element={<ManagerDashboard />} />
-
-        <Route path="/live-map" element={<LiveMap />} />
-        <Route path="/sla-analytics" element={<SLAAnalytics />} />
-
-        <Route path="/ops-dashboard" element={<OperationsDashboard />} />
-        <Route path="/operations/part-requests" element={<OperationsPartRequests />} />
-        <Route path="/operations-feed" element={<OperationsFeed />} />
-        <Route path="/banks" element={<BanksPage />} />
-        <Route path="/branches" element={<BranchesPage />} />
-        <Route path="/branches/:id/devices" element={<BranchDevices />} />
-        <Route path="/engineers-ops" element={<EngineersPage />} />
-        <Route path="/bank-devices" element={<DevicesPage />} />
-        <Route path="/device-status" element={<DeviceStatusBoard />} />
-        <Route path="/device-assignment" element={<DeviceAssignment />} />
-        <Route path="/regional-coverage" element={<RegionalCoverage />} />
-
-        <Route path="/ark-connect" element={<ArkConnect />} />
-        <Route path="/official-mail" element={<OfficialMailInbox />} />
-
-        <Route path="/procurement-lpo" element={<ProcurementLPO />} />
-        <Route path="/data-import" element={<DataImport />} />
-
-        <Route path="/repair-refurbish" element={<RepairRefurbish />} />
-        <Route
-  path="/rr-part-requests"
-  element={<RRPartRequests />}
+          <Route path="/machines" element={<SecurePage path="/machines"><Machines /></SecurePage>} />
+          <Route path="/assets" element={<SecurePage path="/assets"><Assets /></SecurePage>} />
+          <Route path="/staff" element={<SecurePage path="/staff"><StaffDirectory /></SecurePage>} />
+          <Route path="/sites" element={<SecurePage path="/sites"><SiteMonitor /></SecurePage>} />
+          <Route path="/engineers" element={<SecurePage path="/engineers"><EngineerBoard /></SecurePage>} />
+          <Route path="/spare-parts" element={<SecurePage path="/spare-parts"><SparePartsInventory mode="inventory" /></SecurePage>} />
+          <Route
+  path="/inventory-analytics"
+  element={
+    <SecurePage path="/inventory-analytics">
+      <InventoryAnalytics />
+    </SecurePage>
+  }
 />
-        <Route path="/rr-consumable-requests" element={<RRConsumableRequests />} />
-        <Route path="/repair-jobs" element={<RepairRefurbish />} />
+          <Route path="/part-requests" element={<SecurePage path="/part-requests"><SparePartsInventory mode="requests" /></SecurePage>} />
+          <Route path="/parts" element={<SecurePage path="/parts"><PartsScreen /></SecurePage>} />
+          <Route path="/inventory/part-requests" element={<SecurePage path="/inventory/part-requests"><InventoryPartRequests /></SecurePage>} />
+          <Route path="/field-ops" element={<SecurePage path="/field-ops"><FieldOperations /></SecurePage>} />
+          <Route path="/devices" element={<SecurePage path="/devices"><DeviceManagement /></SecurePage>} />
+
+          <Route path="/hr" element={<SecurePage path="/hr"><HRPortal /></SecurePage>} />
+          <Route path="/finance" element={<SecurePage path="/finance"><FinancePortal /></SecurePage>} />
+          <Route path="/crm" element={<SecurePage path="/crm"><CRMPortal /></SecurePage>} />
+          <Route path="/procurement" element={<SecurePage path="/procurement"><ProcurementPortal /></SecurePage>} />
+          <Route path="/manager" element={<SecurePage path="/manager"><ManagerDashboard /></SecurePage>} />
+
+          <Route path="/live-map" element={<SecurePage path="/live-map"><LiveMap /></SecurePage>} />
+          <Route path="/sla-analytics" element={<SecurePage path="/sla-analytics"><SLAAnalytics /></SecurePage>} />
+
+          <Route path="/ops-dashboard" element={<SecurePage path="/ops-dashboard"><OperationsDashboard /></SecurePage>} />
+          <Route path="/operations/part-requests" element={<SecurePage path="/operations/part-requests"><OperationsPartRequests /></SecurePage>} />
+          <Route path="/operations-feed" element={<SecurePage path="/operations-feed"><OperationsFeed /></SecurePage>} />
+          <Route path="/banks" element={<SecurePage path="/banks"><BanksPage /></SecurePage>} />
+          <Route path="/branches" element={<SecurePage path="/branches"><BranchesPage /></SecurePage>} />
+          <Route path="/branches/:id/devices" element={<SecurePage path="/branches/:id/devices"><BranchDevices /></SecurePage>} />
+          <Route path="/engineers-ops" element={<SecurePage path="/engineers-ops"><EngineersPage /></SecurePage>} />
+          <Route path="/bank-devices" element={<SecurePage path="/bank-devices"><DevicesPage /></SecurePage>} />
+          <Route path="/device-status" element={<SecurePage path="/device-status"><DeviceStatusBoard /></SecurePage>} />
+          <Route path="/device-assignment" element={<SecurePage path="/device-assignment"><DeviceAssignment /></SecurePage>} />
+          <Route path="/regional-coverage" element={<SecurePage path="/regional-coverage"><RegionalCoverage /></SecurePage>} />
+
+          <Route path="/ark-connect" element={<SecurePage path="/ark-connect"><ArkConnect /></SecurePage>} />
+          <Route path="/official-mail" element={<SecurePage path="/official-mail"><OfficialMailInbox /></SecurePage>} />
+
+          <Route path="/procurement-lpo" element={<SecurePage path="/procurement-lpo"><ProcurementLPO /></SecurePage>} />
+          <Route path="/data-import" element={<SecurePage path="/data-import"><DataImport /></SecurePage>} />
+
+          <Route path="/repair-refurbish" element={<SecurePage path="/repair-refurbish"><RepairRefurbish /></SecurePage>} />
+          <Route path="/rr-part-requests" element={<SecurePage path="/rr-part-requests"><RRPartRequests /></SecurePage>} />
+          <Route path="/rr-consumable-requests" element={<SecurePage path="/rr-consumable-requests"><RRConsumableRequests /></SecurePage>} />
+          <Route path="/repair-jobs" element={<SecurePage path="/repair-jobs"><RepairRefurbish /></SecurePage>} />
+        </Route>
       </Route>
 
       <Route path="*" element={<PageNotFound />} />
@@ -221,7 +213,6 @@ function App() {
         <Router>
           <AuthenticatedApp />
         </Router>
-
         <Toaster />
       </QueryClientProvider>
     </AuthProvider>

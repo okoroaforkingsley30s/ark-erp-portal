@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   logOperationEvent,
   upsertOperationStatus,
@@ -37,6 +37,11 @@ import { supabase } from '@/lib/supabaseClient';
 
 const EVIDENCE_BUCKET = 'ticket-evidence';
 const FIELD_DEPARTMENT = 'Field Engineering';
+const MOBILE_TICKET_PAGE_SIZE = 50;
+const MOBILE_DEVICE_LIMIT = 50;
+const MOBILE_REFRESH_INTERVAL_MS = 60000;
+const MOBILE_REALTIME_DEBOUNCE_MS = 2500;
+const MOBILE_PART_SEARCH_LIMIT = 12;
 
 const safeLogOperationEvent = async (payload) => {
   try {
@@ -149,6 +154,18 @@ export default function FieldEngineerMobileApp({
         'Hello, I am ARK Assistant. Tell me the ATM issue you are facing on site. Example: card reader error, dispenser fault, cash jam, receipt printer, communication down, power issue, or supervisor mode error.',
     },
   ]);
+  const refreshTimerRef = useRef({});
+
+  const queueRefresh = useCallback((key, refreshFn) => {
+    if (refreshTimerRef.current[key]) {
+      window.clearTimeout(refreshTimerRef.current[key]);
+    }
+
+    refreshTimerRef.current[key] = window.setTimeout(() => {
+      delete refreshTimerRef.current[key];
+      refreshFn();
+    }, MOBILE_REALTIME_DEBOUNCE_MS);
+  }, []);
 
   const fetchMails = useCallback(async () => {
     if (!user?.email) return;
@@ -203,13 +220,19 @@ export default function FieldEngineerMobileApp({
 
     setLoadingTickets(true);
 
+    const engineerName = user?.full_name || user?.name || '';
+    let assignedFilter = `assigned_engineer_email.eq.${user.email},assigned_to.eq.${user.email}`;
+
+    if (engineerName) {
+      assignedFilter += `,assigned_to_name.eq.${engineerName}`;
+    }
+
     const { data, error } = await supabase
-  .from('tickets')
-  .select('*')
-  .or(
-    `assigned_engineer_email.eq.${user.email},assigned_to.eq.${user.email},assigned_to_name.eq.${user.full_name || user.name || ''}`
-  )
-  .order('created_at', { ascending: false });
+      .from('tickets')
+      .select('*')
+      .or(assignedFilter)
+      .order('created_at', { ascending: false })
+      .range(0, MOBILE_TICKET_PAGE_SIZE - 1);
 
     if (error) {
       console.error('Mobile assigned tickets error:', error);
@@ -220,7 +243,7 @@ export default function FieldEngineerMobileApp({
 
     setTickets(data || []);
     setLoadingTickets(false);
-  }, [user?.email]);
+  }, [user?.email, user?.full_name, user?.name]);
 
   const fetchNotifications = useCallback(async () => {
     if (!user?.email) return;
@@ -248,7 +271,7 @@ export default function FieldEngineerMobileApp({
   }, [fetchAssignedTickets, fetchNotifications, fetchMails, fetchChatMessages]);
 
   // Production-safe auto refresh for FEMobi.
-  // Keeps tickets, notifications, mails and chats fresh without manual refresh.
+  // Avoid refreshing every dataset for every realtime event. Each table refreshes only its own data.
   useEffect(() => {
     if (!user?.email) return;
 
@@ -259,34 +282,49 @@ export default function FieldEngineerMobileApp({
       fetchChatMessages();
     };
 
-    const interval = window.setInterval(refreshAll, 15000);
+    const interval = window.setInterval(refreshAll, MOBILE_REFRESH_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        refreshAll();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     const channel = supabase
       .channel(`femobi-live-${user.email}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'tickets' },
-        refreshAll
+        () => queueRefresh('tickets', fetchAssignedTickets)
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'notifications' },
-        refreshAll
+        () => queueRefresh('notifications', fetchNotifications)
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'chat_messages' },
-        refreshAll
+        () => queueRefresh('chat', fetchChatMessages)
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'email_messages' },
-        refreshAll
+        () => queueRefresh('mail', fetchMails)
       )
       .subscribe();
 
     return () => {
       window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      Object.values(refreshTimerRef.current).forEach((timer) => {
+        window.clearTimeout(timer);
+      });
+      refreshTimerRef.current = {};
+
       supabase.removeChannel(channel);
     };
   }, [
@@ -295,6 +333,7 @@ export default function FieldEngineerMobileApp({
     fetchNotifications,
     fetchMails,
     fetchChatMessages,
+    queueRefresh,
   ]);
 
   useEffect(() => {
@@ -365,7 +404,8 @@ export default function FieldEngineerMobileApp({
   let query = supabase
     .from('devices')
     .select('*')
-    .order('updated_at', { ascending: false });
+    .order('updated_at', { ascending: false })
+    .limit(MOBILE_DEVICE_LIMIT);
 
   if (engineerName) {
     query = query.or(
@@ -663,7 +703,7 @@ export default function FieldEngineerMobileApp({
             ? 'h-[calc(100svh-112px)] overflow-y-auto overflow-x-hidden px-3 pt-3 pb-24'
             : 'h-[calc(100svh-124px)] overflow-y-auto overflow-x-hidden p-4 pb-28'
         }
-        style={{ WebkitOverflowScrolling: 'touch' }}
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
         {activeTab === 'home' && (
           <HomeScreen
@@ -1319,7 +1359,7 @@ function JobGroupModal({
 
       <div
         className="h-[calc(100svh-72px)] overflow-y-auto overflow-x-hidden p-4 space-y-3 pb-28"
-        style={{ WebkitOverflowScrolling: 'touch' }}
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
         {group.items.length === 0 ? (
           <EmptyText text={`No ${group.title.toLowerCase()} found.`} />
@@ -1487,53 +1527,46 @@ function TicketDetailsModal({
 
   useEffect(() => {
     let active = true;
+    const query = partName.trim();
 
-    const fetchInventoryParts = async () => {
+    if (query.length < 2 || selectedInventoryPart) {
+      setInventoryParts([]);
+      setLoadingInventoryParts(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    const timer = window.setTimeout(async () => {
       setLoadingInventoryParts(true);
 
+      const likeQuery = `%${query}%`;
       const { data, error } = await supabase
         .from('spare_parts')
-        .select('*')
-        .order('description', { ascending: true });
+        .select('id, part_name, description, part_number, serial_number, device_brand, device_model, quantity_available')
+        .or(`part_name.ilike.${likeQuery},description.ilike.${likeQuery},part_number.ilike.${likeQuery},device_brand.ilike.${likeQuery},device_model.ilike.${likeQuery}`)
+        .order('description', { ascending: true })
+        .limit(MOBILE_PART_SEARCH_LIMIT);
 
       if (!active) return;
 
       if (error) {
-        console.error('Mobile inventory parts fetch error:', error);
+        console.error('Mobile inventory parts search error:', error);
         setInventoryParts([]);
       } else {
         setInventoryParts(data || []);
       }
 
       setLoadingInventoryParts(false);
-    };
-
-    fetchInventoryParts();
+    }, 350);
 
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
-  }, []);
+  }, [partName, selectedInventoryPart]);
 
-  const matchingInventoryParts = inventoryParts
-    .filter((part) => {
-      const query = partName.trim().toLowerCase();
-
-      if (query.length < 2) return false;
-
-      return [
-        part.part_name,
-        part.description,
-        part.part_number,
-        part.device_brand,
-        part.device_model,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(query);
-    })
-    .slice(0, 8);
+  const matchingInventoryParts = inventoryParts;
 
   const existingBeforePhotos = Array.isArray(ticket?.before_photos)
     ? ticket.before_photos
@@ -1934,7 +1967,7 @@ function TicketDetailsModal({
   return (
     <div
       className="fixed inset-0 z-[70] bg-slate-950 text-white overflow-y-auto overflow-x-hidden"
-      style={{ WebkitOverflowScrolling: 'touch' }}
+      style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
     >
       <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
         <div>
@@ -2475,7 +2508,7 @@ function NotificationsModal({ notifications, onClose, onRefresh }) {
   return (
     <div
       className="fixed inset-0 z-[75] bg-slate-950 text-white overflow-y-auto overflow-x-hidden"
-      style={{ WebkitOverflowScrolling: 'touch' }}
+      style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
     >
       <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
         <div>
@@ -2570,56 +2603,50 @@ function PartsScreen({ tickets, user }) {
 
   useEffect(() => {
     let active = true;
+    const query = partName.trim();
 
-    const fetchInventoryParts = async () => {
+    if (query.length < 2 || selectedInventoryPart) {
+      setInventoryParts([]);
+      setLoadingInventoryParts(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    const timer = window.setTimeout(async () => {
       setLoadingInventoryParts(true);
 
+      const likeQuery = `%${query}%`;
       const { data, error } = await supabase
         .from('spare_parts')
-        .select('*')
-        .order('description', { ascending: true });
+        .select('id, part_name, description, part_number, serial_number, device_brand, device_model, quantity_available')
+        .or(`part_name.ilike.${likeQuery},description.ilike.${likeQuery},part_number.ilike.${likeQuery},device_brand.ilike.${likeQuery},device_model.ilike.${likeQuery}`)
+        .order('description', { ascending: true })
+        .limit(MOBILE_PART_SEARCH_LIMIT);
 
       if (!active) return;
 
       if (error) {
-        console.error('Parts inventory fetch error:', error);
+        console.error('Parts inventory search error:', error);
         setInventoryParts([]);
       } else {
         setInventoryParts(data || []);
       }
 
       setLoadingInventoryParts(false);
-    };
-
-    fetchInventoryParts();
+    }, 350);
 
     return () => {
       active = false;
+      window.clearTimeout(timer);
     };
-  }, []);
+  }, [partName, selectedInventoryPart]);
 
   useEffect(() => {
     fetchMyPartRequests();
   }, [fetchMyPartRequests]);
 
-  const matchingInventoryParts = inventoryParts
-    .filter((part) => {
-      const query = partName.trim().toLowerCase();
-      if (query.length < 2) return false;
-
-      return [
-        part.part_name,
-        part.description,
-        part.part_number,
-        part.device_brand,
-        part.device_model,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(query);
-    })
-    .slice(0, 8);
+  const matchingInventoryParts = inventoryParts;
 
   const getRequestStage = (request) => {
     const operations = clean(request.operations_status || request.approval_status);
@@ -3676,7 +3703,7 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
 
       <div
         className="h-[calc(100svh-142px)] overflow-y-auto overflow-x-hidden p-4 space-y-3"
-        style={{ WebkitOverflowScrolling: 'touch' }}
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
         {messages.length === 0 ? (
           <EmptyText text="No message yet. Start conversation below." />
@@ -3818,7 +3845,7 @@ function GmailMailModal({ mail, user, onClose, onSent }) {
 
       <div
         className="h-[calc(100svh-142px)] overflow-y-auto overflow-x-hidden p-4 space-y-4"
-        style={{ WebkitOverflowScrolling: 'touch' }}
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
         <div className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
           <h2 className="text-xl font-bold text-white">
@@ -4228,7 +4255,7 @@ function AssignedMachinesModal({ devices, onClose, onSelectDevice }) {
   return (
     <div
       className="fixed inset-0 z-[84] bg-slate-950 text-white overflow-y-auto overflow-x-hidden"
-      style={{ WebkitOverflowScrolling: 'touch' }}
+      style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
     >
       <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-4">
         <div className="flex items-center justify-between">
@@ -4318,7 +4345,7 @@ function DeviceDetailsModal({ device, onClose, onBack }) {
   return (
     <div
       className="fixed inset-0 z-[85] bg-slate-950 text-white overflow-y-auto overflow-x-hidden"
-      style={{ WebkitOverflowScrolling: 'touch' }}
+      style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
     >
       <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-4 flex items-center justify-between">
         <div>
@@ -4429,7 +4456,7 @@ function AssistantModal({ replies, message, setMessage, onSend, onClose }) {
 
       <div
         className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3"
-        style={{ WebkitOverflowScrolling: 'touch' }}
+        style={{ WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}
       >
         {replies.map((item, index) => (
           <div key={`${item.from}-${index}`} className={`max-w-[85%] rounded-2xl p-3 text-sm whitespace-pre-line ${item.from === 'user' ? 'ml-auto bg-orange-500 text-white' : 'mr-auto bg-slate-800 text-slate-200'}`}>

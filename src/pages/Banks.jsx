@@ -315,7 +315,7 @@ export default function Banks() {
                         <GitBranch className="w-3.5 h-3.5 text-muted-foreground" />
                       </div>
 
-                      <p className="text-xl font-bold">
+                      <p className="text-2xl font-bold text-[#ff5a00]">
                         {bankBranches.length}
                       </p>
 
@@ -329,7 +329,7 @@ export default function Banks() {
                         <Cpu className="w-3.5 h-3.5 text-muted-foreground" />
                       </div>
 
-                      <p className="text-xl font-bold">
+                      <p className="text-2xl font-bold text-[#ff5a00]">
                         {bankDevices.length}
                       </p>
 

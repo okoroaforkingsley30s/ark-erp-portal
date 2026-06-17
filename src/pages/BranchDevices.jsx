@@ -280,7 +280,7 @@ assigned_engineer_email:
             Back to Branches
           </Button>
 
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-3xl font-bold flex items-center gap-2 text-white">
             <Cpu className="w-6 h-6" />
             {title}
           </h1>

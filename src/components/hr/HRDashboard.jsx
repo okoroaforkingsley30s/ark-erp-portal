@@ -76,7 +76,7 @@ export default function HRDashboard({ employees, attendance, leaveRequests, loan
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* By Country */}
         <Card className="p-4">
-          <h3 className="font-semibold mb-3 flex items-center gap-2"><MapPin className="w-4 h-4 text-primary" />Employees by Country</h3>
+          <h3 className="font-semibold mb-3 flex items-center gap-2"><MapPin className="w-4 h-4 text-[#ff5a00]" />Employees by Country</h3>
           <div className="space-y-2">
             {Object.entries(byCountry).sort((a,b) => b[1]-a[1]).map(([country, count]) => (
               <div key={country} className="flex items-center justify-between">
@@ -93,7 +93,7 @@ export default function HRDashboard({ employees, attendance, leaveRequests, loan
 
         {/* By Department */}
         <Card className="p-4">
-          <h3 className="font-semibold mb-3 flex items-center gap-2"><Users className="w-4 h-4 text-primary" />Employees by Department</h3>
+          <h3 className="font-semibold mb-3 flex items-center gap-2"><Users className="w-4 h-4 text-[#ff5a00]" />Employees by Department</h3>
           <div className="space-y-2">
             {Object.entries(byDept).sort((a,b) => b[1]-a[1]).map(([dept, count]) => (
               <div key={dept} className="flex items-center justify-between">

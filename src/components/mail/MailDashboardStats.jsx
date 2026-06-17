@@ -24,7 +24,7 @@ function StatTile({ icon: Icon, label, value, color = 'text-primary' }) {
         <Icon className={`w-5 h-5 ${color}`} />
       </div>
       <div>
-        <p className="text-xl font-bold">{value}</p>
+        <p className="text-2xl font-bold text-[#ff5a00]">{value}</p>
         <p className="text-xs text-muted-foreground">{label}</p>
       </div>
     </Card>

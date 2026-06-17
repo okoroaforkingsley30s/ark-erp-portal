@@ -85,7 +85,7 @@ export default function AIInventoryChat({ items = [] }) {
         >
           <div className="flex items-center justify-between px-4 py-3 border-b bg-primary/5">
             <div className="flex items-center gap-2">
-              <Bot className="w-4 h-4 text-primary" />
+              <Bot className="w-4 h-4 text-[#ff5a00]" />
               <span className="font-semibold text-sm">ARK Inventory AI</span>
             </div>
             <button onClick={() => setOpen(false)}>

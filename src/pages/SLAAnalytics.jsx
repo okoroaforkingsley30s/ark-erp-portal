@@ -243,7 +243,7 @@ function SimpleBarChart({ title, description, data, labelKey, valueKey, suffix =
   return (
     <Card className="border-white/10 bg-[#102969]/90 text-white">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
+        <CardTitle className="text-base flex items-center gap-2 text-white">
           <BarChart3 className="w-4 h-4 text-[#ff5a00]" />
           {title}
         </CardTitle>
@@ -287,7 +287,7 @@ function DonutLikeSummary({ summary }) {
   return (
     <Card className="border-white/10 bg-[#102969]/90 text-white">
       <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
+        <CardTitle className="text-base flex items-center gap-2 text-white">
           <Gauge className="w-4 h-4 text-[#ff5a00]" />
           SLA risk distribution
         </CardTitle>
@@ -565,7 +565,7 @@ export default function SLAAnalytics() {
     <div className="space-y-6 text-white">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-3xl font-bold flex items-center gap-2 text-white">
             <Activity className="w-6 h-6 text-[#ff5a00]" />
             Predictive SLA Analytics
           </h1>
@@ -647,7 +647,7 @@ export default function SLAAnalytics() {
 
         <Card className="border-white/10 bg-[#102969]/90 text-white">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
+            <CardTitle className="text-base flex items-center gap-2 text-white">
               <Zap className="w-4 h-4 text-[#ff5a00]" />
               Smart recommendations
             </CardTitle>
@@ -678,7 +678,7 @@ export default function SLAAnalytics() {
       <div className="grid lg:grid-cols-2 gap-4">
         <Card className="border-white/10 bg-[#102969]/90 text-white">
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
+            <CardTitle className="text-base flex items-center gap-2 text-white">
               <Users className="w-4 h-4 text-[#ff5a00]" />
               Engineer SLA performance
             </CardTitle>
@@ -722,7 +722,7 @@ export default function SLAAnalytics() {
 
         <Card className="border-white/10 bg-[#102969]/90 text-white">
           <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
+            <CardTitle className="text-base flex items-center gap-2 text-white">
               <AlertTriangle className="w-4 h-4 text-[#ff5a00]" />
               Top risky tickets
             </CardTitle>

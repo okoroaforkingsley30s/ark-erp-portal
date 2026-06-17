@@ -196,6 +196,18 @@ const ALL_MENUS = [
     path: '/spare-parts?tab=inventory',
     permission: 'inventory',
   },
+ {
+  label: 'ARK ONE Inventory Analytics',
+  icon: BarChart3,
+  path: '/inventory-analytics',
+  permission: 'inventory',
+},
+{
+  label: 'Purchase Orders',
+  icon: FileText,
+  path: '/procurement-lpo',
+  permission: 'inventory',
+},
   {
     label: 'Parts Workflow',
     icon: Boxes,
@@ -216,12 +228,6 @@ const ALL_MENUS = [
     icon: ShoppingCart,
     path: '/procurement',
     permission: 'procurement',
-  },
-  {
-    label: 'Purchase Orders',
-    icon: FileText,
-    path: '/procurement-lpo',
-    permission: 'purchase_orders',
   },
   {
     label: 'CRM',

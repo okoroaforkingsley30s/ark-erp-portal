@@ -189,6 +189,8 @@ export default function AppLayout() {
       'part_requests',
       'spare_part_requests',
       'spare_parts',
+      'spare_part_serials',
+'inventory_usage_logs',
       'inventory_movements',
       'purchase_requests',
       'workflow_requests',

@@ -145,7 +145,7 @@ export default function Assets() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+        <h1 className="text-3xl font-bold flex items-center gap-2 text-white">
           <Cpu className="w-6 h-6 text-primary" />
           {isEngineer ? 'My Assigned Devices' : 'Assets'}
         </h1>

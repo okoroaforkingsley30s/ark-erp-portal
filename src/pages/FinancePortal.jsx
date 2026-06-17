@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
@@ -34,6 +34,12 @@ import {
   Loader2,
   Trash2,
   BarChart3,
+  Truck,
+  CheckCircle2,
+  XCircle,
+  Wallet,
+  Clock,
+  PackageCheck,
 } from 'lucide-react';
 
 import { format, isValid } from 'date-fns';
@@ -55,6 +61,29 @@ const INV_STATUS = {
   paid: { label: 'Paid', color: 'bg-green-500/15 text-green-300 border-green-200' },
   overdue: { label: 'Overdue', color: 'bg-red-500/15 text-red-300 border-red-200' },
   cancelled: { label: 'Cancelled', color: 'bg-gray-50 text-gray-500 border-gray-200' },
+};
+
+const DISPATCH_FUND_STATUS = {
+  pending_review: {
+    label: 'Pending Review',
+    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
+  },
+  pending_finance: {
+    label: 'Pending Finance',
+    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
+  },
+  approved: {
+    label: 'Approved',
+    color: 'bg-blue-500/15 text-blue-300 border-blue-200',
+  },
+  rejected: {
+    label: 'Rejected',
+    color: 'bg-red-500/15 text-red-300 border-red-200',
+  },
+  disbursed: {
+    label: 'Disbursed',
+    color: 'bg-green-500/15 text-green-300 border-green-200',
+  },
 };
 
 const EMPTY_INV = {
@@ -136,8 +165,37 @@ const safeDate = (value) => {
   return format(d, 'MMM d, yyyy');
 };
 
+const normalize = (value) => String(value || '').toLowerCase().trim();
+
+function getFundFinanceStatus(request) {
+  return normalize(request.finance_status || request.status || 'pending_review');
+}
+
+function getFundStatusStyle(request) {
+  const status = getFundFinanceStatus(request);
+  return DISPATCH_FUND_STATUS[status] || DISPATCH_FUND_STATUS.pending_review;
+}
+
+function getFundPartName(request) {
+  return request.part_name || request.item_name || request.part_number || 'Requested Part';
+}
+
+function getFundEngineerName(request) {
+  return request.engineer_name || request.requested_for || 'N/A';
+}
+
+function getFundDestination(request) {
+  return request.destination || request.branch_name || request.location || 'N/A';
+}
+
+function canManageFinance(user) {
+  const role = normalize(user?.role || user?.user_role || user?.position);
+  return ['admin', 'manager', 'agm', 'ceo', 'finance', 'accounts', 'accountant'].includes(role);
+}
+
 export default function FinancePortal() {
-  const { user } = useOutletContext();
+  const outlet = useOutletContext() || {};
+  const user = outlet.user || outlet.profile || outlet.currentUser || {};
   const qc = useQueryClient();
 
   const [invOpen, setInvOpen] = useState(false);
@@ -151,6 +209,11 @@ export default function FinancePortal() {
   const [expForm, setExpForm] = useState(EMPTY_EXP);
   const [savingExp, setSavingExp] = useState(false);
   const [expCatFilter, setExpCatFilter] = useState('all');
+
+  const [fundFilter, setFundFilter] = useState('all');
+  const [fundSearch, setFundSearch] = useState('');
+  const [fundActionBusy, setFundActionBusy] = useState(null);
+  const [fundActionForms, setFundActionForms] = useState({});
 
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ['invoices'],
@@ -182,6 +245,25 @@ export default function FinancePortal() {
     },
   });
 
+  const {
+    data: dispatchFunds = [],
+    isLoading: loadingDispatchFunds,
+    error: dispatchFundError,
+  } = useQuery({
+    queryKey: ['inventory_dispatch_fund_requests'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('inventory_dispatch_fund_requests')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(300);
+
+      if (error) throw error;
+
+      return data || [];
+    },
+  });
+
   const totalIncome = invoices
     .filter((i) => i.status === 'paid')
     .reduce((s, i) => s + Number(i.amount || 0), 0);
@@ -202,6 +284,32 @@ export default function FinancePortal() {
   );
 
   const profit = totalIncome - totalExpenses;
+
+  const dispatchFundStats = useMemo(() => {
+    const pending = dispatchFunds.filter((r) =>
+      ['pending_review', 'pending_finance'].includes(getFundFinanceStatus(r))
+    );
+
+    const approved = dispatchFunds.filter((r) => getFundFinanceStatus(r) === 'approved');
+    const rejected = dispatchFunds.filter((r) => getFundFinanceStatus(r) === 'rejected');
+    const disbursed = dispatchFunds.filter((r) => getFundFinanceStatus(r) === 'disbursed');
+
+    return {
+      pendingCount: pending.length,
+      approvedCount: approved.length,
+      rejectedCount: rejected.length,
+      disbursedCount: disbursed.length,
+      pendingAmount: pending.reduce((s, r) => s + Number(r.requested_amount || 0), 0),
+      approvedAmount: approved.reduce(
+        (s, r) => s + Number(r.approved_amount || r.requested_amount || 0),
+        0
+      ),
+      disbursedAmount: disbursed.reduce(
+        (s, r) => s + Number(r.approved_amount || r.requested_amount || 0),
+        0
+      ),
+    };
+  }, [dispatchFunds]);
 
   const monthlyIncome = Array.from({ length: 6 }, (_, i) => {
     const d = new Date();
@@ -245,6 +353,26 @@ export default function FinancePortal() {
       ...p,
       [k]: v,
     }));
+
+  const updateFundForm = (requestId, field, value) => {
+    setFundActionForms((current) => ({
+      ...current,
+      [requestId]: {
+        ...current[requestId],
+        [field]: value,
+      },
+    }));
+  };
+
+  const getApprovedAmount = (request) => {
+    const form = fundActionForms[request.id] || {};
+    return form.approved_amount ?? request.approved_amount ?? request.requested_amount ?? '';
+  };
+
+  const getFinanceNote = (request) => {
+    const form = fundActionForms[request.id] || {};
+    return form.finance_note ?? request.finance_note ?? '';
+  };
 
   const saveInvoice = async () => {
     try {
@@ -426,6 +554,179 @@ export default function FinancePortal() {
     qc.invalidateQueries({ queryKey: ['expenses'] });
   };
 
+  const updateLinkedPartRequest = async (fundRequest, payload) => {
+    if (!fundRequest.part_request_id) return;
+
+    const { error } = await supabase
+      .from('part_requests')
+      .update({
+        ...payload,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', fundRequest.part_request_id);
+
+    if (error) throw error;
+  };
+
+  const writeFinanceEvent = async (fundRequest, actionText, severity = 'info') => {
+    await supabase.from('operations_events').insert({
+      event_type: 'DISPATCH_FUND_FINANCE_UPDATE',
+      title: `Finance ${actionText}`,
+      description: `Finance ${actionText} for ${getFundPartName(fundRequest)} - ${getFundEngineerName(fundRequest)}`,
+      source_module: 'Finance',
+      entity_type: 'inventory_dispatch_fund_request',
+      entity_id: fundRequest.id,
+      severity,
+    });
+  };
+
+  const approveDispatchFund = async (fundRequest) => {
+    const approvedAmount = Number(getApprovedAmount(fundRequest) || 0);
+
+    if (!approvedAmount || approvedAmount <= 0) {
+      alert('Please enter a valid approved amount.');
+      return;
+    }
+
+    try {
+      setFundActionBusy(fundRequest.id);
+
+      const financeNote = getFinanceNote(fundRequest);
+
+      const { error } = await supabase
+        .from('inventory_dispatch_fund_requests')
+        .update({
+          approved_amount: approvedAmount,
+          status: 'approved',
+          finance_status: 'approved',
+          finance_note: financeNote || null,
+          approved_by: user?.full_name || user?.name || user?.email || 'Finance',
+          approved_by_email: user?.email || null,
+          approved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', fundRequest.id);
+
+      if (error) throw error;
+
+      await updateLinkedPartRequest(fundRequest, {
+        finance_status: 'approved',
+        dispatch_status: 'awaiting_disbursement',
+        lifecycle_status: 'dispatch_fund_approved',
+      });
+
+      await writeFinanceEvent(fundRequest, 'approved dispatch fund request');
+
+      qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
+      qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
+      qc.invalidateQueries({ queryKey: ['part_requests_dashboard'] });
+
+      alert('Dispatch fund approved.');
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Failed to approve dispatch fund.');
+    } finally {
+      setFundActionBusy(null);
+    }
+  };
+
+  const rejectDispatchFund = async (fundRequest) => {
+    const financeNote = getFinanceNote(fundRequest);
+
+    const confirmed = window.confirm('Reject this dispatch fund request?');
+    if (!confirmed) return;
+
+    try {
+      setFundActionBusy(fundRequest.id);
+
+      const { error } = await supabase
+        .from('inventory_dispatch_fund_requests')
+        .update({
+          status: 'rejected',
+          finance_status: 'rejected',
+          finance_note: financeNote || 'Rejected by Finance',
+          rejected_by: user?.full_name || user?.name || user?.email || 'Finance',
+          rejected_by_email: user?.email || null,
+          rejected_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', fundRequest.id);
+
+      if (error) throw error;
+
+      await updateLinkedPartRequest(fundRequest, {
+        finance_status: 'rejected',
+        dispatch_status: 'finance_rejected',
+        lifecycle_status: 'dispatch_fund_rejected',
+      });
+
+      await writeFinanceEvent(fundRequest, 'rejected dispatch fund request', 'warning');
+
+      qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
+      qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
+      qc.invalidateQueries({ queryKey: ['part_requests_dashboard'] });
+
+      alert('Dispatch fund rejected.');
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Failed to reject dispatch fund.');
+    } finally {
+      setFundActionBusy(null);
+    }
+  };
+
+  const markDispatchFundDisbursed = async (fundRequest) => {
+    const approvedAmount = Number(fundRequest.approved_amount || fundRequest.requested_amount || 0);
+
+    if (!approvedAmount || approvedAmount <= 0) {
+      alert('Approved amount is missing. Approve the fund request first.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Mark this dispatch fund as disbursed? Inventory will now be allowed to dispatch to engineer.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setFundActionBusy(fundRequest.id);
+
+      const { error } = await supabase
+        .from('inventory_dispatch_fund_requests')
+        .update({
+          approved_amount: approvedAmount,
+          status: 'disbursed',
+          finance_status: 'disbursed',
+          disbursed_by: user?.full_name || user?.name || user?.email || 'Finance',
+          disbursed_by_email: user?.email || null,
+          disbursed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', fundRequest.id);
+
+      if (error) throw error;
+
+      await updateLinkedPartRequest(fundRequest, {
+        finance_status: 'disbursed',
+        dispatch_status: 'ready_for_dispatch',
+        lifecycle_status: 'dispatch_fund_disbursed',
+      });
+
+      await writeFinanceEvent(fundRequest, 'disbursed dispatch fund');
+
+      qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
+      qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
+      qc.invalidateQueries({ queryKey: ['part_requests_dashboard'] });
+
+      alert('Dispatch fund marked as disbursed. Inventory can now dispatch.');
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Failed to mark fund as disbursed.');
+    } finally {
+      setFundActionBusy(null);
+    }
+  };
+
   const filteredInvoices = invoices.filter(
     (i) => invFilter === 'all' || i.status === invFilter
   );
@@ -434,16 +735,84 @@ export default function FinancePortal() {
     (e) => expCatFilter === 'all' || e.category === expCatFilter
   );
 
+  const filteredDispatchFunds = dispatchFunds.filter((request) => {
+    const status = getFundFinanceStatus(request);
+    const q = fundSearch.toLowerCase().trim();
+
+    const statusMatch =
+      fundFilter === 'all' ||
+      status === fundFilter ||
+      (fundFilter === 'pending_review' &&
+        ['pending_review', 'pending_finance'].includes(status));
+
+    const searchMatch =
+      !q ||
+      String(getFundPartName(request)).toLowerCase().includes(q) ||
+      String(getFundEngineerName(request)).toLowerCase().includes(q) ||
+      String(getFundDestination(request)).toLowerCase().includes(q) ||
+      String(request.engineer_email || '').toLowerCase().includes(q) ||
+      String(request.part_number || '').toLowerCase().includes(q) ||
+      String(request.serial_number || '').toLowerCase().includes(q) ||
+      String(request.logistics_type || '').toLowerCase().includes(q) ||
+      String(request.warehouse || '').toLowerCase().includes(q);
+
+    return statusMatch && searchMatch;
+  });
+
+  const allowFinanceActions = canManageFinance(user);
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-3xl font-bold flex items-center gap-2 text-white">
             <DollarSign className="w-6 h-6 text-primary" />
             Finance Portal
           </h1>
           <p className="text-sm text-muted-foreground">
-            Income & expense management · Financial reporting
+            Dispatch fund approval · Income & expense management · Financial reporting
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="rounded-xl border bg-slate-900/50 p-4">
+          <Wallet className="w-5 h-5 text-amber-500 mb-2" />
+          <p className="text-2xl font-bold text-amber-500">
+            {dispatchFundStats.pendingCount}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Pending Dispatch Funds · {fmt(dispatchFundStats.pendingAmount)}
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-slate-900/50 p-4">
+          <CheckCircle2 className="w-5 h-5 text-blue-500 mb-2" />
+          <p className="text-2xl font-bold text-blue-500">
+            {dispatchFundStats.approvedCount}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Approved Awaiting Disbursement · {fmt(dispatchFundStats.approvedAmount)}
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-slate-900/50 p-4">
+          <PackageCheck className="w-5 h-5 text-green-500 mb-2" />
+          <p className="text-2xl font-bold text-green-600">
+            {dispatchFundStats.disbursedCount}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Disbursed · {fmt(dispatchFundStats.disbursedAmount)}
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-slate-900/50 p-4">
+          <XCircle className="w-5 h-5 text-red-500 mb-2" />
+          <p className="text-2xl font-bold text-red-600">
+            {dispatchFundStats.rejectedCount}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Rejected Dispatch Funds
           </p>
         </div>
       </div>
@@ -508,14 +877,285 @@ export default function FinancePortal() {
         </div>
       )}
 
-      <Tabs defaultValue="income">
-        <TabsList>
+      <Tabs defaultValue="dispatch-funds">
+        <TabsList className="flex flex-wrap h-auto">
+          <TabsTrigger value="dispatch-funds">Dispatch Funds</TabsTrigger>
           <TabsTrigger value="income">Income / Invoices</TabsTrigger>
           <TabsTrigger value="expenses">Expenses</TabsTrigger>
           {expByCategory.length > 0 && (
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
           )}
         </TabsList>
+
+        <TabsContent value="dispatch-funds" className="space-y-4">
+          <div className="rounded-xl border bg-slate-900/50 p-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-[#ff5a00]" />
+                  Dispatch Fund Requests
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  Inventory cannot dispatch until Finance approves and marks fund as disbursed.
+                </p>
+              </div>
+
+              <Input
+                className="max-w-sm bg-slate-950/50"
+                value={fundSearch}
+                onChange={(e) => setFundSearch(e.target.value)}
+                placeholder="Search engineer, part, destination, serial..."
+              />
+            </div>
+
+            <div className="flex gap-2 flex-wrap">
+              {[
+                ['all', 'All'],
+                ['pending_review', 'Pending'],
+                ['approved', 'Approved'],
+                ['disbursed', 'Disbursed'],
+                ['rejected', 'Rejected'],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setFundFilter(key)}
+                  className={
+                    'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
+                    (fundFilter === key
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {dispatchFundError && (
+            <Card className="p-4 border-red-500/30 bg-red-500/10">
+              <p className="text-sm text-red-300">
+                Failed to load dispatch fund requests: {dispatchFundError.message}
+              </p>
+            </Card>
+          )}
+
+          {loadingDispatchFunds ? (
+            <div className="flex justify-center py-10">
+              <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredDispatchFunds.map((request) => {
+                const status = getFundFinanceStatus(request);
+                const statusStyle = getFundStatusStyle(request);
+                const busy = fundActionBusy === request.id;
+                const pending = ['pending_review', 'pending_finance'].includes(status);
+                const approved = status === 'approved';
+                const disbursed = status === 'disbursed';
+                const rejected = status === 'rejected';
+
+                return (
+                  <Card key={request.id} className="p-4 bg-slate-900/60 border-slate-700">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className={statusStyle.color + ' text-[10px]'}
+                          >
+                            {statusStyle.label}
+                          </Badge>
+
+                          {request.warehouse && (
+                            <Badge variant="outline" className="text-[10px]">
+                              Warehouse: {request.warehouse}
+                            </Badge>
+                          )}
+
+                          {request.logistics_type && (
+                            <Badge variant="outline" className="text-[10px]">
+                              {request.logistics_type}
+                            </Badge>
+                          )}
+
+                          {request.created_at && (
+                            <span className="text-xs text-muted-foreground">
+                              {safeDate(request.created_at)}
+                            </span>
+                          )}
+                        </div>
+
+                        <div>
+                          <p className="font-semibold text-white">
+                            {getFundPartName(request)}
+                          </p>
+
+                          <p className="text-xs text-muted-foreground">
+                            Engineer: {getFundEngineerName(request)}
+                            {request.engineer_email ? ` · ${request.engineer_email}` : ''}
+                          </p>
+
+                          <p className="text-xs text-muted-foreground">
+                            Destination: {getFundDestination(request)}
+                          </p>
+
+                          <p className="text-xs text-muted-foreground">
+                            Part No: {request.part_number || 'N/A'}
+                            {request.serial_number ? ` · Serial: ${request.serial_number}` : ''}
+                          </p>
+
+                          {request.reason && (
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Reason: {request.reason}
+                            </p>
+                          )}
+
+                          {request.finance_note && (
+                            <p className="text-xs text-blue-300 mt-1">
+                              Finance Note: {request.finance_note}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="text-right min-w-[180px]">
+                        <p className="text-xs text-muted-foreground">Requested</p>
+                        <p className="text-2xl font-bold text-[#ff5a00]">
+                          {fmt(request.requested_amount)}
+                        </p>
+
+                        <p className="text-xs text-muted-foreground mt-2">Approved</p>
+                        <p className="text-lg font-bold text-green-500">
+                          {fmt(request.approved_amount)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {!allowFinanceActions && (
+                      <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-500/10 p-3">
+                        <p className="text-xs text-amber-300">
+                          Your role can view dispatch fund requests, but cannot approve, reject or disburse.
+                        </p>
+                      </div>
+                    )}
+
+                    {allowFinanceActions && pending && (
+                      <div className="mt-4 rounded-xl border border-slate-700 bg-slate-950/40 p-3 space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Approved Amount (₦)</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              className="mt-1"
+                              value={getApprovedAmount(request)}
+                              onChange={(e) =>
+                                updateFundForm(
+                                  request.id,
+                                  'approved_amount',
+                                  e.target.value
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <Label className="text-xs">Finance Note</Label>
+                            <Input
+                              className="mt-1"
+                              value={getFinanceNote(request)}
+                              onChange={(e) =>
+                                updateFundForm(request.id, 'finance_note', e.target.value)
+                              }
+                              placeholder="Optional note"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            className="bg-green-600 hover:bg-green-700 text-white"
+                            disabled={busy}
+                            onClick={() => approveDispatchFund(request)}
+                          >
+                            {busy ? (
+                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="w-4 h-4 mr-1" />
+                            )}
+                            Approve
+                          </Button>
+
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            disabled={busy}
+                            onClick={() => rejectDispatchFund(request)}
+                          >
+                            {busy ? (
+                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            ) : (
+                              <XCircle className="w-4 h-4 mr-1" />
+                            )}
+                            Reject
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+
+                    {allowFinanceActions && approved && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <Button
+                          size="sm"
+                          className="bg-[#ff5a00] hover:bg-[#e24f00] text-white"
+                          disabled={busy}
+                          onClick={() => markDispatchFundDisbursed(request)}
+                        >
+                          {busy ? (
+                            <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                          ) : (
+                            <Wallet className="w-4 h-4 mr-1" />
+                          )}
+                          Mark Disbursed
+                        </Button>
+
+                        <span className="text-xs text-blue-300 flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          Waiting for account disbursement.
+                        </span>
+                      </div>
+                    )}
+
+                    {disbursed && (
+                      <div className="mt-4 rounded-lg border border-green-400/20 bg-green-500/10 p-3">
+                        <p className="text-xs text-green-300">
+                          Fund disbursed. Inventory can now dispatch this part to the engineer.
+                        </p>
+                      </div>
+                    )}
+
+                    {rejected && (
+                      <div className="mt-4 rounded-lg border border-red-400/20 bg-red-500/10 p-3">
+                        <p className="text-xs text-red-300">
+                          Dispatch fund request rejected. Inventory cannot dispatch until a new fund approval is handled.
+                        </p>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })}
+
+              {filteredDispatchFunds.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Truck className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                  <p>No dispatch fund requests found</p>
+                </div>
+              )}
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="income" className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
@@ -598,7 +1238,7 @@ export default function FinancePortal() {
                       </div>
 
                       <div className="text-right">
-                        <p className="text-xl font-bold">{fmt(inv.amount)}</p>
+                        <p className="text-2xl font-bold text-[#ff5a00]">{fmt(inv.amount)}</p>
                         <p className="text-xs text-muted-foreground">
                           {inv.currency || 'NGN'}
                         </p>
@@ -791,7 +1431,7 @@ export default function FinancePortal() {
                         Edit
                       </Button>
 
-                      {['admin', 'manager', 'agm', 'ceo'].includes(user?.role) && (
+                      {['admin', 'manager', 'agm', 'ceo', 'finance', 'accounts', 'accountant'].includes(normalize(user?.role)) && (
                         <>
                           <Button
                             variant="outline"

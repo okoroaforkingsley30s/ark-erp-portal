@@ -202,7 +202,7 @@ export default function Engineers() {
                 <MapPin className="w-4 h-4 text-white" />
               </div>
 
-              <p className="text-xl font-bold">{count}</p>
+              <p className="text-2xl font-bold text-[#ff5a00]">{count}</p>
               <p className="text-xs text-muted-foreground">{region}</p>
             </CardContent>
           </Card>

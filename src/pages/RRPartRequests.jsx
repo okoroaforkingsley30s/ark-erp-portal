@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useOutletContext } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,27 +13,27 @@ import {
   ClipboardCheck,
   CheckCircle,
   Trash2,
-  Banknote,
   RotateCcw,
   UserCheck,
   XCircle,
   ShieldCheck,
   Activity,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { canAccess } from "@/lib/roleAccess";
 
 const RR_FILTERS = [
-  { key: "pending", label: "Pending RR", accent: "from-amber-500 to-orange-600" },
-  { key: "received", label: "Received By RR", accent: "from-blue-500 to-cyan-600" },
-  { key: "assigned", label: "Assigned", accent: "from-indigo-500 to-blue-700" },
-  { key: "under_repair", label: "Under Repair", accent: "from-orange-500 to-red-600" },
-  { key: "waiting_qa", label: "Waiting QA", accent: "from-purple-500 to-fuchsia-700" },
-  { key: "qa_passed", label: "QA Passed", accent: "from-emerald-500 to-green-700" },
-  { key: "qa_failed", label: "QA Failed", accent: "from-red-500 to-rose-700" },
-  { key: "returned_inventory", label: "Returned Inventory", accent: "from-cyan-500 to-blue-700" },
-  { key: "scrapped", label: "Scrapped", accent: "from-slate-500 to-slate-800" },
-  { key: "sold", label: "Sold", accent: "from-green-500 to-emerald-800" },
-  { key: "all", label: "All RR Parts", accent: "from-[#ff5a00] to-[#102969]" },
+  { key: "pending", label: "Pending RR" },
+  { key: "received", label: "Received By RR" },
+  { key: "assigned", label: "Assigned To Tech" },
+  { key: "under_repair", label: "Under Repair" },
+  { key: "waiting_qa", label: "Waiting HOD QA" },
+  { key: "qa_passed", label: "QA Passed" },
+  { key: "qa_failed", label: "QA Failed" },
+  { key: "returned_inventory", label: "Sent Back Inventory" },
+  { key: "scrapped", label: "Scrapped" },
+  { key: "all", label: "All RR Parts" },
 ];
 
 const RR_STATUSES = [
@@ -48,19 +49,43 @@ const RR_STATUSES = [
   "sold",
 ];
 
-const pageBg = "min-h-screen bg-gradient-to-br from-[#06102f] via-[#08153d] to-[#102969] p-4 md:p-6 space-y-6 text-white";
-const glassCard = "bg-[#102969]/85 border border-white/10 text-white shadow-2xl shadow-black/20 backdrop-blur rounded-2xl";
-const inputClass = "bg-[#08153d]/80 border-white/10 text-white placeholder:text-blue-100/60 focus-visible:ring-[#ff5a00]";
-const outlineButton = "border-white/15 bg-white/5 text-white hover:bg-[#ff5a00]/15 hover:text-white hover:border-[#ff5a00]/60";
+const pageBg =
+  "min-h-screen bg-gradient-to-br from-[#06102f] via-[#08153d] to-[#102969] p-4 md:p-6 space-y-6 text-white";
+const glassCard =
+  "bg-[#102969]/85 border border-white/10 text-white shadow-2xl shadow-black/20 backdrop-blur rounded-2xl";
+const inputClass =
+  "bg-[#08153d]/80 border-white/10 text-white placeholder:text-blue-100/60 focus-visible:ring-[#ff5a00]";
+const outlineButton =
+  "border-white/15 bg-white/5 text-white hover:bg-[#ff5a00]/15 hover:text-white hover:border-[#ff5a00]/60";
+
+function normalize(value) {
+  return String(value || "").toLowerCase().trim();
+}
 
 function statusLabel(value) {
   return String(value || "waiting").replaceAll("_", " ").toUpperCase();
 }
 
-function statusBadgeClass(value) {
-  const status = String(value || "").toLowerCase();
+function getUserRole(user) {
+  return normalize(user?.role || user?.user_role || user?.position);
+}
 
-  if (status.includes("pass") || status.includes("received") || status.includes("returned")) {
+function isRRHOD(user) {
+  const role = getUserRole(user);
+  return (
+    role.includes("admin") ||
+    role.includes("rr_hod") ||
+    role.includes("repair_head") ||
+    role.includes("repair hod") ||
+    role.includes("hod") ||
+    role.includes("head")
+  );
+}
+
+function statusBadgeClass(value) {
+  const status = normalize(value);
+
+  if (status.includes("pass") || status.includes("received") || status.includes("returned") || status.includes("ready") || status.includes("verified")) {
     return "bg-emerald-500/15 text-emerald-300 border-emerald-400/30";
   }
 
@@ -79,7 +104,135 @@ function statusBadgeClass(value) {
   return "bg-white/10 text-blue-100 border-white/10";
 }
 
-function RRPartRequests() {
+function getPartName(item) {
+  return (
+    item.part_name ||
+    item.spare_part_name ||
+    item.item_name ||
+    item.part_type ||
+    item.description ||
+    "Part Request"
+  );
+}
+
+function getTicketNumber(item) {
+  return item.ticket_number || item.ticket_id || item.ticket_ref || "-";
+}
+
+function getEngineerName(item) {
+  return (
+    item.engineer_name ||
+    item.requested_by_name ||
+    item.requester_name ||
+    item.created_by_name ||
+    item.engineer ||
+    item.created_by ||
+    "Not captured"
+  );
+}
+
+function getRequestState(item) {
+  const rr = normalize(item.rr_status);
+  const qa = normalize(item.qa_status);
+  const status = normalize(item.status);
+  const lifecycle = normalize(item.lifecycle_status);
+  const inventory = normalize(item.inventory_status);
+
+  if (
+    rr === "returned_inventory" ||
+    inventory === "rr_verified" ||
+    lifecycle === "ready_for_dispatch" ||
+    lifecycle === "returned_to_inventory" ||
+    status === "ready_for_dispatch"
+  ) {
+    return "returned_inventory";
+  }
+
+  if (rr === "scrapped" || rr === "scrap" || lifecycle === "scrapped" || lifecycle === "scrap") {
+    return "scrapped";
+  }
+
+  if (rr === "qa_failed" || qa === "failed" || lifecycle === "qa_failed") {
+    return "qa_failed";
+  }
+
+  if (rr === "qa_passed" || qa === "passed" || lifecycle === "qa_passed") {
+    return "qa_passed";
+  }
+
+  if (rr === "waiting_qa" || lifecycle === "waiting_qa" || status === "waiting_qa") {
+    return "waiting_qa";
+  }
+
+  if (rr === "under_repair" || lifecycle === "under_repair" || status === "under_repair") {
+    return "under_repair";
+  }
+
+  if (rr === "assigned" || lifecycle === "assigned_to_rr_technician" || status === "rr_assigned") {
+    return "assigned";
+  }
+
+  if (rr === "received" || lifecycle === "received_by_rr" || status === "rr_received") {
+    return "received";
+  }
+
+  if (
+    rr === "pending_rr" ||
+    status === "pending_rr" ||
+    lifecycle === "issued_to_rr" ||
+    inventory === "transferred_rr"
+  ) {
+    return "pending";
+  }
+
+  return "pending";
+}
+
+function getAllowedHODActions(item, user) {
+  const state = getRequestState(item);
+  const hod = isRRHOD(user);
+
+  const actions = {
+    receive: false,
+    assign: false,
+    qaPass: false,
+    qaFail: false,
+    sendInventory: false,
+    scrap: false,
+  };
+
+  if (!hod) return actions;
+
+  if (state === "pending") actions.receive = true;
+  if (state === "received") actions.assign = true;
+  if (state === "waiting_qa") {
+    actions.qaPass = true;
+    actions.qaFail = true;
+    actions.scrap = true;
+  }
+  if (state === "qa_failed") actions.scrap = true;
+  if (state === "qa_passed") actions.sendInventory = true;
+
+  return actions;
+}
+
+function filterPayloadByExistingColumns(row, payload) {
+  const safePayload = {};
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (Object.prototype.hasOwnProperty.call(row, key)) {
+      safePayload[key] = value;
+    }
+  });
+
+  return safePayload;
+}
+
+export default function RRPartRequests() {
+  const outlet = useOutletContext() || {};
+  const user = outlet.user || outlet.profile || outlet.currentUser || null;
+  const role = user?.role || user?.user_role || user?.position || "";
+
   const [requests, setRequests] = useState([]);
   const [rrUsers, setRrUsers] = useState([]);
   const [selectedTech, setSelectedTech] = useState({});
@@ -88,84 +241,94 @@ function RRPartRequests() {
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState(null);
 
-  const getEngineerName = (item) =>
-    item.engineer_name ||
-    item.requested_by_name ||
-    item.requester_name ||
-    item.created_by_name ||
-    item.engineer ||
-    item.created_by ||
-    "Not captured";
+  const getAssignedTechName = (value) => {
+    if (!value) return "Not assigned";
 
-  const getAssignedTechName = (id) => {
-    const user = rrUsers.find((u) => u.id === id || u.user_id === id);
-    return user?.full_name || user?.name || user?.email || id || "Not assigned";
+    const rrUser = rrUsers.find((u) => u.id === value || u.user_id === value || u.user_email === value || u.email === value);
+
+    return rrUser?.full_name || rrUser?.name || rrUser?.user_email || rrUser?.email || value;
   };
 
-  const isPendingRR = (item) =>
-    item.rr_status === "pending_rr" ||
-    item.status === "pending_rr" ||
-    item.lifecycle_status === "issued_to_rr";
-
   const matchesFilter = (item, key) => {
+    const state = getRequestState(item);
     if (key === "all") return true;
-    if (key === "pending") return isPendingRR(item);
-
-    if (key === "waiting_qa") {
-      return item.rr_status === "waiting_qa" || item.qa_status === "pending";
-    }
-
-    if (key === "qa_passed") {
-      return item.rr_status === "qa_passed" || item.qa_status === "passed";
-    }
-
-    if (key === "qa_failed") {
-      return item.rr_status === "qa_failed" || item.qa_status === "failed";
-    }
-
-    if (key === "returned_inventory") {
-      return (
-        item.rr_status === "returned_inventory" ||
-        item.lifecycle_status === "returned_to_inventory"
-      );
-    }
-
-    return item.rr_status === key || item.lifecycle_status === key;
+    return state === key;
   };
 
   const fetchRRUsers = async () => {
-    const { data, error } = await supabase
-      .from("user_profiles")
-      .select("id, user_id, full_name, name, email, department, role")
-      .eq("department", "Repair & Refurbishment")
-      .order("full_name", { ascending: true });
+    try {
+      const { data, error } = await supabase
+        .from("user_profiles")
+        .select("*");
 
-    if (error) {
+      if (error) throw error;
+
+      const profiles = data || [];
+
+      const rrTechs = profiles.filter((profile) => {
+        const role = normalize(profile.role || profile.user_role || profile.position);
+        const department = normalize(profile.department || profile.department_name);
+
+        return (
+          role.includes("repair_technician") ||
+          role.includes("rr_tech") ||
+          role.includes("rr tech") ||
+          role.includes("technician") ||
+          role.includes("repair") ||
+          department.includes("repair") ||
+          department.includes("refurbishment") ||
+          department.includes("rr")
+        );
+      });
+
+      // Important fallback:
+      // If role/department values are not clean yet, do not leave the dropdown empty.
+      // Show all profiles so RR HOD can still assign, then roles can be cleaned later.
+      setRrUsers(rrTechs.length > 0 ? rrTechs : profiles);
+    } catch (error) {
       console.warn("RR users fetch failed:", error);
       setRrUsers([]);
-      return;
     }
-
-    setRrUsers(data || []);
   };
 
   const fetchRequests = async () => {
     setLoading(true);
 
-    const rrQuery = RR_STATUSES.map((s) => `rr_status.eq.${s}`).join(",");
-
+    /*
+      Important:
+      Do not use a long .or(...) query here.
+      Waiting HOD QA was missing because the server-side filter could exclude rows
+      even when part_requests.rr_status = "waiting_qa".
+      We load recent part_requests, then this page filters RR workflow rows locally.
+    */
     const { data, error } = await supabase
       .from("part_requests")
       .select("*")
-      .or(`${rrQuery},status.eq.pending_rr,lifecycle_status.eq.issued_to_rr`)
-      .order("updated_at", { ascending: false });
+      .order("updated_at", { ascending: false })
+      .limit(500);
 
     if (error) {
-      console.error("RR part request fetch error:", error);
-      toast.error("Failed to load RR part requests");
+      console.error("RR part request fetch error:", JSON.stringify(error, null, 2));
+      toast.error(error.message || "Failed to load RR part requests");
       setRequests([]);
     } else {
-      setRequests(data || []);
+      const rrRows = (data || []).filter((item) => {
+        const state = getRequestState(item);
+        const rr = normalize(item.rr_status);
+        const lifecycle = normalize(item.lifecycle_status);
+        const inventory = normalize(item.inventory_status);
+
+        return (
+          RR_FILTERS.some((filter) => filter.key === state) ||
+          RR_STATUSES.includes(rr) ||
+          lifecycle.includes("rr") ||
+          lifecycle.includes("qa") ||
+          inventory === "transferred_rr" ||
+          inventory === "rr_verified"
+        );
+      });
+
+      setRequests(rrRows);
     }
 
     setLoading(false);
@@ -187,64 +350,160 @@ function RRPartRequests() {
     return () => supabase.removeChannel(channel);
   }, []);
 
-  const logOIN = async (item, action, payload) => {
+  const logOIN = async (item, action, payload, severity = "info") => {
     try {
       await supabase.from("operations_events").insert({
-        module: "Repair & Refurbishment",
         event_type: action,
+        title: `RR HOD ${action}`,
+        description: `${action} completed by RR HOD`,
+        source_module: "Repair & Refurbishment",
         entity_type: "part_request",
         entity_id: item.id,
-        title: `RR ${action}`,
-        message: `${action} completed by Repair & Refurbishment`,
+        severity,
         metadata: {
           part_request_id: item.id,
           ticket_id: item.ticket_id,
           ticket_number: item.ticket_number,
           engineer: getEngineerName(item),
           previous_rr_status: item.rr_status,
-          previous_status: item.status,
           previous_lifecycle_status: item.lifecycle_status,
           new_values: payload,
         },
-        created_at: new Date().toISOString(),
       });
     } catch (error) {
       console.warn("OIN log skipped:", error);
     }
   };
 
-  const updateRequest = async (item, payload, actionLabel) => {
+  const writeLifecycleLog = async (item, payload, note) => {
+    try {
+      await supabase.from("part_lifecycle_logs").insert({
+        part_request_id: item.id,
+        status: payload.lifecycle_status || payload.rr_status || "rr_update",
+        department: "Repair & Refurbishment",
+        note,
+      });
+    } catch (error) {
+      console.warn("Lifecycle log skipped:", error);
+    }
+  };
+
+  const updateLinkedRepairJob = async (item, payload) => {
+    try {
+      const jobPayload = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (payload.rr_status === "received") jobPayload.status = "received";
+
+      if (payload.rr_status === "assigned") {
+        jobPayload.status = "assigned";
+        jobPayload.assigned_rr_technician = payload.assigned_rr_technician || null;
+        jobPayload.assigned_to = payload.assigned_to || payload.assigned_rr_technician || null;
+      }
+
+      if (payload.rr_status === "qa_passed") {
+        jobPayload.status = "ready_for_inventory";
+        jobPayload.test_result = "passed";
+        jobPayload.inventory_transfer_status = "ready_to_transfer";
+      }
+
+      if (payload.rr_status === "qa_failed") {
+        jobPayload.status = "qa_failed";
+        jobPayload.test_result = "failed";
+        jobPayload.inventory_transfer_status = "not_ready";
+      }
+
+      if (payload.rr_status === "returned_inventory") {
+        jobPayload.status = "sent_to_inventory";
+        jobPayload.test_result = "passed";
+        jobPayload.inventory_transfer_status = "transferred";
+        jobPayload.completed_at = new Date().toISOString();
+      }
+
+      if (payload.rr_status === "scrapped") {
+        jobPayload.status = "scrap";
+        jobPayload.test_result = "failed";
+        jobPayload.inventory_transfer_status = "not_ready";
+      }
+
+      const shouldUpdate = Object.keys(jobPayload).length > 1;
+      if (!shouldUpdate) return;
+
+      if (item.repair_job_id) {
+        await supabase.from("repair_jobs").update(jobPayload).eq("id", item.repair_job_id);
+        return;
+      }
+
+      await supabase.from("repair_jobs").update(jobPayload).eq("part_request_id", item.id);
+    } catch (error) {
+      console.warn("Linked repair job update skipped:", error);
+    }
+  };
+
+  const updateRequest = async (item, payload, actionLabel, severity = "info") => {
     setUpdatingId(item.id);
 
-    const updatePayload = {
+    const safePayload = filterPayloadByExistingColumns(item, {
       ...payload,
       updated_at: new Date().toISOString(),
-    };
+    });
+
+    if (Object.keys(safePayload).length === 0) {
+      toast.error("No matching database columns found for this update.");
+      setUpdatingId(null);
+      return;
+    }
 
     const { error } = await supabase
       .from("part_requests")
-      .update(updatePayload)
+      .update(safePayload)
       .eq("id", item.id);
 
     if (error) {
-      console.error("RR update failed:", error);
+      console.error("RR update failed:", JSON.stringify(error, null, 2));
       toast.error(error.message || "Update failed");
       setUpdatingId(null);
       return;
     }
 
-    await logOIN(item, actionLabel, updatePayload);
+    await updateLinkedRepairJob(item, safePayload);
+    await writeLifecycleLog(item, safePayload, `RR HOD ${actionLabel}`);
+    await logOIN(item, actionLabel, safePayload, severity);
 
     toast.success(`${actionLabel} successful`);
     setUpdatingId(null);
     fetchRequests();
   };
 
+  const receivePart = async (item) => {
+    if (!getAllowedHODActions(item, user).receive) {
+      toast.error("Only RR HOD can receive parts from Inventory.");
+      return;
+    }
+
+    await updateRequest(
+      item,
+      {
+        rr_status: "received",
+        lifecycle_status: "received_by_rr",
+        inventory_status: "transferred_rr",
+        dispatch_status: "waiting_rr",
+      },
+      "Receive Part"
+    );
+  };
+
   const assignTechnician = async (item) => {
+    if (!getAllowedHODActions(item, user).assign) {
+      toast.error("Only RR HOD can assign technician at this stage.");
+      return;
+    }
+
     const techId = selectedTech[item.id];
 
     if (!techId) {
-      toast.error("Select RR technician first");
+      toast.error("Select RR technician first.");
       return;
     }
 
@@ -252,19 +511,58 @@ function RRPartRequests() {
       item,
       {
         rr_status: "assigned",
-        status: "rr_assigned",
         lifecycle_status: "assigned_to_rr_technician",
+        inventory_status: "transferred_rr",
+        dispatch_status: "waiting_rr",
         assigned_rr_technician: techId,
-        assigned_by: null,
-        assigned_at: new Date().toISOString(),
+        assigned_to: techId,
       },
       "Assign Technician"
     );
   };
 
-  const returnToInventory = async (item) => {
-    if (item.qa_status !== "passed" && item.rr_status !== "qa_passed") {
-      toast.error("This part cannot return to Inventory until QA is passed.");
+  const qaPass = async (item) => {
+    if (!getAllowedHODActions(item, user).qaPass) {
+      toast.error("Only RR HOD can pass QA after technician submits.");
+      return;
+    }
+
+    await updateRequest(
+      item,
+      {
+        rr_status: "qa_passed",
+        qa_status: "passed",
+        lifecycle_status: "qa_passed",
+        inventory_status: "transferred_rr",
+        dispatch_status: "waiting_inventory_return",
+      },
+      "QA Passed"
+    );
+  };
+
+  const qaFail = async (item) => {
+    if (!getAllowedHODActions(item, user).qaFail) {
+      toast.error("Only RR HOD can fail QA after technician submits.");
+      return;
+    }
+
+    await updateRequest(
+      item,
+      {
+        rr_status: "qa_failed",
+        qa_status: "failed",
+        lifecycle_status: "qa_failed",
+        inventory_status: "transferred_rr",
+        dispatch_status: "waiting_rr_rework",
+      },
+      "QA Failed",
+      "warning"
+    );
+  };
+
+  const sendBackInventory = async (item) => {
+    if (!getAllowedHODActions(item, user).sendInventory) {
+      toast.error("Only QA-passed parts can be sent back to Inventory.");
       return;
     }
 
@@ -272,10 +570,36 @@ function RRPartRequests() {
       item,
       {
         rr_status: "returned_inventory",
-        status: "pending_inventory_return",
-        lifecycle_status: "returned_to_inventory",
+        qa_status: "passed",
+        inventory_status: "rr_verified",
+        dispatch_status: "ready_for_dispatch",
+        finance_status: "pending",
+        lifecycle_status: "ready_for_dispatch",
       },
-      "Return To Inventory"
+      "Send Back To Inventory"
+    );
+  };
+
+  const scrapPart = async (item) => {
+    if (!getAllowedHODActions(item, user).scrap) {
+      toast.error("Only RR HOD can scrap after QA/review stage.");
+      return;
+    }
+
+    const ok = window.confirm("Confirm this part cannot be fixed and should be scrapped?");
+    if (!ok) return;
+
+    await updateRequest(
+      item,
+      {
+        rr_status: "scrapped",
+        qa_status: "failed",
+        inventory_status: "scrapped",
+        dispatch_status: "not_dispatchable",
+        lifecycle_status: "scrapped",
+      },
+      "Scrap",
+      "warning"
     );
   };
 
@@ -290,6 +614,8 @@ function RRPartRequests() {
           item.ticket_number,
           item.ticket_id,
           item.part_name,
+          item.spare_part_name,
+          item.item_name,
           item.part_type,
           item.reason,
           item.reason_category,
@@ -298,8 +624,10 @@ function RRPartRequests() {
           item.qa_status,
           item.lifecycle_status,
           item.dispatch_status,
+          item.inventory_status,
+          item.finance_status,
           getEngineerName(item),
-          getAssignedTechName(item.assigned_rr_technician),
+          getAssignedTechName(item.assigned_rr_technician || item.assigned_to),
         ]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(q))
@@ -324,7 +652,6 @@ function RRPartRequests() {
     qa_failed: XCircle,
     returned_inventory: RotateCcw,
     scrapped: Trash2,
-    sold: Banknote,
     all: PackageCheck,
   };
 
@@ -364,13 +691,13 @@ function RRPartRequests() {
 
             <div>
               <p className="text-xs uppercase tracking-[0.25em] text-orange-300 font-semibold">
-                ARK ONE ERP / Repair & Refurbishment
+                ARK ONE ERP / RR HOD CONTROL
               </p>
               <h1 className="text-2xl md:text-3xl font-black text-white mt-1">
-                RR Part Requests
+                RR Intake, Assignment & QA
               </h1>
               <p className="text-sm text-blue-100 mt-1 max-w-3xl">
-                Receive failed parts, assign RR technician, repair, submit to QA, and return only QA-passed parts to Inventory.
+                Inventory → RR HOD receive → Assign RR Tech → RR Tech repair → RR HOD QA → Send Back Inventory.
               </p>
             </div>
           </div>
@@ -382,22 +709,37 @@ function RRPartRequests() {
               disabled={loading}
               className={outlineButton}
             >
-              <RefreshCw className="w-4 h-4 mr-2" />
+              {loading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4 mr-2" />
+              )}
               Refresh
             </Button>
 
-            <Button
-              onClick={printReport}
-              className="bg-[#ff5a00] hover:bg-[#e24f00] text-white shadow-lg shadow-orange-950/40"
-            >
-              <Printer className="w-4 h-4 mr-2" />
-              Print Report
-            </Button>
+            {canAccess(role, "print_rr_report") && (
+              <Button
+                onClick={printReport}
+                className="bg-[#ff5a00] hover:bg-[#e24f00] text-white shadow-lg shadow-orange-950/40"
+              >
+                <Printer className="w-4 h-4 mr-2" />
+                Print Report
+              </Button>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="no-print grid grid-cols-2 md:grid-cols-4 xl:grid-cols-11 gap-3">
+      <div className="no-print rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+        <p className="text-sm text-emerald-200 font-semibold">
+          RR HOD page only:
+        </p>
+        <p className="text-xs text-emerald-100 mt-1">
+          Receive, assign technician, QA pass/fail, scrap, and send back to Inventory. Repair, consumables, funds, and submit QA belong to RR Technician page.
+        </p>
+      </div>
+
+      <div className="no-print grid grid-cols-2 md:grid-cols-4 xl:grid-cols-10 gap-3">
         {RR_FILTERS.map((filter) => {
           const Icon = cardIcon[filter.key] || PackageCheck;
           const isActive = activeFilter === filter.key;
@@ -413,9 +755,9 @@ function RRPartRequests() {
               }`}
             >
               <CardContent className="relative p-4">
-                <div className={`absolute inset-x-0 top-0 h-1 bg-gradient-to-r ${filter.accent}`} />
-                <div className={`mb-3 inline-flex rounded-xl bg-gradient-to-br ${filter.accent} p-2 shadow-lg`}>
-                  <Icon className="w-5 h-5 text-white" />
+                <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#ff5a00] to-[#102969]" />
+                <div className="mb-3 inline-flex rounded-xl bg-[#ff5a00]/20 p-2 shadow-lg">
+                  <Icon className="w-5 h-5 text-[#ff5a00]" />
                 </div>
                 <p className="text-[11px] leading-tight text-blue-100/80 min-h-[28px]">
                   {filter.label}
@@ -435,7 +777,10 @@ function RRPartRequests() {
             <div className="flex items-center gap-2 text-blue-100">
               <Activity className="h-4 w-4 text-[#ff5a00]" />
               <span className="text-sm">
-                Active filter: <strong className="text-white">{RR_FILTERS.find((item) => item.key === activeFilter)?.label}</strong>
+                Active filter:{" "}
+                <strong className="text-white">
+                  {RR_FILTERS.find((item) => item.key === activeFilter)?.label}
+                </strong>
               </span>
             </div>
 
@@ -465,9 +810,13 @@ function RRPartRequests() {
 
           <CardContent className="p-0">
             {loading ? (
-              <p className="p-5 text-sm text-blue-100 print:text-slate-700">Loading RR requests...</p>
+              <p className="p-5 text-sm text-blue-100 print:text-slate-700">
+                Loading RR requests...
+              </p>
             ) : filteredRequests.length === 0 ? (
-              <p className="p-5 text-sm text-blue-100 print:text-slate-700">No RR part request found.</p>
+              <p className="p-5 text-sm text-blue-100 print:text-slate-700">
+                No RR part request found.
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse">
@@ -480,257 +829,218 @@ function RRPartRequests() {
                       <th className="text-left p-3 border border-white/10">RR Tech</th>
                       <th className="text-left p-3 border border-white/10">RR Status</th>
                       <th className="text-left p-3 border border-white/10">QA</th>
+                      <th className="text-left p-3 border border-white/10">Inventory</th>
+                      <th className="text-left p-3 border border-white/10">Dispatch</th>
+                      <th className="text-left p-3 border border-white/10">Finance</th>
                       <th className="text-left p-3 border border-white/10">Lifecycle</th>
                       <th className="text-left p-3 border border-white/10">Updated</th>
-                      <th className="text-left p-3 border border-white/10 min-w-[560px] no-print">Actions</th>
+                      <th className="text-left p-3 border border-white/10 min-w-[500px] no-print">
+                        HOD Actions
+                      </th>
                     </tr>
                   </thead>
 
                   <tbody>
-                    {filteredRequests.map((item, index) => (
-                      <tr
-                        key={item.id}
-                        className={`align-top text-white transition hover:bg-[#173b9a]/70 print:text-[#102969] print:bg-white ${
-                          index % 2 === 0 ? "bg-[#102969]/80" : "bg-[#08153d]/80"
-                        }`}
-                      >
-                        <td className="p-3 border border-white/10 print:border-slate-300 font-semibold">
-                          {item.ticket_number || item.ticket_id || "-"}
-                        </td>
+                    {filteredRequests.map((item, index) => {
+                      const actions = getAllowedHODActions(item, user);
 
-                        <td className="p-3 border border-white/10 print:border-slate-300">
-                          <div className="font-semibold text-white print:text-[#102969]">
-                            {item.part_name || item.part_type || "Part Request"}
-                          </div>
-                          <div className="text-xs text-blue-100/70 print:text-slate-500">
-                            {item.reason_category || item.reason || "No reason captured"}
-                          </div>
-                        </td>
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`align-top text-white transition hover:bg-[#173b9a]/70 print:text-[#102969] print:bg-white ${
+                            index % 2 === 0 ? "bg-[#102969]/80" : "bg-[#08153d]/80"
+                          }`}
+                        >
+                          <td className="p-3 border border-white/10 print:border-slate-300 font-semibold">
+                            {getTicketNumber(item)}
+                          </td>
 
-                        <td className="p-3 border border-white/10 print:border-slate-300">
-                          {item.quantity || 1}
-                        </td>
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            <div className="font-semibold text-white print:text-[#102969]">
+                              {getPartName(item)}
+                            </div>
+                            <div className="text-xs text-blue-100/70 print:text-slate-500">
+                              {item.reason_category || item.reason || "No reason captured"}
+                            </div>
+                          </td>
 
-                        <td className="p-3 border border-white/10 print:border-slate-300">
-                          {getEngineerName(item)}
-                        </td>
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            {item.quantity || 1}
+                          </td>
 
-                        <td className="p-3 border border-white/10 print:border-slate-300">
-                          {item.assigned_rr_technician ? (
-                            <span className="font-semibold text-orange-200 print:text-[#102969]">
-                              {getAssignedTechName(item.assigned_rr_technician)}
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            {getEngineerName(item)}
+                          </td>
+
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            {item.assigned_rr_technician || item.assigned_to ? (
+                              <span className="font-semibold text-orange-200 print:text-[#102969]">
+                                {getAssignedTechName(item.assigned_rr_technician || item.assigned_to)}
+                              </span>
+                            ) : (
+                              <span className="text-blue-100/60 print:text-slate-500">
+                                Not assigned
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(item.rr_status || getRequestState(item))}`}>
+                              {statusLabel(item.rr_status || getRequestState(item))}
                             </span>
-                          ) : (
-                            <span className="text-blue-100/60 print:text-slate-500">Not assigned</span>
-                          )}
-                        </td>
+                          </td>
 
-                        <td className="p-3 border border-white/10 print:border-slate-300">
-                          <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(item.rr_status)}`}>
-                            {statusLabel(item.rr_status)}
-                          </span>
-                        </td>
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(item.qa_status || "pending")}`}>
+                              {statusLabel(item.qa_status || "pending")}
+                            </span>
+                          </td>
 
-                        <td className="p-3 border border-white/10 print:border-slate-300">
-                          <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(item.qa_status)}`}>
-                            {statusLabel(item.qa_status || "pending")}
-                          </span>
-                        </td>
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(item.inventory_status || "waiting")}`}>
+                              {statusLabel(item.inventory_status || "waiting")}
+                            </span>
+                          </td>
 
-                        <td className="p-3 border border-white/10 print:border-slate-300">
-                          <span className="text-xs uppercase text-blue-100 print:text-[#102969]">
-                            {item.lifecycle_status || "-"}
-                          </span>
-                        </td>
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(item.dispatch_status || "waiting")}`}>
+                              {statusLabel(item.dispatch_status || "waiting")}
+                            </span>
+                          </td>
 
-                        <td className="p-3 border border-white/10 print:border-slate-300 text-xs">
-                          {item.updated_at ? new Date(item.updated_at).toLocaleString() : "-"}
-                        </td>
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            <span className={`inline-flex rounded-full border px-2 py-1 text-[11px] font-bold ${statusBadgeClass(item.finance_status || "waiting")}`}>
+                              {statusLabel(item.finance_status || "waiting")}
+                            </span>
+                          </td>
 
-                        <td className="p-3 border border-white/10 no-print">
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className={outlineButton}
-                              disabled={updatingId === item.id}
-                              onClick={() =>
-                                updateRequest(
-                                  item,
-                                  {
-                                    rr_status: "received",
-                                    status: "rr_received",
-                                    lifecycle_status: "received_by_rr",
-                                  },
-                                  "Receive Part"
-                                )
-                              }
-                            >
-                              Receive
-                            </Button>
+                          <td className="p-3 border border-white/10 print:border-slate-300">
+                            <span className="text-xs uppercase text-blue-100 print:text-[#102969]">
+                              {item.lifecycle_status || "-"}
+                            </span>
+                          </td>
 
-                            <select
-                              className="h-9 rounded-md border border-white/10 bg-[#08153d] px-2 text-sm text-white outline-none focus:ring-2 focus:ring-[#ff5a00]"
-                              value={selectedTech[item.id] || ""}
-                              onChange={(e) =>
-                                setSelectedTech((prev) => ({
-                                  ...prev,
-                                  [item.id]: e.target.value,
-                                }))
-                              }
-                            >
-                              <option className="bg-[#08153d] text-white" value="">Select RR Tech</option>
-                              {rrUsers.map((user) => (
-                                <option
-                                  className="bg-[#08153d] text-white"
-                                  key={user.id || user.user_id}
-                                  value={user.user_id || user.id}
+                          <td className="p-3 border border-white/10 print:border-slate-300 text-xs">
+                            {item.updated_at ? new Date(item.updated_at).toLocaleString() : "-"}
+                          </td>
+
+                          <td className="p-3 border border-white/10 no-print">
+                            <div className="flex flex-wrap gap-2">
+                              {actions.receive && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className={outlineButton}
+                                  disabled={updatingId === item.id}
+                                  onClick={() => receivePart(item)}
                                 >
-                                  {user.full_name || user.name || user.email}
-                                </option>
-                              ))}
-                            </select>
+                                  Receive
+                                </Button>
+                              )}
 
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className={outlineButton}
-                              disabled={updatingId === item.id}
-                              onClick={() => assignTechnician(item)}
-                            >
-                              Assign
-                            </Button>
+                              {actions.assign && (
+                                <>
+                                  <select
+                                    className="h-9 rounded-md border border-white/10 bg-[#08153d] px-2 text-sm text-white outline-none focus:ring-2 focus:ring-[#ff5a00]"
+                                    value={selectedTech[item.id] || ""}
+                                    onChange={(event) =>
+                                      setSelectedTech((prev) => ({
+                                        ...prev,
+                                        [item.id]: event.target.value,
+                                      }))
+                                    }
+                                  >
+                                    <option className="bg-[#08153d] text-white" value="">
+                                      Select RR Tech
+                                    </option>
+                                    {rrUsers.map((rrUser) => (
+                                      <option
+                                        className="bg-[#08153d] text-white"
+                                        key={rrUser.id || rrUser.user_id || rrUser.user_email}
+                                        value={rrUser.id || rrUser.user_id || rrUser.user_email}
+                                      >
+                                        {rrUser.full_name ||
+                                          rrUser.name ||
+                                          rrUser.user_email ||
+                                          rrUser.email ||
+                                          rrUser.username ||
+                                          rrUser.id ||
+                                          "Unnamed User"}
+                                      </option>
+                                    ))}
+                                  </select>
 
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className={outlineButton}
-                              disabled={updatingId === item.id}
-                              onClick={() =>
-                                updateRequest(
-                                  item,
-                                  {
-                                    rr_status: "under_repair",
-                                    lifecycle_status: "under_repair",
-                                  },
-                                  "Start Repair"
-                                )
-                              }
-                            >
-                              Repair
-                            </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className={outlineButton}
+                                    disabled={updatingId === item.id}
+                                    onClick={() => assignTechnician(item)}
+                                  >
+                                    Assign
+                                  </Button>
+                                </>
+                              )}
 
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className={outlineButton}
-                              disabled={updatingId === item.id}
-                              onClick={() =>
-                                updateRequest(
-                                  item,
-                                  {
-                                    rr_status: "waiting_qa",
-                                    qa_status: "pending",
-                                    lifecycle_status: "waiting_qa",
-                                  },
-                                  "Submit To QA"
-                                )
-                              }
-                            >
-                              Submit QA
-                            </Button>
+                              {actions.qaPass && (
+                                <Button
+                                  size="sm"
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                  disabled={updatingId === item.id}
+                                  onClick={() => qaPass(item)}
+                                >
+                                  QA Pass
+                                </Button>
+                              )}
 
-                            <Button
-                              size="sm"
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                              disabled={updatingId === item.id}
-                              onClick={() =>
-                                updateRequest(
-                                  item,
-                                  {
-                                    rr_status: "qa_passed",
-                                    qa_status: "passed",
-                                    qa_tested_by: null,
-                                    qa_tested_at: new Date().toISOString(),
-                                    lifecycle_status: "qa_passed",
-                                  },
-                                  "QA Passed"
-                                )
-                              }
-                            >
-                              QA Pass
-                            </Button>
+                              {actions.qaFail && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={updatingId === item.id}
+                                  onClick={() => qaFail(item)}
+                                >
+                                  QA Fail
+                                </Button>
+                              )}
 
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              disabled={updatingId === item.id}
-                              onClick={() =>
-                                updateRequest(
-                                  item,
-                                  {
-                                    rr_status: "qa_failed",
-                                    qa_status: "failed",
-                                    qa_tested_by: null,
-                                    qa_tested_at: new Date().toISOString(),
-                                    lifecycle_status: "qa_failed",
-                                  },
-                                  "QA Failed"
-                                )
-                              }
-                            >
-                              QA Fail
-                            </Button>
+                              {actions.sendInventory && (
+                                <Button
+                                  size="sm"
+                                  className="bg-[#ff5a00] hover:bg-[#e24f00] text-white"
+                                  disabled={updatingId === item.id}
+                                  onClick={() => sendBackInventory(item)}
+                                >
+                                  Send Back Inventory
+                                </Button>
+                              )}
 
-                            <Button
-                              size="sm"
-                              className="bg-[#ff5a00] hover:bg-[#e24f00] text-white"
-                              disabled={updatingId === item.id}
-                              onClick={() => returnToInventory(item)}
-                            >
-                              Return Inventory
-                            </Button>
+                              {actions.scrap && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  disabled={updatingId === item.id}
+                                  onClick={() => scrapPart(item)}
+                                >
+                                  Scrap
+                                </Button>
+                              )}
 
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              disabled={updatingId === item.id}
-                              onClick={() =>
-                                updateRequest(
-                                  item,
-                                  {
-                                    rr_status: "scrapped",
-                                    lifecycle_status: "scrapped",
-                                  },
-                                  "Scrap"
-                                )
-                              }
-                            >
-                              Scrap
-                            </Button>
-
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className={outlineButton}
-                              disabled={updatingId === item.id}
-                              onClick={() =>
-                                updateRequest(
-                                  item,
-                                  {
-                                    rr_status: "sold",
-                                    lifecycle_status: "sold",
-                                  },
-                                  "Sold"
-                                )
-                              }
-                            >
-                              Sold
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                              {!actions.receive &&
+                                !actions.assign &&
+                                !actions.qaPass &&
+                                !actions.qaFail &&
+                                !actions.sendInventory &&
+                                !actions.scrap && (
+                                  <span className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-blue-100">
+                                    No HOD action at this stage
+                                  </span>
+                                )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -741,5 +1051,3 @@ function RRPartRequests() {
     </div>
   );
 }
-
-export default RRPartRequests;

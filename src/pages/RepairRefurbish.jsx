@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useOutletContext } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabaseClient';
@@ -7,68 +7,30 @@ import { supabase } from '@/lib/supabaseClient';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-
-import {
-  Plus,
   Search,
   Wrench,
   Loader2,
   ClipboardCheck,
   PackageCheck,
   PackagePlus,
-  ShieldCheck,
-  XCircle,
-  RotateCcw,
   AlertTriangle,
+  RotateCcw,
+  DollarSign,
 } from 'lucide-react';
 
-const EMPTY_JOB = {
-  source_type: 'returned_damaged_part',
-  received_from: 'field_engineer',
-  item_name: '',
-  part_number: '',
-  machine_brand: '',
-  machine_model: '',
-  quantity_received: 1,
-  condition_on_arrival: 'faulty',
-  fault_description: '',
-  action_required: 'repair',
-  test_result: 'pending',
-  status: 'received',
-  good_quantity: 0,
-  bad_quantity: 0,
-  parts_used: '',
-  final_remark: '',
-  inventory_transfer_status: 'not_ready',
-};
-
 const STATUS = {
-  received: 'Received',
-  assigned: 'Assigned',
+  received: 'Received By HOD',
+  assigned: 'Assigned To Me',
   refurbishing: 'Under Repair',
   awaiting_parts: 'Awaiting Consumables',
-  testing: 'Waiting QA',
-  qa_failed: 'QA Failed',
-  ready_for_inventory: 'QA Passed / Ready for Inventory',
-  sent_to_inventory: 'Sent to Inventory',
+  awaiting_fund: 'Awaiting Fund',
+  testing: 'Submitted To HOD QA',
+  qa_failed: 'QA Failed / Rework',
+  ready_for_inventory: 'QA Passed / HOD Review',
+  sent_to_inventory: 'Sent To Inventory',
   scrap: 'Scrap',
 };
 
@@ -89,50 +51,84 @@ function normalize(value) {
   return String(value || '').toLowerCase().trim();
 }
 
-function isPrivilegedRRUser(user) {
+function isRRHODOrAdmin(user) {
   const role = normalize(user?.role || user?.user_role || user?.position);
-  const department = normalize(user?.department);
-  const email = normalize(user?.email);
-
   return (
     role.includes('admin') ||
+    role.includes('rr_hod') ||
+    role.includes('repair_head') ||
+    role.includes('repair hod') ||
     role.includes('hod') ||
-    role.includes('head') ||
-    role.includes('qa') ||
-    department.includes('management') ||
-    email.includes('admin')
+    role.includes('head')
   );
-}
-
-function canQA(user) {
-  const role = normalize(user?.role || user?.user_role || user?.position);
-  return isPrivilegedRRUser(user) || role.includes('qa') || role.includes('quality');
 }
 
 function getJobTitle(job) {
   return job.item_name || job.device_name || job.part_name || job.part_type || 'R/R Item';
 }
 
+function getRepairJobState(job) {
+  const status = normalize(job?.status);
+  const testResult = normalize(job?.test_result);
+  const transferStatus = normalize(job?.inventory_transfer_status);
+
+  if (status === 'sent_to_inventory' || transferStatus === 'transferred') return 'sent_to_inventory';
+  if (status === 'ready_for_inventory' || testResult === 'passed') return 'ready_for_inventory';
+  if (status === 'qa_failed' || testResult === 'failed') return 'qa_failed';
+  if (status === 'testing') return 'testing';
+  if (status === 'awaiting_parts') return 'awaiting_parts';
+  if (status === 'awaiting_fund') return 'awaiting_fund';
+  if (status === 'refurbishing' || status === 'under_repair') return 'refurbishing';
+  if (status === 'assigned' || status === 'received' || status === 'pending_rr') return 'assigned';
+  if (status === 'scrap' || status === 'scrapped') return 'scrap';
+
+  return status || 'assigned';
+}
+
+function canDoRepairJobAction(job, action) {
+  const state = getRepairJobState(job);
+
+  const allowed = {
+    assigned: ['start_rr_repair'],
+    refurbishing: ['request_consumable', 'request_fund', 'submit_rr_qa'],
+    awaiting_parts: ['start_rr_repair', 'submit_rr_qa'],
+    awaiting_fund: ['start_rr_repair', 'submit_rr_qa'],
+    qa_failed: ['start_rr_repair', 'request_consumable', 'request_fund'],
+    testing: [],
+    ready_for_inventory: [],
+    sent_to_inventory: [],
+    scrap: [],
+  };
+
+  return allowed[state]?.includes(action) || false;
+}
+
+function filterPayloadByExistingColumns(row, payload) {
+  const safePayload = {};
+
+  Object.entries(payload).forEach(([key, value]) => {
+    if (Object.prototype.hasOwnProperty.call(row, key)) {
+      safePayload[key] = value;
+    }
+  });
+
+  return safePayload;
+}
+
 export default function RepairRefurbish() {
   const outlet = useOutletContext() || {};
   const user = outlet.user || outlet.profile || outlet.currentUser || null;
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(EMPTY_JOB);
-  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('assigned_to_me');
   const [updatingId, setUpdatingId] = useState(null);
 
   const userId = user?.id || user?.user_id || user?.auth_id;
   const userEmail = user?.email || user?.user_email || '';
-  const canCreateManualJob = isPrivilegedRRUser(user);
-  const userCanQA = canQA(user);
+  const canViewAll = isRRHODOrAdmin(user);
 
-  // IMPORTANT:
-  // RR assignment stores user_profiles.id in repair_jobs.assigned_rr_technician / assigned_to.
-  // Supabase auth user.id is different, so we first resolve the logged-in user's profile id.
   const [profileId, setProfileId] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
 
@@ -152,14 +148,11 @@ export default function RepairRefurbish() {
 
           if (data?.id) {
             setProfileId(data.id);
-            console.log('RR REPAIR PROFILE FOUND:', data);
             return;
           }
         }
 
-        // Fallback only, in case AppLayout already passed user_profiles.id.
         setProfileId(userId || null);
-        console.log('RR REPAIR PROFILE FALLBACK:', { userId, userEmail, user });
       } catch (error) {
         console.error('Failed to load RR profile:', error);
         setProfileId(userId || null);
@@ -172,15 +165,15 @@ export default function RepairRefurbish() {
   }, [userEmail, userId]);
 
   const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['repair-jobs', profileId, canCreateManualJob],
-    enabled: canCreateManualJob || !!profileId,
+    queryKey: ['repair-jobs', profileId, canViewAll],
+    enabled: canViewAll || !!profileId,
     queryFn: async () => {
       let query = supabase
         .from('repair_jobs')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!canCreateManualJob && profileId) {
+      if (!canViewAll && profileId) {
         query = query.or(
           `assigned_rr_technician.eq.${profileId},assigned_to.eq.${profileId}`
         );
@@ -190,31 +183,178 @@ export default function RepairRefurbish() {
 
       if (error) throw error;
 
-      console.log('RR REPAIR JOBS FOUND:', {
-        profileId,
-        canCreateManualJob,
-        count: data?.length || 0,
-        data,
-      });
-
       return data || [];
     },
   });
 
+  const updateLinkedPartRequest = async (job, payload) => {
+    try {
+      if (!job.part_request_id) return;
+
+      const partPayload = {};
+
+      if (payload.status === 'refurbishing') {
+        partPayload.rr_status = 'under_repair';
+        partPayload.lifecycle_status = 'under_repair';
+        partPayload.inventory_status = 'transferred_rr';
+        partPayload.dispatch_status = 'waiting_rr';
+      }
+
+      if (payload.status === 'awaiting_parts') {
+        partPayload.rr_status = 'under_repair';
+        partPayload.lifecycle_status = 'awaiting_consumables';
+        partPayload.inventory_status = 'transferred_rr';
+        partPayload.dispatch_status = 'waiting_rr';
+      }
+
+      if (payload.status === 'awaiting_fund') {
+        partPayload.rr_status = 'under_repair';
+        partPayload.lifecycle_status = 'awaiting_rr_fund';
+        partPayload.inventory_status = 'transferred_rr';
+        partPayload.dispatch_status = 'waiting_rr';
+      }
+
+      if (payload.status === 'testing') {
+        partPayload.rr_status = 'waiting_qa';
+        partPayload.qa_status = 'pending';
+        partPayload.lifecycle_status = 'waiting_qa';
+        partPayload.inventory_status = 'transferred_rr';
+        partPayload.dispatch_status = 'waiting_rr';
+      }
+
+      const shouldUpdate = Object.keys(partPayload).length > 0;
+      if (!shouldUpdate) return;
+
+      partPayload.updated_at = new Date().toISOString();
+
+      await supabase
+        .from('part_requests')
+        .update(partPayload)
+        .eq('id', job.part_request_id);
+    } catch (error) {
+      console.warn('Linked part request update skipped:', error);
+    }
+  };
+
+  const updateJob = async (job, payload, message) => {
+    setUpdatingId(job.id);
+
+    const safePayload = filterPayloadByExistingColumns(job, {
+      ...payload,
+      updated_at: new Date().toISOString(),
+    });
+
+    const { error } = await supabase
+      .from('repair_jobs')
+      .update(safePayload)
+      .eq('id', job.id);
+
+    if (error) {
+      alert('Status update failed: ' + error.message);
+      setUpdatingId(null);
+      return;
+    }
+
+    await updateLinkedPartRequest(job, safePayload);
+
+    await supabase.from('operations_events').insert({
+      event_type: 'RR_TECH_JOB_UPDATE',
+      title: message,
+      description: `${message} for ${job.job_number || job.id}`,
+      source_module: 'Repair & Refurbishment',
+      entity_type: 'repair_job',
+      entity_id: job.id,
+      severity: payload.status === 'qa_failed' ? 'warning' : 'info',
+    });
+
+    qc.invalidateQueries({ queryKey: ['repair-jobs'] });
+    setUpdatingId(null);
+  };
+
+  const startRepair = (job) => {
+    if (!canDoRepairJobAction(job, 'start_rr_repair')) {
+      alert('This repair job is not ready to start/rework.');
+      return;
+    }
+
+    updateJob(
+      job,
+      {
+        status: 'refurbishing',
+        test_result: 'pending',
+        inventory_transfer_status: 'not_ready',
+      },
+      getRepairJobState(job) === 'qa_failed' ? 'Rework started' : 'Repair started'
+    );
+  };
+
+  const requestConsumables = async (job) => {
+    if (!canDoRepairJobAction(job, 'request_consumable')) {
+      alert('Consumables can only be requested while the job is under repair or rework stage.');
+      return;
+    }
+
+    await updateJob(
+      job,
+      {
+        status: 'awaiting_parts',
+        inventory_transfer_status: 'not_ready',
+      },
+      'RR technician requested consumables'
+    );
+
+    navigate(`/rr-consumable-requests?job_id=${job.id}`);
+  };
+
+  const requestFund = async (job) => {
+    if (!canDoRepairJobAction(job, 'request_fund')) {
+      alert('Funds can only be requested while the job is under repair or rework stage.');
+      return;
+    }
+
+    await updateJob(
+      job,
+      {
+        status: 'awaiting_fund',
+        inventory_transfer_status: 'not_ready',
+      },
+      'RR technician requested repair fund'
+    );
+
+    navigate(`/rr-fund-requests?job_id=${job.id}`);
+  };
+
+  const submitQA = (job) => {
+    if (!canDoRepairJobAction(job, 'submit_rr_qa')) {
+      alert('This repair job is not ready for QA submission.');
+      return;
+    }
+
+    updateJob(
+      job,
+      {
+        status: 'testing',
+        test_result: 'pending',
+        inventory_transfer_status: 'not_ready',
+      },
+      'Submitted to RR HOD for QA'
+    );
+  };
+
   const counts = useMemo(() => ({
-    assigned: jobs.filter((j) => j.status === 'assigned' || j.status === 'received').length,
+    assigned: jobs.filter((j) => ['assigned', 'received', 'pending_rr'].includes(normalize(j.status))).length,
     underRepair: jobs.filter((j) => j.status === 'refurbishing').length,
     awaitingParts: jobs.filter((j) => j.status === 'awaiting_parts').length,
-    waitingQa: jobs.filter((j) => j.status === 'testing' || j.test_result === 'pending').length,
+    awaitingFund: jobs.filter((j) => j.status === 'awaiting_fund').length,
+    waitingQa: jobs.filter((j) => j.status === 'testing').length,
     qaFailed: jobs.filter((j) => j.status === 'qa_failed' || j.test_result === 'failed').length,
-    ready: jobs.filter((j) => j.status === 'ready_for_inventory' || j.test_result === 'passed').length,
   }), [jobs]);
 
   const filtered = useMemo(() => {
     let list = jobs;
 
     if (activeFilter === 'assigned_to_me') {
-      if (!canCreateManualJob && profileId) {
+      if (!canViewAll && profileId) {
         list = list.filter((j) =>
           j.assigned_rr_technician === profileId ||
           j.assigned_to === profileId
@@ -230,16 +370,16 @@ export default function RepairRefurbish() {
       list = list.filter((j) => j.status === 'awaiting_parts');
     }
 
+    if (activeFilter === 'awaiting_fund') {
+      list = list.filter((j) => j.status === 'awaiting_fund');
+    }
+
     if (activeFilter === 'waiting_qa') {
-      list = list.filter((j) => j.status === 'testing' || j.test_result === 'pending');
+      list = list.filter((j) => j.status === 'testing');
     }
 
     if (activeFilter === 'qa_failed') {
       list = list.filter((j) => j.status === 'qa_failed' || j.test_result === 'failed');
-    }
-
-    if (activeFilter === 'ready_inventory') {
-      list = list.filter((j) => j.status === 'ready_for_inventory' || j.test_result === 'passed');
     }
 
     if (search) {
@@ -270,192 +410,15 @@ export default function RepairRefurbish() {
     }
 
     return list;
-  }, [jobs, search, activeFilter, profileId, canCreateManualJob]);
-
-  const updateField = (key, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
-
-  const createJob = async () => {
-    if (!canCreateManualJob) {
-      alert('Only RR HOD/Admin can create manual R/R jobs. Technicians receive assigned jobs from RR HOD.');
-      return;
-    }
-
-    if (!form.item_name.trim()) {
-      alert('Item / Part Name is required.');
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const jobNumber = `RR-${Date.now()}`;
-
-      const payload = {
-        ...form,
-        quantity_received: Number(form.quantity_received) || 1,
-        good_quantity: Number(form.good_quantity) || 0,
-        bad_quantity: Number(form.bad_quantity) || 0,
-        job_number: jobNumber,
-        received_by: userEmail,
-        device_name: form.item_name,
-        diagnosis: form.final_remark,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase.from('repair_jobs').insert(payload);
-
-      if (error) throw error;
-
-      await supabase.from('operations_events').insert({
-        event_type: 'RR_MANUAL_JOB_CREATED',
-        title: 'Manual R/R job created',
-        description: `${jobNumber} created by ${userEmail || 'RR user'}`,
-        source_module: 'Repair & Refurbishment',
-        entity_type: 'repair_job',
-        severity: 'info',
-      });
-
-      qc.invalidateQueries({ queryKey: ['repair-jobs'] });
-      setForm(EMPTY_JOB);
-      setOpen(false);
-    } catch (err) {
-      alert('R/R job creation failed: ' + err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateJob = async (job, payload, message) => {
-    setUpdatingId(job.id);
-
-    const { error } = await supabase
-      .from('repair_jobs')
-      .update({
-        ...payload,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', job.id);
-
-    if (error) {
-      alert('Status update failed: ' + error.message);
-      setUpdatingId(null);
-      return;
-    }
-
-    await supabase.from('operations_events').insert({
-      event_type: 'RR_REPAIR_JOB_UPDATE',
-      title: message,
-      description: `${message} for ${job.job_number || job.id}`,
-      source_module: 'Repair & Refurbishment',
-      entity_type: 'repair_job',
-      entity_id: job.id,
-      severity: payload.test_result === 'failed' ? 'warning' : 'info',
-    });
-
-    qc.invalidateQueries({ queryKey: ['repair-jobs'] });
-    setUpdatingId(null);
-  };
-
-  const startRepair = (job) => {
-    updateJob(
-      job,
-      {
-        status: 'refurbishing',
-        inventory_transfer_status: 'not_ready',
-      },
-      'Repair started'
-    );
-  };
-
-  const requestConsumables = (job) => {
-    updateJob(
-      job,
-      {
-        status: 'awaiting_parts',
-        inventory_transfer_status: 'not_ready',
-      },
-      'Consumables requested / awaiting parts'
-    );
-
-    window.location.assign(`#/rr-consumable-requests?job=${job.id}`);
-  };
-
-  const submitQA = (job) => {
-    updateJob(
-      job,
-      {
-        status: 'testing',
-        test_result: 'pending',
-        inventory_transfer_status: 'not_ready',
-      },
-      'Submitted to QA'
-    );
-  };
-
-  const qaPass = (job) => {
-    if (!userCanQA) {
-      alert('Only QA/RR HOD/Admin can pass QA.');
-      return;
-    }
-
-    updateJob(
-      job,
-      {
-        status: 'ready_for_inventory',
-        test_result: 'passed',
-        inventory_transfer_status: 'ready_to_transfer',
-      },
-      'QA passed - ready for Inventory'
-    );
-  };
-
-  const qaFail = (job) => {
-    if (!userCanQA) {
-      alert('Only QA/RR HOD/Admin can fail QA.');
-      return;
-    }
-
-    updateJob(
-      job,
-      {
-        status: 'qa_failed',
-        test_result: 'failed',
-        inventory_transfer_status: 'not_ready',
-      },
-      'QA failed - returned for rework'
-    );
-  };
-
-  const sendToInventory = (job) => {
-    if (job.test_result !== 'passed') {
-      alert('This job cannot be sent to Inventory until QA is passed.');
-      return;
-    }
-
-    updateJob(
-      job,
-      {
-        status: 'sent_to_inventory',
-        inventory_transfer_status: 'transferred',
-        completed_at: new Date().toISOString(),
-      },
-      'QA-passed job sent to Inventory'
-    );
-  };
+  }, [jobs, search, activeFilter, profileId, canViewAll]);
 
   const statusCards = [
     { key: 'assigned_to_me', label: 'Assigned To Me', value: counts.assigned, icon: Wrench },
     { key: 'under_repair', label: 'Under Repair', value: counts.underRepair, icon: PackageCheck },
     { key: 'awaiting_parts', label: 'Awaiting Consumables', value: counts.awaitingParts, icon: PackagePlus },
-    { key: 'waiting_qa', label: 'Waiting QA', value: counts.waitingQa, icon: ClipboardCheck },
+    { key: 'awaiting_fund', label: 'Awaiting Fund', value: counts.awaitingFund, icon: DollarSign },
+    { key: 'waiting_qa', label: 'Submitted QA', value: counts.waitingQa, icon: ClipboardCheck },
     { key: 'qa_failed', label: 'QA Failed', value: counts.qaFailed, icon: AlertTriangle },
-    { key: 'ready_inventory', label: 'Ready Inventory', value: counts.ready, icon: ShieldCheck },
   ];
 
   return (
@@ -468,19 +431,18 @@ export default function RepairRefurbish() {
           </h1>
 
           <p className="text-slate-300">
-            Assigned RR jobs, repair activity, consumable request, mandatory QA, and inventory handover.
+            RR Technician workspace: repair, request consumables/funds, and submit completed jobs to RR HOD for QA.
           </p>
         </div>
+      </div>
 
-        {canCreateManualJob && (
-          <Button
-            onClick={() => setOpen(true)}
-            className="bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Manual R/R Job
-          </Button>
-        )}
+      <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+        <p className="text-sm text-emerald-200 font-semibold">
+          RR Technician page only:
+        </p>
+        <p className="text-xs text-emerald-100 mt-1">
+          Start repair, request consumables, request repair fund, and submit QA. QA pass/fail, scrap, and send Inventory belong to RR HOD.
+        </p>
       </div>
 
       <div className="grid md:grid-cols-3 xl:grid-cols-6 gap-4">
@@ -504,7 +466,7 @@ export default function RepairRefurbish() {
       <Card className="bg-[#102969]/90 border border-white/10 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
-            <h2 className="text-lg font-bold text-white">R/R Jobs</h2>
+            <h2 className="text-lg font-bold text-white">R/R Technician Jobs</h2>
             <p className="text-xs text-slate-300">
               {filtered.length} job{filtered.length !== 1 ? 's' : ''}
             </p>
@@ -529,303 +491,146 @@ export default function RepairRefurbish() {
           <div className="text-center py-16 text-slate-300">
             <ClipboardCheck className="w-10 h-10 mx-auto mb-3 opacity-40" />
             <p>No R/R jobs found.</p>
-            {!canCreateManualJob && !profileId && (
-              <p className="text-xs text-orange-300 mt-2">User profile not resolved yet. Check user_email in user_profiles.</p>
+            {!canViewAll && !profileId && (
+              <p className="text-xs text-orange-300 mt-2">
+                User profile not resolved yet. Check user_email in user_profiles.
+              </p>
             )}
           </div>
         ) : (
           <div className="grid gap-3">
-            {filtered.map((job) => (
-              <div
-                key={job.id}
-                className="rounded-xl border border-white/10 bg-[#08153d]/70 p-4"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm text-slate-400 font-mono">
-                      {job.job_number || job.ticket_number || job.id}
-                    </p>
+            {filtered.map((job) => {
+              const state = getRepairJobState(job);
 
-                    <h3 className="text-white font-bold">
-                      {getJobTitle(job)}
-                    </h3>
+              return (
+                <div
+                  key={job.id}
+                  className="rounded-xl border border-white/10 bg-[#08153d]/70 p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-slate-400 font-mono">
+                        {job.job_number || job.ticket_number || job.id}
+                      </p>
 
-                    <p className="text-sm text-slate-300 mt-1">
-                      {job.fault_description || job.reason || 'No observation recorded'}
-                    </p>
+                      <h3 className="text-white font-bold">
+                        {getJobTitle(job)}
+                      </h3>
 
-                    <p className="text-xs text-slate-400 mt-2">
-                      {job.machine_brand || 'No brand'} · {job.machine_model || 'No model'} · Qty: {job.quantity_received || job.quantity || 1}
-                    </p>
+                      <p className="text-sm text-slate-300 mt-1">
+                        {job.fault_description || job.reason || 'No observation recorded'}
+                      </p>
+
+                      <p className="text-xs text-slate-400 mt-2">
+                        {job.machine_brand || 'No brand'} · {job.machine_model || 'No model'} · Qty: {job.quantity_received || job.quantity || 1}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Badge className="bg-[#ff5a00]/15 text-[#ff5a00] border border-[#ff5a00]/30">
+                        {STATUS[job.status] || job.status || 'Assigned'}
+                      </Badge>
+
+                      <Badge className="bg-green-500/10 text-green-300 border border-green-500/20">
+                        QA: {TEST_RESULT[job.test_result] || job.test_result || 'pending'}
+                      </Badge>
+                    </div>
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Badge className="bg-[#ff5a00]/15 text-[#ff5a00] border border-[#ff5a00]/30">
-                      {STATUS[job.status] || job.status || 'Assigned'}
-                    </Badge>
-
-                    <Badge className="bg-green-500/10 text-green-300 border border-green-500/20">
-                      QA: {TEST_RESULT[job.test_result] || job.test_result || 'pending'}
-                    </Badge>
+                  <div className="grid md:grid-cols-4 gap-3 mt-4 text-xs text-slate-300">
+                    <p>Source: {job.source_type || '—'}</p>
+                    <p>From: {job.received_from || '—'}</p>
+                    <p>Good: {job.good_quantity || 0}</p>
+                    <p>Bad/Scrap: {job.bad_quantity || 0}</p>
                   </div>
-                </div>
 
-                <div className="grid md:grid-cols-4 gap-3 mt-4 text-xs text-slate-300">
-                  <p>Source: {job.source_type || '—'}</p>
-                  <p>From: {job.received_from || '—'}</p>
-                  <p>Good: {job.good_quantity || 0}</p>
-                  <p>Bad/Scrap: {job.bad_quantity || 0}</p>
-                </div>
+                  <div className="grid md:grid-cols-3 gap-3 mt-2 text-xs text-slate-300">
+                    <p>Action: {job.action_required || '—'}</p>
+                    <p>Test: {TEST_RESULT[job.test_result] || job.test_result || '—'}</p>
+                    <p>Inventory: {TRANSFER_STATUS[job.inventory_transfer_status] || job.inventory_transfer_status || '—'}</p>
+                  </div>
 
-                <div className="grid md:grid-cols-3 gap-3 mt-2 text-xs text-slate-300">
-                  <p>Action: {job.action_required || '—'}</p>
-                  <p>Test: {TEST_RESULT[job.test_result] || job.test_result || '—'}</p>
-                  <p>Inventory: {TRANSFER_STATUS[job.inventory_transfer_status] || job.inventory_transfer_status || '—'}</p>
-                </div>
+                  {job.parts_used && (
+                    <p className="text-xs text-slate-300 mt-2">
+                      Parts Used: {job.parts_used}
+                    </p>
+                  )}
 
-                {job.parts_used && (
-                  <p className="text-xs text-slate-300 mt-2">
-                    Parts Used: {job.parts_used}
-                  </p>
-                )}
+                  {job.final_remark && (
+                    <p className="text-xs text-slate-300 mt-2">
+                      Remark: {job.final_remark}
+                    </p>
+                  )}
 
-                {job.final_remark && (
-                  <p className="text-xs text-slate-300 mt-2">
-                    Remark: {job.final_remark}
-                  </p>
-                )}
+                  <div className="flex flex-wrap gap-2 mt-4">
+                    {canDoRepairJobAction(job, 'start_rr_repair') && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={updatingId === job.id}
+                        onClick={() => startRepair(job)}
+                        className="border-white/10 text-white hover:bg-white/10"
+                      >
+                        {state === 'qa_failed' ? (
+                          <RotateCcw className="w-4 h-4 mr-1" />
+                        ) : (
+                          <Wrench className="w-4 h-4 mr-1" />
+                        )}
+                        {state === 'qa_failed' ? 'Rework' : 'Start Repair'}
+                      </Button>
+                    )}
 
-                <div className="flex flex-wrap gap-2 mt-4">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={updatingId === job.id}
-                    onClick={() => startRepair(job)}
-                    className="border-white/10 text-white hover:bg-white/10"
-                  >
-                    <Wrench className="w-4 h-4 mr-1" />
-                    Start Repair
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    disabled={updatingId === job.id}
-                    onClick={() => requestConsumables(job)}
-                    className="bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white"
-                  >
-                    <PackagePlus className="w-4 h-4 mr-1" />
-                    Request Consumables
-                  </Button>
-
-                  <Button
-                    size="sm"
-                    disabled={updatingId === job.id}
-                    onClick={() => submitQA(job)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    <ClipboardCheck className="w-4 h-4 mr-1" />
-                    Submit QA
-                  </Button>
-
-                  {userCanQA && (
-                    <>
+                    {canDoRepairJobAction(job, 'request_consumable') && (
                       <Button
                         size="sm"
                         disabled={updatingId === job.id}
-                        onClick={() => qaPass(job)}
-                        className="bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => requestConsumables(job)}
+                        className="bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white"
                       >
-                        <ShieldCheck className="w-4 h-4 mr-1" />
-                        QA Pass
+                        <PackagePlus className="w-4 h-4 mr-1" />
+                        Request Consumables
                       </Button>
+                    )}
 
+                    {canDoRepairJobAction(job, 'request_fund') && (
                       <Button
                         size="sm"
-                        variant="destructive"
                         disabled={updatingId === job.id}
-                        onClick={() => qaFail(job)}
+                        onClick={() => requestFund(job)}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
                       >
-                        <XCircle className="w-4 h-4 mr-1" />
-                        QA Fail
+                        <DollarSign className="w-4 h-4 mr-1" />
+                        Request Fund
                       </Button>
-                    </>
-                  )}
+                    )}
 
-                  {job.test_result === 'failed' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={updatingId === job.id}
-                      onClick={() => startRepair(job)}
-                      className="border-red-400/30 text-red-200 hover:bg-red-500/10"
-                    >
-                      <RotateCcw className="w-4 h-4 mr-1" />
-                      Rework
-                    </Button>
-                  )}
+                    {canDoRepairJobAction(job, 'submit_rr_qa') && (
+                      <Button
+                        size="sm"
+                        disabled={updatingId === job.id}
+                        onClick={() => submitQA(job)}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        <ClipboardCheck className="w-4 h-4 mr-1" />
+                        Submit To HOD QA
+                      </Button>
+                    )}
 
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={updatingId === job.id}
-                    onClick={() => sendToInventory(job)}
-                    className="border-green-400/30 text-green-200 hover:bg-green-500/10"
-                  >
-                    <PackageCheck className="w-4 h-4 mr-1" />
-                    Send Inventory
-                  </Button>
+                    {!canDoRepairJobAction(job, 'start_rr_repair') &&
+                      !canDoRepairJobAction(job, 'request_consumable') &&
+                      !canDoRepairJobAction(job, 'request_fund') &&
+                      !canDoRepairJobAction(job, 'submit_rr_qa') && (
+                        <span className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
+                          Waiting for RR HOD action
+                        </span>
+                      )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-3xl bg-[#102969] border border-white/10 text-white max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Manual R/R Job</DialogTitle>
-          </DialogHeader>
-
-          <div className="rounded-lg border border-orange-400/20 bg-orange-500/10 p-3 text-sm text-orange-100">
-            Manual jobs should only be used by RR HOD/Admin for exceptional cases. Normal jobs should come from Inventory → RR HOD assignment.
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>Source Type</Label>
-              <Select value={form.source_type} onValueChange={(v) => updateField('source_type', v)}>
-                <SelectTrigger className="bg-[#08153d]/80 border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="returned_damaged_part">Returned Damaged Part</SelectItem>
-                  <SelectItem value="decommissioned_machine">Decommissioned Machine</SelectItem>
-                  <SelectItem value="inventory_test_request">Inventory Test Request</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Received From</Label>
-              <Select value={form.received_from} onValueChange={(v) => updateField('received_from', v)}>
-                <SelectTrigger className="bg-[#08153d]/80 border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="field_engineer">Field Engineer</SelectItem>
-                  <SelectItem value="inventory">Inventory</SelectItem>
-                  <SelectItem value="procurement">Procurement</SelectItem>
-                  <SelectItem value="client_bank">Client / Bank</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Item / Part Name *</Label>
-              <Input value={form.item_name} onChange={(e) => updateField('item_name', e.target.value)} className="bg-[#08153d]/80 border-white/10 text-white" />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Part Number</Label>
-              <Input value={form.part_number} onChange={(e) => updateField('part_number', e.target.value)} className="bg-[#08153d]/80 border-white/10 text-white" />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Machine Brand</Label>
-              <Select value={form.machine_brand} onValueChange={(v) => updateField('machine_brand', v)}>
-                <SelectTrigger className="bg-[#08153d]/80 border-white/10 text-white">
-                  <SelectValue placeholder="Select brand" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NCR">NCR</SelectItem>
-                  <SelectItem value="Wincor">Wincor</SelectItem>
-                  <SelectItem value="Hyosung">Hyosung</SelectItem>
-                  <SelectItem value="Diebold">Diebold</SelectItem>
-                  <SelectItem value="Entrust">Entrust</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Machine Model</Label>
-              <Input value={form.machine_model} onChange={(e) => updateField('machine_model', e.target.value)} className="bg-[#08153d]/80 border-white/10 text-white" />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Quantity Received</Label>
-              <Input type="number" min="1" value={form.quantity_received} onChange={(e) => updateField('quantity_received', e.target.value)} className="bg-[#08153d]/80 border-white/10 text-white" />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Condition on Arrival</Label>
-              <Select value={form.condition_on_arrival} onValueChange={(v) => updateField('condition_on_arrival', v)}>
-                <SelectTrigger className="bg-[#08153d]/80 border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="damaged">Damaged</SelectItem>
-                  <SelectItem value="faulty">Faulty</SelectItem>
-                  <SelectItem value="untested">Untested</SelectItem>
-                  <SelectItem value="scrap">Scrap</SelectItem>
-                  <SelectItem value="reusable">Reusable</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Action Required</Label>
-              <Select value={form.action_required} onValueChange={(v) => updateField('action_required', v)}>
-                <SelectTrigger className="bg-[#08153d]/80 border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="test_only">Test Only</SelectItem>
-                  <SelectItem value="repair">Repair</SelectItem>
-                  <SelectItem value="refurbish">Refurbish</SelectItem>
-                  <SelectItem value="extract_good_parts">Extract Good Parts</SelectItem>
-                  <SelectItem value="scrap_assessment">Scrap Assessment</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Repair Status</Label>
-              <Select value={form.status} onValueChange={(v) => updateField('status', v)}>
-                <SelectTrigger className="bg-[#08153d]/80 border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(STATUS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5 md:col-span-2">
-              <Label>Fault / Observation</Label>
-              <Textarea value={form.fault_description} onChange={(e) => updateField('fault_description', e.target.value)} className="bg-[#08153d]/80 border-white/10 text-white min-h-[90px]" />
-            </div>
-
-            <div className="space-y-1.5 md:col-span-2">
-              <Label>Parts Used During Repair</Label>
-              <Textarea value={form.parts_used} onChange={(e) => updateField('parts_used', e.target.value)} className="bg-[#08153d]/80 border-white/10 text-white min-h-[70px]" />
-            </div>
-
-            <div className="space-y-1.5 md:col-span-2">
-              <Label>Final Remark</Label>
-              <Textarea value={form.final_remark} onChange={(e) => updateField('final_remark', e.target.value)} className="bg-[#08153d]/80 border-white/10 text-white min-h-[80px]" />
-            </div>
-          </div>
-
-          <Button onClick={createJob} disabled={saving} className="w-full bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white">
-            {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-            Create Manual R/R Job
-          </Button>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

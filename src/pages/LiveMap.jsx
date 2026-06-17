@@ -10,7 +10,7 @@ export default function LiveMap() {
     <div className="space-y-5 pb-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
+          <h1 className="text-3xl font-bold flex items-center gap-2 text-white">
             <Navigation className="w-6 h-6 text-primary" />
             Live Operations Map
           </h1>
