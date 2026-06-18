@@ -31,8 +31,6 @@ const GMAIL_OAUTH_URL =
 export default function OfficialMailInbox({ user }) {
   const qc = useQueryClient();
 
-  const userId = user?.id;
-
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeContext, setComposeContext] = useState(null);
@@ -42,20 +40,22 @@ export default function OfficialMailInbox({ user }) {
   const [view, setView] = useState('inbox');
   const [syncing, setSyncing] = useState(false);
 
-  const { data: emails = [], isLoading } = useQuery({
-    queryKey: ['official-mail', userId],
-    enabled: !!userId,
+  const { data: authUser, isLoading: userLoading } = useQuery({
+    queryKey: ['official-mail-auth-user', user?.id],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('email_messages')
-        .select('*')
-        .eq('created_by', userId)
-        .order('received_at', { ascending: false });
+      if (user?.id) return user;
+
+      const {
+        data: { user: currentUser },
+        error,
+      } = await supabase.auth.getUser();
 
       if (error) throw error;
-      return data || [];
+      return currentUser;
     },
   });
+
+  const userId = authUser?.id;
 
   const { data: gmailConnection } = useQuery({
     queryKey: ['gmail-connection', userId],
@@ -75,6 +75,21 @@ export default function OfficialMailInbox({ user }) {
     },
   });
 
+  const { data: emails = [], isLoading } = useQuery({
+    queryKey: ['official-mail', userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('email_messages')
+        .select('*')
+        .eq('created_by', userId)
+        .order('received_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['official-mail', userId] });
     qc.invalidateQueries({ queryKey: ['gmail-connection', userId] });
@@ -90,12 +105,12 @@ export default function OfficialMailInbox({ user }) {
   };
 
   const syncGmail = async () => {
-    try {
-      if (!gmailConnection?.email) {
-        alert('Please connect your ARK Workspace Gmail first.');
-        return;
-      }
+    if (!gmailConnection?.email) {
+      alert('Please connect your ARK Technologies Workspace Gmail first.');
+      return;
+    }
 
+    try {
       setSyncing(true);
 
       const { data, error } = await supabase.functions.invoke('gmail-sync');
@@ -174,7 +189,7 @@ export default function OfficialMailInbox({ user }) {
     { key: 'stats', label: 'Analytics', icon: BarChart3, count: null },
   ];
 
-  if (!userId || isLoading) {
+  if (userLoading || isLoading) {
     return (
       <div className="h-[70vh] flex items-center justify-center">
         <div className="text-center">
@@ -197,12 +212,13 @@ export default function OfficialMailInbox({ user }) {
               <div className="h-12 w-12 rounded-2xl bg-white/15 flex items-center justify-center border border-white/20">
                 <Mail className="w-6 h-6 text-white" />
               </div>
+
               <div>
                 <h1 className="text-2xl font-black text-white tracking-tight">
                   ARK ONE Mail Command Center
                 </h1>
                 <p className="text-sm text-white/75">
-                  Connect your ARK Workspace Gmail, sync inbox, reply, and convert mails to tickets.
+                  Personal Workspace mail, tickets, CRM leads, complaints, and follow-ups.
                 </p>
               </div>
             </div>
@@ -348,7 +364,7 @@ export default function OfficialMailInbox({ user }) {
                   <p className="text-sm text-muted-foreground mt-1">
                     {gmailConnection?.email
                       ? 'Try syncing Gmail or changing your filter.'
-                      : 'Connect your ARK Workspace Gmail to start using ARK ONE Mail.'}
+                      : 'Connect your own ARK Workspace Gmail to start using ARK ONE Mail.'}
                   </p>
 
                   <Button
@@ -382,14 +398,14 @@ export default function OfficialMailInbox({ user }) {
         open={composeOpen}
         onClose={() => setComposeOpen(false)}
         context={composeContext}
-        user={user}
+        user={authUser}
         onRefresh={refresh}
       />
 
       <ConvertToTicketDialog
         open={!!convertEmail}
         email={convertEmail}
-        user={user}
+        user={authUser}
         onClose={() => setConvertEmail(null)}
         onRefresh={refresh}
       />
