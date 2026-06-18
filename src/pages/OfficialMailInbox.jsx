@@ -104,32 +104,46 @@ export default function OfficialMailInbox({ user }) {
     window.open(`${GMAIL_OAUTH_URL}?user_id=${userId}`, '_blank', 'noopener,noreferrer');
   };
 
-  const syncGmail = async () => {
-    if (!gmailConnection?.email) {
-      alert('Please connect your ARK Technologies Workspace Gmail first.');
+ const syncGmail = async () => {
+  if (!gmailConnection?.email) {
+    alert('Please connect your ARK Technologies Workspace Gmail first.');
+    return;
+  }
+
+  try {
+    setSyncing(true);
+
+    const {
+      data: { session },
+      error: sessionError,
+    } = await supabase.auth.getSession();
+
+    if (sessionError || !session?.access_token) {
+      alert('Session expired. Please log out and log in again.');
       return;
     }
 
-    try {
-      setSyncing(true);
+    const { data, error } = await supabase.functions.invoke('gmail-sync', {
+      headers: {
+        Authorization: `Bearer ${session.access_token}`,
+      },
+    });
 
-      const { data, error } = await supabase.functions.invoke('gmail-sync');
-
-      if (error) {
-        console.error('Gmail sync failed:', error);
-        alert(error.message || 'Gmail sync failed. Check console.');
-        return;
-      }
-
-      await qc.invalidateQueries({ queryKey: ['official-mail', userId] });
-      alert(`Gmail sync completed. Synced ${data?.synced ?? 0} email(s).`);
-    } catch (err) {
-      console.error(err);
-      alert('Gmail sync failed. Check console.');
-    } finally {
-      setSyncing(false);
+    if (error) {
+      console.error('Gmail sync failed:', error);
+      alert(error.message || 'Failed to send request to the Edge Function.');
+      return;
     }
-  };
+
+    await qc.invalidateQueries({ queryKey: ['official-mail', userId] });
+    alert(`Gmail sync completed. Synced ${data?.synced ?? 0} email(s).`);
+  } catch (err) {
+    console.error(err);
+    alert('Failed to send request to the Edge Function.');
+  } finally {
+    setSyncing(false);
+  }
+};
 
   const stats = useMemo(() => {
     const inbox = emails.filter((e) => !e.is_sent && !e.is_draft && !e.archived_status).length;
