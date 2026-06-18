@@ -101,7 +101,7 @@ export default function OfficialMailInbox({ user }) {
       return;
     }
 
-    window.location.href = `${GMAIL_OAUTH_URL}?user_id=${userId}`;
+    window.open(`${GMAIL_OAUTH_URL}?user_id=${userId}`, '_blank', 'noopener,noreferrer');
   };
 
   const syncGmail = async () => {
