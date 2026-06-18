@@ -25,8 +25,13 @@ import ComposeDialog from '@/components/mail/ComposeDialog';
 import ConvertToTicketDialog from '@/components/mail/ConvertToTicketDialog';
 import MailDashboardStats from '@/components/mail/MailDashboardStats';
 
+const GMAIL_OAUTH_URL =
+  'https://fryidzyhqhdenghyxjfp.supabase.co/functions/v1/gmail-oauth';
+
 export default function OfficialMailInbox({ user }) {
   const qc = useQueryClient();
+
+  const userId = user?.id;
 
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [composeOpen, setComposeOpen] = useState(false);
@@ -38,11 +43,13 @@ export default function OfficialMailInbox({ user }) {
   const [syncing, setSyncing] = useState(false);
 
   const { data: emails = [], isLoading } = useQuery({
-    queryKey: ['official-mail'],
+    queryKey: ['official-mail', userId],
+    enabled: !!userId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('email_messages')
         .select('*')
+        .eq('created_by', userId)
         .order('received_at', { ascending: false });
 
       if (error) throw error;
@@ -51,11 +58,13 @@ export default function OfficialMailInbox({ user }) {
   });
 
   const { data: gmailConnection } = useQuery({
-    queryKey: ['gmail-connection'],
+    queryKey: ['gmail-connection', userId],
+    enabled: !!userId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('gmail_connections')
         .select('email, provider, is_active, connected_at, expires_at')
+        .eq('user_id', userId)
         .eq('is_active', true)
         .order('connected_at', { ascending: false })
         .limit(1)
@@ -67,23 +76,37 @@ export default function OfficialMailInbox({ user }) {
   });
 
   const refresh = () => {
-    qc.invalidateQueries({ queryKey: ['official-mail'] });
-    qc.invalidateQueries({ queryKey: ['gmail-connection'] });
+    qc.invalidateQueries({ queryKey: ['official-mail', userId] });
+    qc.invalidateQueries({ queryKey: ['gmail-connection', userId] });
+  };
+
+  const connectGmail = () => {
+    if (!userId) {
+      alert('User session not ready. Please refresh and try again.');
+      return;
+    }
+
+    window.location.href = `${GMAIL_OAUTH_URL}?user_id=${userId}`;
   };
 
   const syncGmail = async () => {
     try {
+      if (!gmailConnection?.email) {
+        alert('Please connect your ARK Workspace Gmail first.');
+        return;
+      }
+
       setSyncing(true);
 
       const { data, error } = await supabase.functions.invoke('gmail-sync');
 
       if (error) {
         console.error('Gmail sync failed:', error);
-        alert('Gmail sync failed. Check console.');
+        alert(error.message || 'Gmail sync failed. Check console.');
         return;
       }
 
-      await qc.invalidateQueries({ queryKey: ['official-mail'] });
+      await qc.invalidateQueries({ queryKey: ['official-mail', userId] });
       alert(`Gmail sync completed. Synced ${data?.synced ?? 0} email(s).`);
     } catch (err) {
       console.error(err);
@@ -151,7 +174,7 @@ export default function OfficialMailInbox({ user }) {
     { key: 'stats', label: 'Analytics', icon: BarChart3, count: null },
   ];
 
-  if (isLoading) {
+  if (!userId || isLoading) {
     return (
       <div className="h-[70vh] flex items-center justify-center">
         <div className="text-center">
@@ -179,7 +202,7 @@ export default function OfficialMailInbox({ user }) {
                   ARK ONE Mail Command Center
                 </h1>
                 <p className="text-sm text-white/75">
-                  Gmail-powered official mail, tickets, CRM leads, complaints, and follow-ups.
+                  Connect your ARK Workspace Gmail, sync inbox, reply, and convert mails to tickets.
                 </p>
               </div>
             </div>
@@ -205,9 +228,18 @@ export default function OfficialMailInbox({ user }) {
           <div className="flex flex-wrap gap-2">
             <Button
               variant="secondary"
-              onClick={syncGmail}
-              disabled={syncing}
+              onClick={connectGmail}
               className="bg-white text-[#102969] hover:bg-white/90"
+            >
+              <Mail className="w-4 h-4 mr-2" />
+              {gmailConnection?.email ? 'Reconnect Gmail' : 'Connect Gmail'}
+            </Button>
+
+            <Button
+              variant="secondary"
+              onClick={syncGmail}
+              disabled={syncing || !gmailConnection?.email}
+              className="bg-white text-[#102969] hover:bg-white/90 disabled:opacity-60"
             >
               <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
               {syncing ? 'Syncing...' : 'Sync Gmail'}
@@ -232,6 +264,13 @@ export default function OfficialMailInbox({ user }) {
           </div>
         </div>
       </div>
+
+      {!gmailConnection?.email && (
+        <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900">
+          <b>No Gmail connected for this user.</b> Click <b>Connect Gmail</b> and sign in with your
+          ARK Technologies Workspace email.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard title="Inbox" value={stats.inbox} icon={Inbox} />
@@ -281,7 +320,7 @@ export default function OfficialMailInbox({ user }) {
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search mail, sender, subject..."
+                  placeholder="Search your mail..."
                   className="w-full rounded-xl bg-white/10 border border-white/10 pl-9 pr-3 py-2 text-sm text-white placeholder:text-white/45 outline-none focus:border-orange-400"
                 />
               </div>
@@ -303,13 +342,26 @@ export default function OfficialMailInbox({ user }) {
               <div className="h-full flex items-center justify-center p-10 text-center">
                 <div>
                   <Mail className="w-12 h-12 mx-auto mb-3 text-muted-foreground" />
-                  <h3 className="font-bold text-lg">No email found</h3>
+                  <h3 className="font-bold text-lg">
+                    {gmailConnection?.email ? 'No email found' : 'Connect your Gmail'}
+                  </h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Try syncing Gmail or changing your filter.
+                    {gmailConnection?.email
+                      ? 'Try syncing Gmail or changing your filter.'
+                      : 'Connect your ARK Workspace Gmail to start using ARK ONE Mail.'}
                   </p>
-                  <Button className="mt-4" onClick={syncGmail} disabled={syncing}>
-                    <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
-                    Sync Gmail
+
+                  <Button
+                    className="mt-4 bg-[#ff5a00] hover:bg-[#e65100]"
+                    onClick={gmailConnection?.email ? syncGmail : connectGmail}
+                    disabled={syncing}
+                  >
+                    {gmailConnection?.email ? (
+                      <RefreshCw className={`w-4 h-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+                    ) : (
+                      <Mail className="w-4 h-4 mr-2" />
+                    )}
+                    {gmailConnection?.email ? 'Sync Gmail' : 'Connect Gmail'}
                   </Button>
                 </div>
               </div>

@@ -1,12 +1,36 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-serve(async (_req) => {
+serve(async (req) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 
-  if (!supabaseUrl || !serviceRoleKey) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return Response.json({ error: "Missing Supabase env" }, { status: 500 });
+  }
+
+  const authHeader = req.headers.get("Authorization");
+
+  if (!authHeader) {
+    return Response.json({ error: "Missing Authorization header" }, { status: 401 });
+  }
+
+  const userClient = createClient(supabaseUrl, anonKey, {
+    global: {
+      headers: {
+        Authorization: authHeader,
+      },
+    },
+  });
+
+  const {
+    data: { user },
+    error: userError,
+  } = await userClient.auth.getUser();
+
+  if (userError || !user) {
+    return Response.json({ error: "Invalid ARK ONE session" }, { status: 401 });
   }
 
   const supabase = createClient(supabaseUrl, serviceRoleKey);
@@ -14,13 +38,21 @@ serve(async (_req) => {
   const { data: connection, error: connError } = await supabase
     .from("gmail_connections")
     .select("*")
+    .eq("user_id", user.id)
     .eq("is_active", true)
     .order("connected_at", { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (connError || !connection) {
-    return Response.json({ error: "No active Gmail connection" }, { status: 404 });
+    return Response.json(
+      {
+        error: "No Gmail connected for this ARK ONE user",
+        user_id: user.id,
+        email: user.email,
+      },
+      { status: 404 }
+    );
   }
 
   const listRes = await fetch(
@@ -55,7 +87,6 @@ serve(async (_req) => {
     );
 
     const msgData = await msgRes.json();
-
     if (!msgRes.ok) continue;
 
     const headers = msgData.payload?.headers || [];
@@ -86,6 +117,7 @@ serve(async (_req) => {
         archived_status: false,
         folder: "inbox",
         synced_at: new Date().toISOString(),
+        created_by: user.id,
       },
       {
         onConflict: "gmail_message_id",
@@ -93,27 +125,29 @@ serve(async (_req) => {
     );
 
     if (error) {
-  return Response.json(
-    {
-      error: "Failed to save email to Supabase",
-      details: error,
-      sample: {
-        gmail_message_id: msgData.id,
-        subject,
-        from,
-        to,
-      },
-    },
-    { status: 500 }
-  );
-}
+      return Response.json(
+        {
+          error: "Failed to save email to Supabase",
+          details: error,
+          sample: {
+            gmail_message_id: msgData.id,
+            subject,
+            from,
+            to,
+          },
+        },
+        { status: 500 }
+      );
+    }
 
-synced++;
+    synced++;
   }
 
   return Response.json({
     message: "Gmail sync completed",
     synced,
     total: messages.length,
+    user_id: user.id,
+    mailbox: connection.email,
   });
 });
