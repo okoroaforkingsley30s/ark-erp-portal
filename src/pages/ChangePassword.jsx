@@ -231,10 +231,10 @@ if (accessToken && refreshToken) {
 
       setSuccess(true);
 
-setTimeout(() => {
-  navigate(getDashboardPath(user), {
-    replace: true,
-  });
+setTimeout(async () => {
+  await supabase.auth.signOut();
+
+  window.location.href = `${window.location.origin}/#/welcome`;
 }, 2000);
 
     } catch (err) {
