@@ -121,16 +121,6 @@ if (accessToken && refreshToken) {
 }
 
 if (savedCode) {
-  const { error } = await supabase.auth.exchangeCodeForSession(savedCode);
-
-  if (error) {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-
-    if (!session?.user) throw error;
-  }
-
   sessionStorage.removeItem('ark_password_setup_code');
   window.history.replaceState({}, document.title, '/#/create-password');
 }
