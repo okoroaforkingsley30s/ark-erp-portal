@@ -2363,12 +2363,11 @@ function TicketDetailsModal({
         <SectionCard title="Before Repair Photos">
           <div className="space-y-3">
             <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleBeforePhotoChange}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
+  type="file"
+  accept="image/*"
+  onChange={handleBeforePhotoChange}
+  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+/>
 
             {beforeFiles.length > 0 && (
               <p className="text-xs text-green-400">
@@ -2401,12 +2400,11 @@ function TicketDetailsModal({
         <SectionCard title="After Repair Photos">
           <div className="space-y-3">
             <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleAfterPhotoChange}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
+  type="file"
+  accept="image/*"
+  onChange={handleAfterPhotoChange}
+  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+/>
 
             {afterFiles.length > 0 && (
               <p className="text-xs text-green-400">
@@ -2439,12 +2437,11 @@ function TicketDetailsModal({
         <SectionCard title="Video Evidence Optional">
           <div className="space-y-3">
             <input
-              type="file"
-              accept="video/*"
-              capture="environment"
-              onChange={handleVideoChange}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
+  type="file"
+  accept="video/*"
+  onChange={handleVideoChange}
+  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+/>
 
             {videoFiles.length > 0 && (
               <p className="text-xs text-green-400">
