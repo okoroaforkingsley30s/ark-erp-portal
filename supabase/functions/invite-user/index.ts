@@ -134,12 +134,37 @@ serve(async (req) => {
       }
     )
 
+    // SEND CREATE PASSWORD EMAIL
+    const { data: linkData, error: linkError } =
+  await supabaseAdmin.auth.admin.generateLink({
+    type: 'recovery',
+    email: cleanEmail,
+    options: {
+      redirectTo:
+        'https://portal.arktechnologiesgroup.com/#/create-password',
+    },
+  })
+
+if (linkError) {
+  return new Response(
+    JSON.stringify({ error: linkError.message }),
+    {
+      status: 400,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+      },
+    }
+  )
+}
+
     return new Response(
-      JSON.stringify({
-        success: true,
-        user_id: authUserId,
-        email: cleanEmail,
-      }),
+  JSON.stringify({
+    success: true,
+    user_id: authUserId,
+    email: cleanEmail,
+    action_link: linkData?.properties?.action_link,
+  }),
       {
         headers: {
           ...corsHeaders,
