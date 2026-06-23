@@ -82,10 +82,12 @@ useEffect(() => {
         searchParams.get('error_description');
 
       if (errorCode) {
-        setError(errorDescription || 'Invalid or expired invitation link.');
-        setLoadingSession(false);
-        return;
-      }
+  setError(
+    'This password link has expired or has already been used. Please request a new password reset link.'
+  );
+  setLoadingSession(false);
+  return;
+}
 
       const accessToken =
         hashParams.get('access_token') ||
@@ -95,7 +97,10 @@ useEffect(() => {
         hashParams.get('refresh_token') ||
         searchParams.get('refresh_token');
 
-      const code = searchParams.get('code') || hashParams.get('code');
+      const code =
+  searchParams.get('code') ||
+  hashParams.get('code') ||
+  new URLSearchParams(window.location.href.split('?')[1]?.split('#')[0] || '').get('code');
 
 if (accessToken && refreshToken) {
   const { error } = await supabase.auth.setSession({
