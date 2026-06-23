@@ -2330,120 +2330,35 @@ function TicketDetailsModal({
   </div>
 </SectionCard>
 
-        <SectionCard title="Before Repair Photos">
-          <div className="space-y-3">
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              onChange={(e) => setBeforeFiles(Array.from(e.target.files || []))}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
+        const handleBeforePhotoChange = (e) => {
+  const files = Array.from(e.target.files || []);
 
-            {beforeFiles.length > 0 && (
-              <p className="text-xs text-green-400">
-                {beforeFiles.length} before photo(s) selected.
-              </p>
-            )}
+  if (files.length > 0) {
+    setBeforeFiles((prev) => [...prev, ...files]);
+  }
 
-            {existingBeforePhotos.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-400">
-                  Existing Before Photos:
-                </p>
+  e.target.value = '';
+};
 
-                {existingBeforePhotos.map((item, index) => (
-                  <a
-                    key={`${item.url}-${index}`}
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block text-xs text-blue-400 underline"
-                  >
-                    View before photo {index + 1}
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        </SectionCard>
+const handleAfterPhotoChange = (e) => {
+  const files = Array.from(e.target.files || []);
 
-        <SectionCard title="After Repair Photos">
-          <div className="space-y-3">
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              multiple
-              onChange={(e) => setAfterFiles(Array.from(e.target.files || []))}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
+  if (files.length > 0) {
+    setAfterFiles((prev) => [...prev, ...files]);
+  }
 
-            {afterFiles.length > 0 && (
-              <p className="text-xs text-green-400">
-                {afterFiles.length} after photo(s) selected.
-              </p>
-            )}
+  e.target.value = '';
+};
 
-            {existingAfterPhotos.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-400">
-                  Existing After Photos:
-                </p>
+const handleVideoChange = (e) => {
+  const files = Array.from(e.target.files || []);
 
-                {existingAfterPhotos.map((item, index) => (
-                  <a
-                    key={`${item.url}-${index}`}
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block text-xs text-blue-400 underline"
-                  >
-                    View after photo {index + 1}
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        </SectionCard>
+  if (files.length > 0) {
+    setVideoFiles((prev) => [...prev, ...files]);
+  }
 
-        <SectionCard title="Video Evidence Optional">
-          <div className="space-y-3">
-            <input
-              type="file"
-              accept="video/*"
-              capture="environment"
-              multiple
-              onChange={(e) => setVideoFiles(Array.from(e.target.files || []))}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
-
-            {videoFiles.length > 0 && (
-              <p className="text-xs text-green-400">
-                {videoFiles.length} video(s) selected.
-              </p>
-            )}
-
-            {existingVideos.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-400">Existing Videos:</p>
-
-                {existingVideos.map((item, index) => (
-                  <a
-                    key={`${item.url}-${index}`}
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block text-xs text-blue-400 underline"
-                  >
-                    View video {index + 1}
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        </SectionCard>
+  e.target.value = '';
+};
 
         <SectionCard title="Completion Report">
           <textarea
