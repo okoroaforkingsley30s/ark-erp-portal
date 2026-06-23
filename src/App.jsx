@@ -88,13 +88,29 @@ const AuthenticatedApp = () => {
     let interval;
 
     const startActivityTracking = async () => {
-      const { data } = await supabase.auth.getUser();
-      const user = data?.user;
-      if (!user) return;
+  const currentRoute = window.location.hash || '';
 
-      await updateUserActivity(user, true, true);
-      interval = setInterval(() => updateUserActivity(user, true, false), 60000);
-    };
+  if (
+    currentRoute.includes('/create-password') ||
+    currentRoute.includes('/reset-password') ||
+    currentRoute.includes('/change-password') ||
+    currentRoute.includes('/welcome') ||
+    currentRoute.includes('/login')
+  ) {
+    return;
+  }
+
+  const { data } = await supabase.auth.getUser();
+  const user = data?.user;
+
+  if (!user) return;
+
+  await updateUserActivity(user, true, true);
+
+  interval = setInterval(() => {
+    updateUserActivity(user, true, false);
+  }, 60000);
+};
 
     startActivityTracking();
     return () => {
