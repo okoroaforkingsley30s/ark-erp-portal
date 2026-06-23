@@ -272,7 +272,7 @@ if (savedCode) {
 
   if (success) {
     return (
-      <div className="min-h-screen overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
+      <div className="min-h-[100svh] overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] px-3 py-4 sm:px-4 flex items-start justify-center">
 
         <Card className="p-8 max-w-sm w-full text-center space-y-4">
 
@@ -293,9 +293,9 @@ if (savedCode) {
   }
 
   return (
-    <div className="min-h-screen overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] p-4">
+    <div className="min-h-[100svh] overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] px-3 py-4 sm:px-4 flex items-start justify-center">
 
-      <Card className="p-8 max-w-md w-full mx-auto my-8 space-y-6 border-0 shadow-2xl">
+      <Card className="w-full max-w-md p-4 sm:p-6 my-2 sm:my-6 space-y-4 border-0 shadow-2xl">
 
         <div className="text-center space-y-3">
 
@@ -425,7 +425,7 @@ if (savedCode) {
           )}
 
           <Button
-            className="w-full h-11 text-base"
+  className="w-full min-h-11 text-sm sm:text-base"11 text-base"
             onClick={handleSubmit}
             disabled={
               !fullName ||
