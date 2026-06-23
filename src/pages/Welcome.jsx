@@ -214,7 +214,7 @@ export default function Welcome() {
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-      redirectTo: `${window.location.origin}/change-password`,
+      redirectTo: `${window.location.origin}/#/create-password`,
     });
 
     if (error) alert(error.message);

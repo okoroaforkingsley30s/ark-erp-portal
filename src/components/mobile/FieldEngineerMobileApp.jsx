@@ -1663,6 +1663,38 @@ function TicketDetailsModal({
       ? ticket.attachments.rejection_log
       : [];
 
+  const currentPartRequestStatus = String(
+    ticket?.part_request_status || ticket?.dispatch_status || ''
+  ).toLowerCase();
+
+  const hasLinkedPartRequest = Boolean(
+    ticket?.linked_part_request_id ||
+      ticket?.part_request_type ||
+      ['pending_parts', 'pending_bank'].includes(
+        String(ticket?.status || '').toLowerCase()
+      )
+  );
+
+  const partReadyToReceive =
+    hasLinkedPartRequest &&
+    [
+      'dispatched_to_engineer',
+      'dispatched',
+      'ready_for_engineer_receive',
+    ].includes(currentPartRequestStatus);
+
+  const partAlreadyReceived =
+    hasLinkedPartRequest &&
+    ['received_by_engineer', 'received'].includes(currentPartRequestStatus);
+
+  const partLocked =
+    hasLinkedPartRequest &&
+    !partReadyToReceive &&
+    !partAlreadyReceived &&
+    !['closed', 'completed', 'cancelled', 'rejected'].includes(
+      currentPartRequestStatus
+    );
+
   const uploadEvidenceFiles = async (files, type) => {
     const uploaded = [];
 
@@ -1905,7 +1937,94 @@ function TicketDetailsModal({
     }
   };
 
+  const receivePartFromInventory = async () => {
+    if (!ticket?.linked_part_request_id) {
+      alert('No linked part request found for this ticket.');
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    try {
+      const { error: ticketError } = await supabase
+        .from('tickets')
+        .update({
+          status: 'in_progress',
+          completion_status: 'part_received',
+          part_request_status: 'received_by_engineer',
+          received_part_at: now,
+          updated_at: now,
+        })
+        .eq('id', ticket.id);
+
+      if (ticketError) {
+        throw ticketError;
+      }
+
+      await supabase
+        .from('part_requests')
+        .update({
+          dispatch_status: 'received_by_engineer',
+          part_request_status: 'received_by_engineer',
+          received_by_engineer_at: now,
+          updated_at: now,
+        })
+        .eq('id', ticket.linked_part_request_id);
+
+      await safeLogOperationEvent({
+        event_type: 'part_received_by_engineer',
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+        title: `${getTicketDisplayName(ticket)} part received by engineer`,
+        description: `${getActorName(user)} received dispatched part for ${getTicketDisplayName(ticket)}`,
+        actor_name: getActorName(user),
+        actor_id: user?.id || user?.email,
+        department: FIELD_DEPARTMENT,
+        severity: 'info',
+        metadata: {
+          ticket_id: ticket.id,
+          ticket_number: getTicketDisplayName(ticket),
+          linked_part_request_id: ticket.linked_part_request_id,
+          engineer_email: user?.email,
+        },
+      });
+
+      await safeUpsertOperationStatus({
+        entity_type: 'ticket',
+        entity_id: ticket.id,
+        entity_name: getTicketDisplayName(ticket),
+        status: 'in_progress',
+        latitude: getTicketLatitude(ticket),
+        longitude: getTicketLongitude(ticket),
+        last_seen: now,
+        source_module: 'FEMobiReceivePart',
+        metadata: {
+          linked_part_request_id: ticket.linked_part_request_id,
+          part_request_status: 'received_by_engineer',
+          engineer: getActorName(user),
+          engineer_email: user?.email,
+          site: getTicketSiteName(ticket),
+        },
+      });
+
+      alert('Part received. You can now continue the job and submit review when completed.');
+      onCompleted();
+    } catch (err) {
+      console.error('Receive part error:', err);
+      alert(`Could not receive part: ${err.message || 'Unknown error'}`);
+    }
+  };
+
   const submitForReview = async () => {
+    if (partLocked || partReadyToReceive) {
+      alert(
+        partReadyToReceive
+          ? 'Inventory has dispatched this part. Please click Receive Part before submitting review.'
+          : 'This job has a pending part request. You cannot submit review until Operations and Inventory finish the part workflow.'
+      );
+      return;
+    }
+
     if (!completionNote.trim()) {
       alert('Please enter completion report before submitting.');
       return;
@@ -2360,14 +2479,61 @@ function TicketDetailsModal({
   </div>
 </SectionCard>
 
+        {hasLinkedPartRequest && (
+          <SectionCard title="Part Request Status">
+            <div className="space-y-3">
+              {partLocked && (
+                <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3">
+                  <p className="text-sm font-semibold text-yellow-300">
+                    Waiting for Operations / Inventory
+                  </p>
+                  <p className="text-xs text-slate-300 mt-1">
+                    This job is pending on parts and cannot be submitted as completed until the part workflow is finished.
+                  </p>
+                </div>
+              )}
+
+              {partReadyToReceive && (
+                <div className="rounded-xl border border-green-500/30 bg-green-500/10 p-3">
+                  <p className="text-sm font-semibold text-green-300">
+                    Part dispatched to engineer
+                  </p>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Click Receive Part to reopen this job for completion.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={receivePartFromInventory}
+                    className="mt-3 w-full rounded-xl bg-green-500 py-3 text-sm font-semibold text-white active:bg-green-600 active:scale-95 transition-all"
+                  >
+                    Receive Part
+                  </button>
+                </div>
+              )}
+
+              {partAlreadyReceived && (
+                <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3">
+                  <p className="text-sm font-semibold text-blue-300">
+                    Part received by engineer
+                  </p>
+                  <p className="text-xs text-slate-300 mt-1">
+                    You can now continue the repair and submit review after completion.
+                  </p>
+                </div>
+              )}
+            </div>
+          </SectionCard>
+        )}
+
         <SectionCard title="Before Repair Photos">
           <div className="space-y-3">
             <input
-  type="file"
-  accept="image/*"
-  onChange={handleBeforePhotoChange}
-  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-/>
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleBeforePhotoChange}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+            />
 
             {beforeFiles.length > 0 && (
               <p className="text-xs text-green-400">
@@ -2400,11 +2566,12 @@ function TicketDetailsModal({
         <SectionCard title="After Repair Photos">
           <div className="space-y-3">
             <input
-  type="file"
-  accept="image/*"
-  onChange={handleAfterPhotoChange}
-  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-/>
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleAfterPhotoChange}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+            />
 
             {afterFiles.length > 0 && (
               <p className="text-xs text-green-400">
@@ -2437,11 +2604,12 @@ function TicketDetailsModal({
         <SectionCard title="Video Evidence Optional">
           <div className="space-y-3">
             <input
-  type="file"
-  accept="video/*"
-  onChange={handleVideoChange}
-  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-/>
+              type="file"
+              accept="video/*"
+              capture="environment"
+              onChange={handleVideoChange}
+              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+            />
 
             {videoFiles.length > 0 && (
               <p className="text-xs text-green-400">
@@ -2508,18 +2676,31 @@ function TicketDetailsModal({
             onClick={() => setShowPartRequest(true)}
           />
 
+          {partReadyToReceive && (
+            <ActionButton
+              label="Receive Part"
+              icon={<Package size={16} />}
+              onClick={receivePartFromInventory}
+              primary
+            />
+          )}
+
           <ActionButton
-  label={
-    uploading
-      ? 'Submitting...'
-      : ticket?.completion_status === 'rejected'
-        ? 'Resubmit Review'
-        : 'Submit Review'
-  }
-  icon={<Upload size={16} />}
-  onClick={submitForReview}
-  primary
-/>
+            label={
+              partLocked
+                ? 'Waiting for Part Workflow'
+                : partReadyToReceive
+                  ? 'Receive Part First'
+                  : uploading
+                    ? 'Submitting...'
+                    : ticket?.completion_status === 'rejected'
+                      ? 'Resubmit Review'
+                      : 'Submit Review'
+            }
+            icon={<Upload size={16} />}
+            onClick={submitForReview}
+            primary
+          />
 
           <ActionButton
             label="Close"
