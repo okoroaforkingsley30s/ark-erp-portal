@@ -424,19 +424,19 @@ if (savedCode) {
             </p>
           )}
 
-          <Button
-  className="w-full min-h-11 text-sm sm:text-base"11 text-base"
-            onClick={handleSubmit}
-            disabled={
-              !fullName ||
-              !phone ||
-              !staffId ||
-              !newPass ||
-              !confirm ||
-              saving
-            }
-          >
-            {saving ? (
+         <Button
+  className="w-full min-h-11 text-sm sm:text-base"
+  onClick={handleSubmit}
+  disabled={
+    !fullName ||
+    !phone ||
+    !staffId ||
+    !newPass ||
+    !confirm ||
+    saving
+  }
+>
+  {saving ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 Setting up account...
