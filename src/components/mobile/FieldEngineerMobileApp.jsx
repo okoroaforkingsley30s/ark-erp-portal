@@ -144,7 +144,17 @@ const [activeTab, setActiveTab] = useState(
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [loadingTickets, setLoadingTickets] = useState(false);
-  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [selectedTicket, setSelectedTicket] = useState(() => {
+  const saved = localStorage.getItem(FEMOBI_SELECTED_TICKET_KEY);
+
+  if (!saved) return null;
+
+  try {
+    return JSON.parse(saved);
+  } catch {
+    return null;
+  }
+});
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [mails, setMails] = useState([]);
@@ -155,6 +165,16 @@ const [activeTab, setActiveTab] = useState(
   useEffect(() => {
   localStorage.setItem(FEMOBI_ACTIVE_TAB_KEY, activeTab);
 }, [activeTab]);
+useEffect(() => {
+  if (selectedTicket) {
+    localStorage.setItem(
+      FEMOBI_SELECTED_TICKET_KEY,
+      JSON.stringify(selectedTicket)
+    );
+  } else {
+    localStorage.removeItem(FEMOBI_SELECTED_TICKET_KEY);
+  }
+}, [selectedTicket]);
   const [assistantReplies, setAssistantReplies] = useState([
     {
       from: 'assistant',
@@ -250,6 +270,22 @@ const [activeTab, setActiveTab] = useState(
     }
 
     setTickets(data || []);
+
+    const savedTicket = localStorage.getItem(FEMOBI_SELECTED_TICKET_KEY);
+
+    if (savedTicket && data?.length) {
+      try {
+        const parsed = JSON.parse(savedTicket);
+        const found = data.find((t) => t.id === parsed.id);
+
+        if (found) {
+          setSelectedTicket(found);
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
     setLoadingTickets(false);
   }, [user?.email, user?.full_name, user?.name]);
 
@@ -789,7 +825,10 @@ const [activeTab, setActiveTab] = useState(
         <TicketDetailsModal
           ticket={selectedTicket}
           user={user}
-          onClose={() => setSelectedTicket(null)}
+          onClose={() => {
+  localStorage.removeItem(FEMOBI_SELECTED_TICKET_KEY);
+  setSelectedTicket(null);
+}}
           onNavigate={openGoogleMaps}
           onUpdateStatus={updateTicketStatus}
           onCompleted={() => {
