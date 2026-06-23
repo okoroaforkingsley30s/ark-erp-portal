@@ -102,6 +102,13 @@ useEffect(() => {
   hashParams.get('code') ||
   new URLSearchParams(window.location.href.split('?')[1]?.split('#')[0] || '').get('code');
 
+  if (code) {
+  sessionStorage.setItem('ark_password_setup_code', code);
+  window.history.replaceState({}, document.title, '/#/create-password');
+}
+
+const savedCode = code || sessionStorage.getItem('ark_password_setup_code');
+
 if (accessToken && refreshToken) {
   const { error } = await supabase.auth.setSession({
     access_token: accessToken,
@@ -113,11 +120,18 @@ if (accessToken && refreshToken) {
   window.history.replaceState({}, document.title, '/#/create-password');
 }
 
-if (code) {
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+if (savedCode) {
+  const { error } = await supabase.auth.exchangeCodeForSession(savedCode);
 
-  if (error) throw error;
+  if (error) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
+    if (!session?.user) throw error;
+  }
+
+  sessionStorage.removeItem('ark_password_setup_code');
   window.history.replaceState({}, document.title, '/#/create-password');
 }
 
