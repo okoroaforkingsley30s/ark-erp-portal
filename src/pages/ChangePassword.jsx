@@ -120,11 +120,6 @@ if (accessToken && refreshToken) {
   window.history.replaceState({}, document.title, '/#/create-password');
 }
 
-if (savedCode) {
-  sessionStorage.removeItem('ark_password_setup_code');
-  window.history.replaceState({}, document.title, '/#/create-password');
-}
-
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -234,11 +229,11 @@ if (savedCode) {
           .eq('id', user.id);
       }
 
-      setSuccess(true);
+      const targetPath = getDashboardPath(user);
 
-      setTimeout(() => {
-        navigate(getDashboardPath(user));
-      }, 2000);
+setSuccess(true);
+
+navigate(targetPath, { replace: true });
 
     } catch (err) {
       console.error(err);
