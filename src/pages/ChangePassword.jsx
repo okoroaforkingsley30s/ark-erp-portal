@@ -229,11 +229,13 @@ if (accessToken && refreshToken) {
           .eq('id', user.id);
       }
 
-      const targetPath = getDashboardPath(user);
+      setSuccess(true);
 
-setSuccess(true);
-
-navigate(targetPath, { replace: true });
+setTimeout(() => {
+  navigate(getDashboardPath(user), {
+    replace: true,
+  });
+}, 2000);
 
     } catch (err) {
       console.error(err);
