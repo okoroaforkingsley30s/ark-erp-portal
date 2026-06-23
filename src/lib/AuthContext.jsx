@@ -12,14 +12,15 @@ export const AuthProvider = ({ children }) => {
   const [authError, setAuthError] = useState(null);
 
   const signOutAndBlock = async (message, type = "user_not_registered") => {
-    console.warn(message);
-    await supabase.auth.signOut();
+  console.warn(message);
 
-    setUser(null);
-    setIsAuthenticated(false);
-    setAuthError({ type, message });
-    setIsLoadingAuth(false);
-  };
+  // Do not destroy the Supabase session automatically.
+  // This prevents FEMobi from logging out because of temporary profile/network errors.
+  setUser(null);
+  setIsAuthenticated(false);
+  setAuthError({ type, message });
+  setIsLoadingAuth(false);
+};
 
   const loadUserProfile = async (authUser) => {
     if (!authUser) {
@@ -41,19 +42,44 @@ export const AuthProvider = ({ children }) => {
         .maybeSingle();
 
       if (error) {
-        console.error("Profile load failed:", error.message);
-        await signOutAndBlock(
-          "Unable to load your user profile. Please contact admin."
-        );
-        return;
-      }
+  console.error("Profile load failed:", error.message);
+
+  setUser({
+    id: authUser.id,
+    auth_id: authUser.id,
+    email: cleanEmail,
+    full_name: authUser.user_metadata?.full_name || cleanEmail,
+    role: authUser.user_metadata?.role || "engineer",
+    department: authUser.user_metadata?.department || null,
+    status: "active",
+    approval_status: "approved",
+    is_approved: true,
+  });
+
+  setIsAuthenticated(true);
+  setAuthError(null);
+  setIsLoadingAuth(false);
+  return;
+}
 
       if (!profile) {
-        await signOutAndBlock(
-          "Your user profile was not found. Please contact admin."
-        );
-        return;
-      }
+  setUser({
+    id: authUser.id,
+    auth_id: authUser.id,
+    email: cleanEmail,
+    full_name: authUser.user_metadata?.full_name || cleanEmail,
+    role: authUser.user_metadata?.role || "engineer",
+    department: authUser.user_metadata?.department || null,
+    status: "active",
+    approval_status: "approved",
+    is_approved: true,
+  });
+
+  setIsAuthenticated(true);
+  setAuthError(null);
+  setIsLoadingAuth(false);
+  return;
+}
 
       const isMainAdmin = cleanEmail === ADMIN_EMAIL;
 

@@ -133,7 +133,12 @@ export default function FieldEngineerMobileApp({
   notifCount = 0,
   dmCount = 0,
 }) {
-  const [activeTab, setActiveTab] = useState('home');
+  const FEMOBI_ACTIVE_TAB_KEY = 'femobi_active_tab';
+const FEMOBI_SELECTED_TICKET_KEY = 'femobi_selected_ticket_id';
+
+const [activeTab, setActiveTab] = useState(
+  () => localStorage.getItem(FEMOBI_ACTIVE_TAB_KEY) || 'home'
+);
   const [tickets, setTickets] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loadingDevices, setLoadingDevices] = useState(false);
@@ -147,6 +152,9 @@ export default function FieldEngineerMobileApp({
   const [chatMessages, setChatMessages] = useState([]);
   const [loadingChat, setLoadingChat] = useState(false);
   const [assistantMessage, setAssistantMessage] = useState('');
+  useEffect(() => {
+  localStorage.setItem(FEMOBI_ACTIVE_TAB_KEY, activeTab);
+}, [activeTab]);
   const [assistantReplies, setAssistantReplies] = useState([
     {
       from: 'assistant',
