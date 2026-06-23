@@ -219,14 +219,22 @@ export default function UserManagement() {
       const result = await response.json();
 
       if (!response.ok) {
-        alert(result?.error || 'Invite failed');
-        return;
-      }
+  alert(result?.error || 'Invite failed');
+  return;
+}
 
-      alert('Invitation email sent successfully.');
+if (result?.action_link) {
+  await navigator.clipboard.writeText(result.action_link);
 
-      setInviteEmail('');
-      setInviteOpen(false);
+  alert(
+    `User created successfully.\n\nCreate Password link copied to clipboard.\n\n${result.action_link}`
+  );
+} else {
+  alert('User created successfully but no password link was returned.');
+}
+
+setInviteEmail('');
+setInviteOpen(false);
 
       qc.invalidateQueries({
         queryKey: ['users'],
