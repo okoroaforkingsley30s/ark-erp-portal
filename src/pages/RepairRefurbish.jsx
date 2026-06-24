@@ -64,7 +64,7 @@ function isRRHODOrAdmin(user) {
 }
 
 function getJobTitle(job) {
-  return job.item_name || job.device_name || job.part_name || job.part_type || 'R/R Item';
+  return job.item_name || job.device_name || 'R/R Item';
 }
 
 function getRepairJobState(job) {
@@ -125,7 +125,6 @@ export default function RepairRefurbish() {
   const [activeFilter, setActiveFilter] = useState('assigned_to_me');
   const [updatingId, setUpdatingId] = useState(null);
 
-  const userId = user?.id || user?.user_id || user?.auth_id;
   const userEmail = user?.email || user?.user_email || '';
   const canViewAll = isRRHODOrAdmin(user);
 
@@ -137,32 +136,37 @@ export default function RepairRefurbish() {
       setProfileLoading(true);
 
       try {
-        if (userEmail) {
-          const { data, error } = await supabase
-            .from('user_profiles')
-            .select('id, user_email, role, department')
-            .eq('user_email', userEmail)
-            .maybeSingle();
+        let email = userEmail;
 
-          if (error) throw error;
-
-          if (data?.id) {
-            setProfileId(data.id);
-            return;
-          }
+        if (!email) {
+          const { data: authData } = await supabase.auth.getUser();
+          email = authData?.user?.email || '';
         }
 
-        setProfileId(userId || null);
+        if (!email) {
+          setProfileId(null);
+          return;
+        }
+
+        const { data, error } = await supabase
+          .from('user_profiles')
+          .select('id, user_email, role, department')
+          .ilike('user_email', email.trim())
+          .maybeSingle();
+
+        if (error) throw error;
+
+        setProfileId(data?.id || null);
       } catch (error) {
-        console.error('Failed to load RR profile:', error);
-        setProfileId(userId || null);
+        console.error('RR profile lookup failed:', error);
+        setProfileId(null);
       } finally {
         setProfileLoading(false);
       }
     };
 
     loadProfile();
-  }, [userEmail, userId]);
+  }, [userEmail]);
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey: ['repair-jobs', profileId, canViewAll],
@@ -173,10 +177,8 @@ export default function RepairRefurbish() {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (!canViewAll && profileId) {
-        query = query.or(
-          `assigned_rr_technician.eq.${profileId},assigned_to.eq.${profileId}`
-        );
+      if (!canViewAll) {
+        query = query.eq('assigned_rr_technician', profileId);
       }
 
       const { data, error } = await query;
@@ -341,24 +343,26 @@ export default function RepairRefurbish() {
     );
   };
 
-  const counts = useMemo(() => ({
-    assigned: jobs.filter((j) => ['assigned', 'received', 'pending_rr'].includes(normalize(j.status))).length,
-    underRepair: jobs.filter((j) => j.status === 'refurbishing').length,
-    awaitingParts: jobs.filter((j) => j.status === 'awaiting_parts').length,
-    awaitingFund: jobs.filter((j) => j.status === 'awaiting_fund').length,
-    waitingQa: jobs.filter((j) => j.status === 'testing').length,
-    qaFailed: jobs.filter((j) => j.status === 'qa_failed' || j.test_result === 'failed').length,
-  }), [jobs]);
+  const counts = useMemo(
+    () => ({
+      assigned: jobs.filter((j) =>
+        ['assigned', 'received', 'pending_rr'].includes(normalize(j.status))
+      ).length,
+      underRepair: jobs.filter((j) => j.status === 'refurbishing').length,
+      awaitingParts: jobs.filter((j) => j.status === 'awaiting_parts').length,
+      awaitingFund: jobs.filter((j) => j.status === 'awaiting_fund').length,
+      waitingQa: jobs.filter((j) => j.status === 'testing').length,
+      qaFailed: jobs.filter((j) => j.status === 'qa_failed' || j.test_result === 'failed').length,
+    }),
+    [jobs]
+  );
 
   const filtered = useMemo(() => {
     let list = jobs;
 
     if (activeFilter === 'assigned_to_me') {
       if (!canViewAll && profileId) {
-        list = list.filter((j) =>
-          j.assigned_rr_technician === profileId ||
-          j.assigned_to === profileId
-        );
+        list = list.filter((j) => j.assigned_rr_technician === profileId);
       }
     }
 
@@ -392,16 +396,12 @@ export default function RepairRefurbish() {
           j.received_from,
           j.item_name,
           j.device_name,
-          j.part_name,
-          j.part_type,
           j.part_number,
           j.machine_brand,
           j.machine_model,
           j.fault_description,
           j.final_remark,
           j.status,
-          j.qa_status,
-          j.ticket_number,
           j.ticket_id,
         ]
           .filter(Boolean)
@@ -413,7 +413,12 @@ export default function RepairRefurbish() {
   }, [jobs, search, activeFilter, profileId, canViewAll]);
 
   const statusCards = [
-    { key: 'assigned_to_me', label: 'Assigned To Me', value: counts.assigned, icon: Wrench },
+    {
+      key: 'assigned_to_me',
+      label: canViewAll ? 'Assigned Jobs' : 'Assigned To Me',
+      value: counts.assigned,
+      icon: Wrench,
+    },
     { key: 'under_repair', label: 'Under Repair', value: counts.underRepair, icon: PackageCheck },
     { key: 'awaiting_parts', label: 'Awaiting Consumables', value: counts.awaitingParts, icon: PackagePlus },
     { key: 'awaiting_fund', label: 'Awaiting Fund', value: counts.awaitingFund, icon: DollarSign },
@@ -483,7 +488,7 @@ export default function RepairRefurbish() {
           </div>
         </div>
 
-        {(isLoading || profileLoading) ? (
+        {isLoading || profileLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="w-8 h-8 animate-spin text-[#ff5a00]" />
           </div>
@@ -510,7 +515,7 @@ export default function RepairRefurbish() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <p className="text-sm text-slate-400 font-mono">
-                        {job.job_number || job.ticket_number || job.id}
+                        {job.job_number || job.ticket_id || job.id}
                       </p>
 
                       <h3 className="text-white font-bold">
@@ -518,11 +523,11 @@ export default function RepairRefurbish() {
                       </h3>
 
                       <p className="text-sm text-slate-300 mt-1">
-                        {job.fault_description || job.reason || 'No observation recorded'}
+                        {job.fault_description || 'No observation recorded'}
                       </p>
 
                       <p className="text-xs text-slate-400 mt-2">
-                        {job.machine_brand || 'No brand'} · {job.machine_model || 'No model'} · Qty: {job.quantity_received || job.quantity || 1}
+                        {job.machine_brand || 'No brand'} · {job.machine_model || 'No model'} · Qty: {job.quantity_received || 1}
                       </p>
                     </div>
 
