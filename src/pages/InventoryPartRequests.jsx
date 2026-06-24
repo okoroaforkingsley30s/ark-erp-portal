@@ -124,16 +124,14 @@ function matchesEngineerCard(request, key) {
   if (key === "all") return true;
 
   if (key === "pending") {
-    return (
-      status === "pending_inventory" ||
-      status === "sent_to_inventory" ||
-      status === "approved_operations" ||
-      inventoryStatus === "sent_to_inventory" ||
-      inventoryStatus === "pending_inventory" ||
-      inventoryStatus === "pending" ||
-      inventoryStatus === "waiting"
-    );
-  }
+  return (
+    status === "pending_inventory" ||
+    status === "sent_to_inventory" ||
+    inventoryStatus === "sent_to_inventory" ||
+    inventoryStatus === "pending_inventory" ||
+    inventoryStatus === "pending"
+  );
+}
 
   if (key === "issued") {
     return (
