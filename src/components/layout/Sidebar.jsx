@@ -213,7 +213,7 @@ const ALL_MENUS = [
   label: 'Purchase Orders',
   icon: FileText,
   path: '/procurement-lpo',
-  permission: 'inventory',
+  permission: 'purchase_orders',
 },
   {
     label: 'Parts Workflow',

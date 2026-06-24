@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,7 +34,6 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
-  Package,
   Trash2,
   Loader2,
   Eye,
@@ -43,8 +43,6 @@ import {
   Copy,
   ShoppingCart,
   Building2,
-  CalendarDays,
-  BadgeDollarSign,
   RefreshCw,
 } from 'lucide-react';
 
@@ -63,6 +61,11 @@ const COMPANY = {
 const STATUS_COLORS = {
   Draft: 'bg-slate-100 text-slate-700 border-slate-200',
   'Pending Approval': 'bg-amber-100 text-amber-700 border-amber-200',
+  'Pending HR Approval': 'bg-amber-100 text-amber-700 border-amber-200',
+  'Pending AGM Approval': 'bg-purple-100 text-purple-700 border-purple-200',
+  'Pending Operations Approval': 'bg-orange-100 text-orange-700 border-orange-200',
+  'Pending Account Release': 'bg-cyan-100 text-cyan-700 border-cyan-200',
+  'Funds Released': 'bg-blue-100 text-blue-700 border-blue-200',
   Approved: 'bg-green-100 text-green-700 border-green-200',
   Rejected: 'bg-red-100 text-red-700 border-red-200',
   Issued: 'bg-blue-100 text-blue-700 border-blue-200',
@@ -178,29 +181,63 @@ export default function ProcurementLPO() {
 
   const role = normalizeRole(user?.role || user?.user_role || user?.position || 'user');
 
-  const canApprove = ['admin', 'ceo', 'agm', 'manager', 'procurement_head'].includes(role);
+  const operationsApprovalRoles = ['operations', 'operation', 'manager', 'operational_manager'];
+
+  const canViewFullPO = [
+    'admin',
+    'ceo',
+    'procurement',
+    'procurement_head',
+    'inventory',
+    'finance',
+  ].includes(role);
+
+  const canReviewRequest = ['hr', 'agm', ...operationsApprovalRoles].includes(role);
+
+  const canApprove = [
+    'admin',
+    'ceo',
+    'procurement_head',
+    'hr',
+    'agm',
+    ...operationsApprovalRoles,
+  ].includes(role);
+
   const canCreate = [
     'admin',
     'procurement',
     'inventory',
-    'manager',
     'ceo',
-    'agm',
-    'finance',
-    'hr',
     'procurement_head',
   ].includes(role);
+
+  const canReleaseFunds = ['finance'].includes(role);
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewLPO, setViewLPO] = useState(null);
+  const [reviewLPO, setReviewLPO] = useState(null);
   const [form, setForm] = useState(EMPTY_LPO);
   const [saving, setSaving] = useState(false);
   const [rejectionReason, setRejectionReason] = useState('');
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectTarget, setRejectTarget] = useState(null);
   const [lowStockSearch, setLowStockSearch] = useState('');
+
+  const restorePODraft = useCallback(() => {
+    setDialogOpen(true);
+    toast.info('Your unfinished purchase order has been restored.');
+  }, []);
+
+  const { clearDraft: clearPODraft } = useFormDraft({
+    key: 'procurement-lpo',
+    form,
+    setForm,
+    userId: user?.id || user?.email || user?.user_email,
+    enabled: dialogOpen,
+    onRestore: restorePODraft,
+  });
 
   const {
     data: lpos = [],
@@ -272,7 +309,7 @@ export default function ProcurementLPO() {
   const stats = useMemo(
     () => ({
       total: lpos.length,
-      pending: lpos.filter((l) => l.status === 'Pending Approval').length,
+      pending: lpos.filter((l) => String(l.status || '').startsWith('Pending')).length,
       approved: lpos.filter((l) => l.status === 'Approved').length,
       issued: lpos.filter((l) => l.status === 'Issued').length,
       lowStock: lowStockItems.length,
@@ -461,7 +498,7 @@ export default function ProcurementLPO() {
         items: validItems,
         linked_inventory_items: validItems.map((item) => item.item_id).filter(Boolean),
         lpo_number: lpoNumber,
-        status: submitForApproval ? 'Pending Approval' : 'Draft',
+        status: submitForApproval ? 'Pending HR Approval' : 'Draft',
         requested_by_email: user.email || user.user_email || '',
         requested_by_name: user.full_name || user.name || user.email || 'ARK User',
         total_amount_ngn: totals.grandTotal,
@@ -479,6 +516,7 @@ export default function ProcurementLPO() {
           : 'Purchase Order saved as draft.'
       );
 
+      clearPODraft();
       refresh();
       setDialogOpen(false);
       setForm(EMPTY_LPO);
@@ -512,22 +550,119 @@ export default function ProcurementLPO() {
       });
     }
 
+    if (reviewLPO?.id === lpo.id) {
+      setReviewLPO({
+        ...reviewLPO,
+        ...payload,
+      });
+    }
+
     toast.success(successMessage);
   };
 
   const handleSubmit = (lpo) =>
-    updateLPOStatus(lpo, { status: 'Pending Approval' }, 'PO submitted for approval');
+    updateLPOStatus(lpo, { status: 'Pending HR Approval' }, 'PO submitted for HR approval');
 
-  const handleApprove = (lpo) =>
-    updateLPOStatus(
-      lpo,
-      {
-        status: 'Approved',
-        approved_by: user.full_name || user.name || user.email || 'Approver',
-        approval_date: new Date().toISOString(),
-      },
-      'PO approved'
-    );
+  const isApprovalPending = (lpo) => {
+    return [
+      'Pending Approval',
+      'Pending HR Approval',
+      'Pending AGM Approval',
+      'Pending Operations Approval',
+    ].includes(lpo?.status || '');
+  };
+
+  const canApproveCurrentStage = (lpo) => {
+    if (!isApprovalPending(lpo)) return false;
+
+    if (['admin', 'ceo', 'procurement_head'].includes(role)) {
+      return true;
+    }
+
+    if (role === 'hr') {
+      return ['Pending Approval', 'Pending HR Approval'].includes(lpo?.status || '');
+    }
+
+    if (role === 'agm') {
+      return lpo?.status === 'Pending AGM Approval';
+    }
+
+    if (operationsApprovalRoles.includes(role)) {
+      return lpo?.status === 'Pending Operations Approval';
+    }
+
+    return false;
+  };
+
+  const buildApprovalPayload = (lpo) => {
+    const approver = user.full_name || user.name || user.email || 'Approver';
+    const now = new Date().toISOString();
+
+    if (['admin', 'ceo', 'procurement_head'].includes(role)) {
+      return {
+        payload: {
+          status: 'Pending Account Release',
+          approval_stage: 'account_release',
+          approved_by: approver,
+          approval_date: now,
+        },
+        message: 'PO approved. Waiting for Account to release funds.',
+      };
+    }
+
+    if (role === 'hr') {
+      return {
+        payload: {
+          status: 'Pending AGM Approval',
+          approval_stage: 'agm_review',
+          hr_approved_by: approver,
+          hr_approved_at: now,
+        },
+        message: 'HR approved. Waiting for AGM approval.',
+      };
+    }
+
+    if (role === 'agm') {
+      return {
+        payload: {
+          status: 'Pending Operations Approval',
+          approval_stage: 'operations_review',
+          agm_approved_by: approver,
+          agm_approved_at: now,
+        },
+        message: 'AGM approved. Waiting for Operations approval.',
+      };
+    }
+
+    if (operationsApprovalRoles.includes(role)) {
+      return {
+        payload: {
+          status: 'Pending Account Release',
+          approval_stage: 'account_release',
+          operations_approved_by: approver,
+          operations_approved_at: now,
+          approved_by: 'HR, AGM and Operations',
+          approval_date: now,
+        },
+        message: 'Operations approved. Waiting for Account to release funds.',
+      };
+    }
+
+    return {
+      payload: {},
+      message: 'No approval action was taken.',
+    };
+  };
+
+  const handleApprove = (lpo) => {
+    if (!canApproveCurrentStage(lpo)) {
+      toast.error('This PO is not at your approval stage.');
+      return;
+    }
+
+    const { payload, message } = buildApprovalPayload(lpo);
+    return updateLPOStatus(lpo, payload, message);
+  };
 
   const openRejectDialog = (lpo) => {
     setRejectTarget(lpo);
@@ -542,6 +677,7 @@ export default function ProcurementLPO() {
       rejectTarget,
       {
         status: 'Rejected',
+        approval_stage: 'rejected',
         rejection_reason: rejectionReason || 'Rejected',
         approved_by: user.full_name || user.name || user.email || 'Approver',
         approval_date: new Date().toISOString(),
@@ -551,6 +687,7 @@ export default function ProcurementLPO() {
 
     setRejectDialogOpen(false);
     setRejectTarget(null);
+    setReviewLPO(null);
     setRejectionReason('');
   };
 
@@ -559,6 +696,9 @@ export default function ProcurementLPO() {
 
   const handleComplete = (lpo) =>
     updateLPOStatus(lpo, { status: 'Completed' }, 'PO marked as completed');
+
+  const handleReleaseFunds = (lpo) =>
+    updateLPOStatus(lpo, { status: 'Funds Released' }, 'Funds released. PO can now be issued.');
 
   const printPO = () => {
     window.print();
@@ -612,7 +752,19 @@ export default function ProcurementLPO() {
     }
   };
 
-  const statuses = ['all', 'Draft', 'Pending Approval', 'Approved', 'Rejected', 'Issued', 'Completed'];
+  const statuses = [
+    'all',
+    'Draft',
+    'Pending HR Approval',
+    'Pending AGM Approval',
+    'Pending Operations Approval',
+    'Pending Account Release',
+    'Funds Released',
+    'Approved',
+    'Rejected',
+    'Issued',
+    'Completed',
+  ];
 
   return (
     <div className="space-y-5 pb-20 text-slate-100">
@@ -842,9 +994,13 @@ export default function ProcurementLPO() {
                   </div>
 
                   <div className="text-right">
-                    <p className="text-xl font-black text-white">
-                      {money(lpo.total_amount_ngn || calculateGrandTotal(lpo.items || [], lpo.vat_rate || 0).grandTotal, lpo.currency)}
-                    </p>
+                    {canViewFullPO ? (
+                      <p className="text-xl font-black text-white">
+                        {money(lpo.total_amount_ngn || calculateGrandTotal(lpo.items || [], lpo.vat_rate || 0).grandTotal, lpo.currency)}
+                      </p>
+                    ) : (
+                      <p className="text-sm font-bold text-slate-200">Purchase request review</p>
+                    )}
                     <p className="text-xs text-slate-400">
                       {(lpo.items || []).length} item(s)
                     </p>
@@ -852,10 +1008,24 @@ export default function ProcurementLPO() {
                 </div>
 
                 <div className="flex flex-wrap gap-2 mt-4 pt-3 border-t border-white/10">
-                  <Button size="sm" variant="outline" onClick={() => setViewLPO(lpo)} className="border-white/10 text-white hover:bg-white/10">
-                    <Eye className="w-4 h-4 mr-1" />
-                    View PO
-                  </Button>
+                  {canViewFullPO && (
+  <Button
+    size="sm"
+    variant="outline"
+    onClick={() => setViewLPO(lpo)}
+    className="border-white/10 text-white hover:bg-white/10"
+  >
+    <Eye className="w-4 h-4 mr-1" />
+    View PO
+  </Button>
+)}
+
+                  {canReviewRequest && (
+                    <Button size="sm" variant="outline" onClick={() => setReviewLPO(lpo)} className="border-white/10 text-white hover:bg-white/10">
+                      <Eye className="w-4 h-4 mr-1" />
+                      Review Request
+                    </Button>
+                  )}
 
                   {lpo.status === 'Draft' && canCreate && (
                     <Button size="sm" onClick={() => handleSubmit(lpo)} className="bg-blue-600 hover:bg-blue-700 text-white">
@@ -864,7 +1034,7 @@ export default function ProcurementLPO() {
                     </Button>
                   )}
 
-                  {lpo.status === 'Pending Approval' && canApprove && (
+                  {canViewFullPO && canApprove && canApproveCurrentStage(lpo) && (
                     <>
                       <Button size="sm" onClick={() => handleApprove(lpo)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
                         <CheckCircle2 className="w-4 h-4 mr-1" />
@@ -877,7 +1047,14 @@ export default function ProcurementLPO() {
                     </>
                   )}
 
-                  {lpo.status === 'Approved' && canCreate && (
+                  {lpo.status === 'Pending Account Release' && canReleaseFunds && (
+                    <Button size="sm" onClick={() => handleReleaseFunds(lpo)} className="bg-blue-600 hover:bg-blue-700 text-white">
+                      <CheckCircle2 className="w-4 h-4 mr-1" />
+                      Release Funds
+                    </Button>
+                  )}
+
+                  {['Funds Released', 'Approved'].includes(lpo.status) && canCreate && (
                     <Button size="sm" onClick={() => handleIssue(lpo)} className="bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white">
                       <Send className="w-4 h-4 mr-1" />
                       Issue PO
@@ -1105,178 +1282,319 @@ export default function ProcurementLPO() {
         </DialogContent>
       </Dialog>
 
+      {canViewFullPO && (
       <Dialog open={!!viewLPO} onOpenChange={(open) => !open && setViewLPO(null)}>
-        <DialogContent className="sm:max-w-6xl max-h-[92vh] overflow-y-auto bg-white text-slate-900">
-          <DialogHeader className="no-print">
-            <DialogTitle>Purchase Order Preview</DialogTitle>
+          <DialogContent className="sm:max-w-6xl max-h-[92vh] overflow-y-auto bg-white text-slate-900">
+            <DialogHeader className="no-print">
+              <DialogTitle>Purchase Order Preview</DialogTitle>
+            </DialogHeader>
+  
+            {viewLPO && (
+              <>
+                <div className="no-print flex flex-wrap justify-end gap-2 mb-3">
+                  <Button variant="outline" onClick={printPO}>
+                    <Printer className="w-4 h-4 mr-1" />
+                    Print PO
+                  </Button>
+                  <Button variant="outline" onClick={() => sharePO(viewLPO)}>
+                    <Share2 className="w-4 h-4 mr-1" />
+                    Share PO
+                  </Button>
+                  <Button variant="outline" onClick={() => copyPO(viewLPO)}>
+                    <Copy className="w-4 h-4 mr-1" />
+                    Copy Summary
+                  </Button>
+                </div>
+  
+                <div id="po-print-area" className="bg-white text-slate-900 rounded-lg border border-slate-200 p-6">
+                  <div className="flex items-start justify-between gap-6 border-b-4 border-[#102969] pb-4">
+                    <div className="flex items-center gap-4">
+                      <img
+                        src={COMPANY.logoUrl}
+                        alt="ARK Technologies Group"
+                        className="h-16 w-16 object-contain"
+                      />
+                      <div>
+                        <h1 className="text-2xl font-black text-[#102969]">
+                          {COMPANY.name}
+                        </h1>
+                        <p className="text-sm text-slate-600">{COMPANY.subtitle}</p>
+                        <p className="text-xs text-slate-500">{COMPANY.address}</p>
+                        <p className="text-xs text-slate-500">{COMPANY.email}</p>
+                      </div>
+                    </div>
+  
+                    <div className="text-right">
+                      <h2 className="text-3xl font-black text-[#ff5a00]">
+                        PURCHASE ORDER
+                      </h2>
+                      <p className="font-mono text-sm text-slate-600 mt-1">
+                        {viewLPO.lpo_number}
+                      </p>
+                      <Badge variant="outline" className={STATUS_COLORS[viewLPO.status] || STATUS_COLORS.Draft}>
+                        {viewLPO.status}
+                      </Badge>
+                    </div>
+                  </div>
+  
+                  <div className="grid md:grid-cols-2 gap-6 mt-5">
+                    <div className="rounded-lg border border-slate-200 p-4">
+                      <h3 className="font-black text-[#102969] mb-2">Supplier</h3>
+                      <p className="font-bold">{viewLPO.supplier_name || '—'}</p>
+                      <p className="text-sm text-slate-600">{viewLPO.supplier_contact || '—'}</p>
+                      <p className="text-sm text-slate-600">{viewLPO.supplier_email || '—'}</p>
+                      <p className="text-sm text-slate-600 whitespace-pre-wrap">
+                        {viewLPO.supplier_address || '—'}
+                      </p>
+                    </div>
+  
+                    <div className="rounded-lg border border-slate-200 p-4">
+                      <h3 className="font-black text-[#102969] mb-2">PO Details</h3>
+                      <div className="grid grid-cols-2 gap-2 text-sm">
+                        <p className="text-slate-500">PO Date</p>
+                        <p className="font-semibold text-right">{dateLabel(viewLPO.created_at)}</p>
+                        <p className="text-slate-500">Delivery Date</p>
+                        <p className="font-semibold text-right">{dateLabel(viewLPO.delivery_expected_date)}</p>
+                        <p className="text-slate-500">Prepared By</p>
+                        <p className="font-semibold text-right">{viewLPO.requested_by_name || '—'}</p>
+                        <p className="text-slate-500">Currency</p>
+                        <p className="font-semibold text-right">{viewLPO.currency || 'NGN'}</p>
+                      </div>
+                    </div>
+                  </div>
+  
+                  <div className="mt-5 overflow-x-auto">
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr className="bg-[#102969] text-white">
+                          <th className="border border-[#102969] p-2 text-left">S/N</th>
+                          <th className="border border-[#102969] p-2 text-left">Part Number</th>
+                          <th className="border border-[#102969] p-2 text-left">Description</th>
+                          <th className="border border-[#102969] p-2 text-left">Condition</th>
+                          <th className="border border-[#102969] p-2 text-right">Qty</th>
+                          <th className="border border-[#102969] p-2 text-right">Unit Price</th>
+                          <th className="border border-[#102969] p-2 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(viewLPO.items || []).map((item, index) => (
+                          <tr key={`${item.part_number || 'item'}-${index}`} className="even:bg-slate-50">
+                            <td className="border border-slate-200 p-2">{index + 1}</td>
+                            <td className="border border-slate-200 p-2 font-mono text-xs">{item.part_number || '—'}</td>
+                            <td className="border border-slate-200 p-2">{item.description || '—'}</td>
+                            <td className="border border-slate-200 p-2">{item.condition || '—'}</td>
+                            <td className="border border-slate-200 p-2 text-right">{item.quantity_requested || 0}</td>
+                            <td className="border border-slate-200 p-2 text-right">{money(item.unit_price_ngn || 0, viewLPO.currency)}</td>
+                            <td className="border border-slate-200 p-2 text-right font-bold">
+                              {money(item.total_ngn || calculateItemTotal(item), viewLPO.currency)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+  
+                  {(() => {
+                    const totals = calculateGrandTotal(viewLPO.items || [], viewLPO.vat_rate || 0);
+  
+                    return (
+                      <div className="flex justify-end mt-5">
+                        <div className="w-full max-w-sm rounded-lg border border-slate-200 overflow-hidden">
+                          <div className="flex justify-between p-3 border-b border-slate-200">
+                            <span>Subtotal</span>
+                            <strong>{money(totals.subtotal, viewLPO.currency)}</strong>
+                          </div>
+                          <div className="flex justify-between p-3 border-b border-slate-200">
+                            <span>VAT ({viewLPO.vat_rate || 0}%)</span>
+                            <strong>{money(totals.vat, viewLPO.currency)}</strong>
+                          </div>
+                          <div className="flex justify-between p-3 bg-[#ff5a00] text-white text-lg">
+                            <span className="font-black">Grand Total</span>
+                            <strong>{money(totals.grandTotal, viewLPO.currency)}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+  
+                  {viewLPO.notes && (
+                    <div className="mt-5 rounded-lg border border-slate-200 p-4">
+                      <h3 className="font-black text-[#102969] mb-2">Notes</h3>
+                      <p className="text-sm whitespace-pre-wrap">{viewLPO.notes}</p>
+                    </div>
+                  )}
+  
+                  {viewLPO.rejection_reason && (
+                    <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4">
+                      <h3 className="font-black text-red-700 mb-2">Rejection Reason</h3>
+                      <p className="text-sm text-red-700 whitespace-pre-wrap">
+                        {viewLPO.rejection_reason}
+                      </p>
+                    </div>
+                  )}
+  
+                  <div className="grid grid-cols-3 gap-8 mt-12 text-center text-sm">
+                    <div>
+                      <div className="border-t border-slate-400 pt-2">
+                        Prepared By
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">{viewLPO.requested_by_name || '—'}</p>
+                    </div>
+                    <div>
+                      <div className="border-t border-slate-400 pt-2">
+                        Approved By
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">{viewLPO.approved_by || '—'}</p>
+                    </div>
+                    <div>
+                      <div className="border-t border-slate-400 pt-2">
+                        Supplier Acknowledgement
+                      </div>
+                      <p className="text-xs text-slate-500 mt-1">Name / Signature / Date</p>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <Dialog open={!!reviewLPO} onOpenChange={(open) => !open && setReviewLPO(null)}>
+        <DialogContent className="sm:max-w-4xl max-h-[92vh] overflow-y-auto bg-[#102969] border-white/10 text-white">
+          <DialogHeader>
+            <DialogTitle>Review Purchase Request</DialogTitle>
           </DialogHeader>
 
-          {viewLPO && (
-            <>
-              <div className="no-print flex flex-wrap justify-end gap-2 mb-3">
-                <Button variant="outline" onClick={printPO}>
-                  <Printer className="w-4 h-4 mr-1" />
-                  Print PO
-                </Button>
-                <Button variant="outline" onClick={() => sharePO(viewLPO)}>
-                  <Share2 className="w-4 h-4 mr-1" />
-                  Share PO
-                </Button>
-                <Button variant="outline" onClick={() => copyPO(viewLPO)}>
-                  <Copy className="w-4 h-4 mr-1" />
-                  Copy Summary
-                </Button>
+          {reviewLPO && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-white/10 bg-[#08153d]/80 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs text-slate-400 font-mono">{reviewLPO.lpo_number}</p>
+                    <h3 className="text-xl font-bold text-white mt-1">{reviewLPO.title}</h3>
+                    <p className="text-sm text-slate-300 mt-1">
+                      Requested by {reviewLPO.requested_by_name || '—'} · {dateLabel(reviewLPO.created_at)}
+                    </p>
+                  </div>
+                  <Badge variant="outline" className={STATUS_COLORS[reviewLPO.status] || STATUS_COLORS.Draft}>
+                    {reviewLPO.status || 'Draft'}
+                  </Badge>
+                </div>
               </div>
 
-              <div id="po-print-area" className="bg-white text-slate-900 rounded-lg border border-slate-200 p-6">
-                <div className="flex items-start justify-between gap-6 border-b-4 border-[#102969] pb-4">
-                  <div className="flex items-center gap-4">
-                    <img
-                      src={COMPANY.logoUrl}
-                      alt="ARK Technologies Group"
-                      className="h-16 w-16 object-contain"
-                    />
-                    <div>
-                      <h1 className="text-2xl font-black text-[#102969]">
-                        {COMPANY.name}
-                      </h1>
-                      <p className="text-sm text-slate-600">{COMPANY.subtitle}</p>
-                      <p className="text-xs text-slate-500">{COMPANY.address}</p>
-                      <p className="text-xs text-slate-500">{COMPANY.email}</p>
-                    </div>
-                  </div>
-
-                  <div className="text-right">
-                    <h2 className="text-3xl font-black text-[#ff5a00]">
-                      PURCHASE ORDER
-                    </h2>
-                    <p className="font-mono text-sm text-slate-600 mt-1">
-                      {viewLPO.lpo_number}
-                    </p>
-                    <Badge variant="outline" className={STATUS_COLORS[viewLPO.status] || STATUS_COLORS.Draft}>
-                      {viewLPO.status}
-                    </Badge>
-                  </div>
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="rounded-xl border border-white/10 bg-[#08153d]/80 p-4">
+                  <p className="text-xs uppercase tracking-widest text-slate-400">Supplier</p>
+                  <p className="text-white font-semibold mt-1">{reviewLPO.supplier_name || '—'}</p>
                 </div>
 
-                <div className="grid md:grid-cols-2 gap-6 mt-5">
-                  <div className="rounded-lg border border-slate-200 p-4">
-                    <h3 className="font-black text-[#102969] mb-2">Supplier</h3>
-                    <p className="font-bold">{viewLPO.supplier_name || '—'}</p>
-                    <p className="text-sm text-slate-600">{viewLPO.supplier_contact || '—'}</p>
-                    <p className="text-sm text-slate-600">{viewLPO.supplier_email || '—'}</p>
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap">
-                      {viewLPO.supplier_address || '—'}
-                    </p>
-                  </div>
-
-                  <div className="rounded-lg border border-slate-200 p-4">
-                    <h3 className="font-black text-[#102969] mb-2">PO Details</h3>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                      <p className="text-slate-500">PO Date</p>
-                      <p className="font-semibold text-right">{dateLabel(viewLPO.created_at)}</p>
-                      <p className="text-slate-500">Delivery Date</p>
-                      <p className="font-semibold text-right">{dateLabel(viewLPO.delivery_expected_date)}</p>
-                      <p className="text-slate-500">Prepared By</p>
-                      <p className="font-semibold text-right">{viewLPO.requested_by_name || '—'}</p>
-                      <p className="text-slate-500">Currency</p>
-                      <p className="font-semibold text-right">{viewLPO.currency || 'NGN'}</p>
-                    </div>
-                  </div>
+                <div className="rounded-xl border border-white/10 bg-[#08153d]/80 p-4">
+                  <p className="text-xs uppercase tracking-widest text-slate-400">Expected Delivery</p>
+                  <p className="text-white font-semibold mt-1">{dateLabel(reviewLPO.delivery_expected_date)}</p>
                 </div>
+              </div>
 
-                <div className="mt-5 overflow-x-auto">
-                  <table className="w-full border-collapse text-sm">
-                    <thead>
-                      <tr className="bg-[#102969] text-white">
-                        <th className="border border-[#102969] p-2 text-left">S/N</th>
-                        <th className="border border-[#102969] p-2 text-left">Part Number</th>
-                        <th className="border border-[#102969] p-2 text-left">Description</th>
-                        <th className="border border-[#102969] p-2 text-left">Condition</th>
-                        <th className="border border-[#102969] p-2 text-right">Qty</th>
-                        <th className="border border-[#102969] p-2 text-right">Unit Price</th>
-                        <th className="border border-[#102969] p-2 text-right">Total</th>
+              <div className="rounded-xl border border-white/10 overflow-hidden">
+                <div className="bg-[#08153d] p-3 font-bold">Requested Items</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-[#ff5a00] text-white">
+                      <tr>
+                        <th className="p-2 text-left">S/N</th>
+                        <th className="p-2 text-left">Part Number</th>
+                        <th className="p-2 text-left">Description</th>
+                        <th className="p-2 text-left">Condition</th>
+                        <th className="p-2 text-right">Qty</th>
+                        <th className="p-2 text-right">Estimated Total</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {(viewLPO.items || []).map((item, index) => (
-                        <tr key={`${item.part_number || 'item'}-${index}`} className="even:bg-slate-50">
-                          <td className="border border-slate-200 p-2">{index + 1}</td>
-                          <td className="border border-slate-200 p-2 font-mono text-xs">{item.part_number || '—'}</td>
-                          <td className="border border-slate-200 p-2">{item.description || '—'}</td>
-                          <td className="border border-slate-200 p-2">{item.condition || '—'}</td>
-                          <td className="border border-slate-200 p-2 text-right">{item.quantity_requested || 0}</td>
-                          <td className="border border-slate-200 p-2 text-right">{money(item.unit_price_ngn || 0, viewLPO.currency)}</td>
-                          <td className="border border-slate-200 p-2 text-right font-bold">
-                            {money(item.total_ngn || calculateItemTotal(item), viewLPO.currency)}
+                      {(reviewLPO.items || []).map((item, index) => (
+                        <tr key={`${item.part_number || 'item'}-${index}`} className="border-b border-white/10">
+                          <td className="p-2">{index + 1}</td>
+                          <td className="p-2 font-mono text-xs">{item.part_number || '—'}</td>
+                          <td className="p-2">{item.description || '—'}</td>
+                          <td className="p-2">{item.condition || '—'}</td>
+                          <td className="p-2 text-right">{item.quantity_requested || 0}</td>
+                          <td className="p-2 text-right font-bold">
+                            {money(item.total_ngn || calculateItemTotal(item), reviewLPO.currency)}
                           </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
+              </div>
 
-                {(() => {
-                  const totals = calculateGrandTotal(viewLPO.items || [], viewLPO.vat_rate || 0);
+              <div className="rounded-xl border border-white/10 bg-[#08153d]/80 p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300">Estimated Grand Total</span>
+                  <strong className="text-[#ff5a00] text-lg">
+                    {money(reviewLPO.total_amount_ngn || calculateGrandTotal(reviewLPO.items || [], reviewLPO.vat_rate || 0).grandTotal, reviewLPO.currency)}
+                  </strong>
+                </div>
+              </div>
 
-                  return (
-                    <div className="flex justify-end mt-5">
-                      <div className="w-full max-w-sm rounded-lg border border-slate-200 overflow-hidden">
-                        <div className="flex justify-between p-3 border-b border-slate-200">
-                          <span>Subtotal</span>
-                          <strong>{money(totals.subtotal, viewLPO.currency)}</strong>
-                        </div>
-                        <div className="flex justify-between p-3 border-b border-slate-200">
-                          <span>VAT ({viewLPO.vat_rate || 0}%)</span>
-                          <strong>{money(totals.vat, viewLPO.currency)}</strong>
-                        </div>
-                        <div className="flex justify-between p-3 bg-[#ff5a00] text-white text-lg">
-                          <span className="font-black">Grand Total</span>
-                          <strong>{money(totals.grandTotal, viewLPO.currency)}</strong>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {viewLPO.notes && (
-                  <div className="mt-5 rounded-lg border border-slate-200 p-4">
-                    <h3 className="font-black text-[#102969] mb-2">Notes</h3>
-                    <p className="text-sm whitespace-pre-wrap">{viewLPO.notes}</p>
-                  </div>
-                )}
-
-                {viewLPO.rejection_reason && (
-                  <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4">
-                    <h3 className="font-black text-red-700 mb-2">Rejection Reason</h3>
-                    <p className="text-sm text-red-700 whitespace-pre-wrap">
-                      {viewLPO.rejection_reason}
+              <div className="rounded-xl border border-white/10 bg-[#08153d]/80 p-4">
+                <p className="text-xs uppercase tracking-widest text-slate-400 mb-3">Approval Progress</p>
+                <div className="grid md:grid-cols-4 gap-3 text-sm">
+                  <div className="rounded-lg border border-white/10 p-3">
+                    <p className="text-slate-400">HR</p>
+                    <p className={reviewLPO.hr_approved_by ? 'text-emerald-300 font-bold' : 'text-amber-300 font-bold'}>
+                      {reviewLPO.hr_approved_by ? 'Approved' : 'Pending'}
                     </p>
+                    {reviewLPO.hr_approved_by && <p className="text-xs text-slate-400 mt-1">{reviewLPO.hr_approved_by}</p>}
                   </div>
-                )}
-
-                <div className="grid grid-cols-3 gap-8 mt-12 text-center text-sm">
-                  <div>
-                    <div className="border-t border-slate-400 pt-2">
-                      Prepared By
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">{viewLPO.requested_by_name || '—'}</p>
+                  <div className="rounded-lg border border-white/10 p-3">
+                    <p className="text-slate-400">AGM</p>
+                    <p className={reviewLPO.agm_approved_by ? 'text-emerald-300 font-bold' : 'text-amber-300 font-bold'}>
+                      {reviewLPO.agm_approved_by ? 'Approved' : 'Pending'}
+                    </p>
+                    {reviewLPO.agm_approved_by && <p className="text-xs text-slate-400 mt-1">{reviewLPO.agm_approved_by}</p>}
                   </div>
-                  <div>
-                    <div className="border-t border-slate-400 pt-2">
-                      Approved By
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">{viewLPO.approved_by || '—'}</p>
+                  <div className="rounded-lg border border-white/10 p-3">
+                    <p className="text-slate-400">Operations</p>
+                    <p className={reviewLPO.operations_approved_by ? 'text-emerald-300 font-bold' : 'text-amber-300 font-bold'}>
+                      {reviewLPO.operations_approved_by ? 'Approved' : 'Pending'}
+                    </p>
+                    {reviewLPO.operations_approved_by && <p className="text-xs text-slate-400 mt-1">{reviewLPO.operations_approved_by}</p>}
                   </div>
-                  <div>
-                    <div className="border-t border-slate-400 pt-2">
-                      Supplier Acknowledgement
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1">Name / Signature / Date</p>
+                  <div className="rounded-lg border border-white/10 p-3">
+                    <p className="text-slate-400">Account</p>
+                    <p className={['Funds Released', 'Issued', 'Completed'].includes(reviewLPO.status) ? 'text-emerald-300 font-bold' : 'text-amber-300 font-bold'}>
+                      {['Funds Released', 'Issued', 'Completed'].includes(reviewLPO.status) ? 'Funds Released' : 'Pending Release'}
+                    </p>
                   </div>
                 </div>
               </div>
-            </>
+
+              {reviewLPO.notes && (
+                <div className="rounded-xl border border-white/10 bg-[#08153d]/80 p-4">
+                  <p className="text-xs uppercase tracking-widest text-slate-400 mb-2">Request Notes</p>
+                  <p className="text-sm whitespace-pre-wrap">{reviewLPO.notes}</p>
+                </div>
+              )}
+
+              <div className="flex flex-wrap justify-end gap-2 pt-2">
+                <Button variant="outline" onClick={() => setReviewLPO(null)} className="border-white/10 text-white hover:bg-white/10">
+                  Close
+                </Button>
+
+                {canApprove && canApproveCurrentStage(reviewLPO) && (
+                  <>
+                    <Button onClick={() => handleApprove(reviewLPO)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                      <CheckCircle2 className="w-4 h-4 mr-1" />
+                      Approve
+                    </Button>
+                    <Button variant="destructive" onClick={() => openRejectDialog(reviewLPO)}>
+                      <XCircle className="w-4 h-4 mr-1" />
+                      Reject
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>

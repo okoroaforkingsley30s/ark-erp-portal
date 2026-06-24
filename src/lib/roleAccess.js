@@ -147,7 +147,7 @@ export const ROLE_ACCESS = {
     "operations_part_requests", "approve_part_request", "reject_part_request",
     "send_to_inventory", "banks", "branches", "devices", "device_status",
     "assignments", "regional_view", "field_engineers", "assets_section",
-    "assets", "inventory", "inventory_part_requests", "business", "finance",
+    "assets", "inventory", "inventory_part_requests", "purchase_orders", "business", "finance",
     "hr", "reports", "notifications", "communication", "official_mail",
     "ark_connect", "repair_jobs", "rr_intake", "rr_consumables",
     "staff_directory", "audit_logs", "print_official_report",
@@ -161,7 +161,7 @@ export const ROLE_ACCESS = {
     "operations_part_requests", "approve_part_request", "reject_part_request",
     "send_to_inventory", "banks", "branches", "devices", "device_status",
     "assignments", "regional_view", "field_engineers", "assets_section",
-    "assets", "inventory", "inventory_part_requests", "business", "finance",
+    "assets", "inventory", "inventory_part_requests", "purchase_orders", "business", "finance",
     "hr", "reports", "data_import", "notifications", "communication",
     "official_mail", "ark_connect", "repair_jobs", "rr_intake",
     "rr_consumables", "print_official_report", "print_ticket_report",
@@ -171,7 +171,7 @@ export const ROLE_ACCESS = {
 
   operations: [
     "dashboard", "fund_requests", "operations", "ops_dashboard", "operations_feed",
-    "operations_part_requests", "tickets", "field_ops", "reports",
+    "operations_part_requests", "tickets", "field_ops", "purchase_orders", "reports",
     "approve_part_request", "reject_part_request", "send_to_inventory",
     "print_operations_report", "print_ticket_report", "notifications",
     "communication", "official_mail", "ark_connect",
@@ -256,7 +256,7 @@ export const ROLE_ACCESS = {
   ],
 
   hr: [
-    "dashboard", "fund_requests", "hr", "staff_directory", "print_hr_report",
+    "dashboard", "fund_requests", "hr", "staff_directory", "purchase_orders", "print_hr_report",
     "notifications", "communication", "official_mail", "ark_connect",
   ],
 
