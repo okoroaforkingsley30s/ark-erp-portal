@@ -39,6 +39,7 @@ import {
   Wrench,
   PackageCheck,
   Inbox,
+  Wallet,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,12 @@ const ALL_MENUS = [
     path: '/dashboard',
     permission: 'dashboard',
   },
+  {
+  label: 'Fund / Loan Requests',
+  icon: Wallet,
+  path: '/fund-requests',
+  permission: 'fund_requests',
+},
   {
     label: 'SLA Analytics',
     icon: Activity,
@@ -320,6 +327,10 @@ function Sidebar({
   const location = useLocation();
   const navRef = useRef(null);
   const role = user?.role || '';
+
+  console.log('SIDEBAR USER:', user);
+console.log('SIDEBAR ROLE:', role);
+console.log('CAN SEE FUND:', canAccess(role, 'fund_requests'));
 
   const filteredMenu = ALL_MENUS.filter((item) => {
     return canAccess(role, item.permission);

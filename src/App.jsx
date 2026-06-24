@@ -34,6 +34,7 @@ import FieldOperations from '@/pages/FieldOperations';
 import DeviceManagement from '@/pages/DeviceManagement';
 import HRPortal from '@/pages/HRPortal';
 import FinancePortal from '@/pages/FinancePortal';
+import FundRequests from '@/pages/FundRequests';
 import CRMPortal from '@/pages/CRMPortal';
 import ProcurementPortal from '@/pages/ProcurementPortal';
 import ManagerDashboard from '@/pages/ManagerDashboard';
@@ -184,7 +185,14 @@ const AuthenticatedApp = () => {
           <Route path="/devices" element={<SecurePage path="/devices"><DeviceManagement /></SecurePage>} />
 
           <Route path="/hr" element={<SecurePage path="/hr"><HRPortal /></SecurePage>} />
-          <Route path="/finance" element={<SecurePage path="/finance"><FinancePortal /></SecurePage>} />
+          <Route path="/finance" element={<SecurePage path="/finance"><FinancePortal /></SecurePage>} /><Route
+  path="/fund-requests"
+  element={
+    <SecurePage path="/fund-requests">
+      <FundRequests />
+    </SecurePage>
+  }
+/>
           <Route path="/crm" element={<SecurePage path="/crm"><CRMPortal /></SecurePage>} />
           <Route path="/procurement" element={<SecurePage path="/procurement"><ProcurementPortal /></SecurePage>} />
           <Route path="/manager" element={<SecurePage path="/manager"><ManagerDashboard /></SecurePage>} />

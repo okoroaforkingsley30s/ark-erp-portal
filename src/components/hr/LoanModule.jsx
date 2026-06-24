@@ -287,10 +287,9 @@ export default function LoanModule({
       </div>
 
       <div className="flex justify-end">
-        <Button onClick={() => setOpen(true)}>
-          <Plus className="w-4 h-4 mr-1" />
-          Request Loan
-        </Button>
+        <p className="text-xs text-muted-foreground">
+  Loan requests must be submitted from Fund / Loan Requests. Approved and disbursed loans appear here automatically.
+</p>
       </div>
 
       <div className="space-y-3">

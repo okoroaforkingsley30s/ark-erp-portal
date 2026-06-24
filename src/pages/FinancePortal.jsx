@@ -32,7 +32,6 @@ import {
   TrendingDown,
   AlertCircle,
   Loader2,
-  Trash2,
   BarChart3,
   Truck,
   CheckCircle2,
@@ -188,9 +187,18 @@ function getFundDestination(request) {
   return request.destination || request.branch_name || request.location || 'N/A';
 }
 
+function getFinanceRole(user) {
+  return normalize(user?.role || user?.user_role || user?.position);
+}
+
 function canManageFinance(user) {
-  const role = normalize(user?.role || user?.user_role || user?.position);
-  return ['admin', 'manager', 'agm', 'ceo', 'finance', 'accounts', 'accountant'].includes(role);
+  const role = getFinanceRole(user);
+  return ['admin', 'ceo', 'agm'].includes(role);
+}
+
+function canAddFinanceRecord(user) {
+  const role = getFinanceRole(user);
+  return ['admin', 'ceo', 'agm', 'finance', 'accounts', 'accountant'].includes(role);
 }
 
 export default function FinancePortal() {
@@ -376,6 +384,16 @@ export default function FinancePortal() {
 
   const saveInvoice = async () => {
     try {
+      if (editingInv && !canManageFinance(user)) {
+        alert('You cannot edit finance records. Please submit a correction request for CEO/AGM approval.');
+        return;
+      }
+
+      if (!editingInv && !canAddFinanceRecord(user)) {
+        alert('You do not have permission to add finance records.');
+        return;
+      }
+
       setSavingInv(true);
 
       const payload = {
@@ -426,6 +444,11 @@ export default function FinancePortal() {
   };
 
   const updateInvStatus = async (inv, status) => {
+    if (!canManageFinance(user)) {
+      alert('You cannot change invoice status. Please submit a correction request for CEO/AGM approval.');
+      return;
+    }
+
     const payload = {
       status,
       updated_at: new Date().toISOString(),
@@ -465,6 +488,16 @@ export default function FinancePortal() {
 
   const saveExpense = async () => {
     try {
+      if (editingExp && !canManageFinance(user)) {
+        alert('You cannot edit finance records. Please submit a correction request for CEO/AGM approval.');
+        return;
+      }
+
+      if (!editingExp && !canAddFinanceRecord(user)) {
+        alert('You do not have permission to add finance records.');
+        return;
+      }
+
       setSavingExp(true);
 
       const payload = {
@@ -475,7 +508,9 @@ export default function FinancePortal() {
         description: expForm.description,
         staff_responsible: expForm.staff_responsible || null,
         staff_email: user?.email || '',
-        approval_status: expForm.approval_status || 'pending',
+        approval_status: canManageFinance(user)
+          ? expForm.approval_status || 'pending'
+          : 'pending',
         expense_date: expForm.expense_date || null,
         document_url: expForm.document_url || null,
         notes: expForm.notes || null,
@@ -516,6 +551,11 @@ export default function FinancePortal() {
   };
 
   const updateExpenseApproval = async (exp, approval_status) => {
+    if (!canManageFinance(user)) {
+      alert('Only CEO, AGM or Admin can approve or reject finance records.');
+      return;
+    }
+
     const payload = {
       approval_status,
       updated_at: new Date().toISOString(),
@@ -760,6 +800,7 @@ export default function FinancePortal() {
   });
 
   const allowFinanceActions = canManageFinance(user);
+  const allowAddFinanceRecords = canAddFinanceRecord(user);
 
   return (
     <div className="space-y-5">
@@ -1176,17 +1217,19 @@ export default function FinancePortal() {
               ))}
             </div>
 
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditingInv(null);
-                setInvForm(EMPTY_INV);
-                setInvOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              New Invoice
-            </Button>
+            {allowAddFinanceRecords && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingInv(null);
+                  setInvForm(EMPTY_INV);
+                  setInvOpen(true);
+                }}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                New Invoice
+              </Button>
+            )}
           </div>
 
           {loadingInv ? (
@@ -1246,46 +1289,45 @@ export default function FinancePortal() {
                     </div>
 
                     <div className="flex gap-2 mt-3">
-                      <Select
-                        value={inv.status}
-                        onValueChange={(v) => updateInvStatus(inv, v)}
-                      >
-                        <SelectTrigger className="h-8 text-xs w-[140px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(INV_STATUS).map(([k, v]) => (
-                            <SelectItem key={k} value={k}>
-                              {v.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {allowFinanceActions ? (
+                        <>
+                          <Select
+                            value={inv.status}
+                            onValueChange={(v) => updateInvStatus(inv, v)}
+                          >
+                            <SelectTrigger className="h-8 text-xs w-[140px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Object.entries(INV_STATUS).map(([k, v]) => (
+                                <SelectItem key={k} value={k}>
+                                  {v.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
 
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingInv(inv);
-                          setInvForm({
-                            ...EMPTY_INV,
-                            ...inv,
-                            amount: inv.amount?.toString() || '',
-                          });
-                          setInvOpen(true);
-                        }}
-                      >
-                        Edit
-                      </Button>
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive ml-auto"
-                        onClick={() => deleteInvoice(inv.id)}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingInv(inv);
+                              setInvForm({
+                                ...EMPTY_INV,
+                                ...inv,
+                                amount: inv.amount?.toString() || '',
+                              });
+                              setInvOpen(true);
+                            }}
+                          >
+                            Edit
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-xs text-amber-600">
+                          Locked after entry. Submit correction request for CEO/AGM approval.
+                        </p>
+                      )}
                     </div>
                   </Card>
                 );
@@ -1332,17 +1374,19 @@ export default function FinancePortal() {
               ))}
             </div>
 
-            <Button
-              size="sm"
-              onClick={() => {
-                setEditingExp(null);
-                setExpForm(EMPTY_EXP);
-                setExpOpen(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Record Expense
-            </Button>
+            {allowAddFinanceRecords && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingExp(null);
+                  setExpForm(EMPTY_EXP);
+                  setExpOpen(true);
+                }}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Record Expense
+              </Button>
+            )}
           </div>
 
           {loadingExp ? (
@@ -1415,24 +1459,24 @@ export default function FinancePortal() {
                     </div>
 
                     <div className="flex gap-2 mt-3">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingExp(exp);
-                          setExpForm({
-                            ...EMPTY_EXP,
-                            ...exp,
-                            amount: exp.amount?.toString() || '',
-                          });
-                          setExpOpen(true);
-                        }}
-                      >
-                        Edit
-                      </Button>
-
-                      {['admin', 'manager', 'agm', 'ceo', 'finance', 'accounts', 'accountant'].includes(normalize(user?.role)) && (
+                      {allowFinanceActions ? (
                         <>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setEditingExp(exp);
+                              setExpForm({
+                                ...EMPTY_EXP,
+                                ...exp,
+                                amount: exp.amount?.toString() || '',
+                              });
+                              setExpOpen(true);
+                            }}
+                          >
+                            Edit
+                          </Button>
+
                           <Button
                             variant="outline"
                             size="sm"
@@ -1451,16 +1495,11 @@ export default function FinancePortal() {
                             Reject
                           </Button>
                         </>
+                      ) : (
+                        <p className="text-xs text-amber-600">
+                          Locked after entry. Submit correction request for CEO/AGM approval.
+                        </p>
                       )}
-
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-destructive ml-auto"
-                        onClick={() => deleteExpense(exp.id)}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </Button>
                     </div>
                   </Card>
                 );
@@ -1779,22 +1818,24 @@ export default function FinancePortal() {
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Approval Status</Label>
-              <Select
-                value={expForm.approval_status}
-                onValueChange={(v) => fe('approval_status', v)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="pending">Pending Approval</SelectItem>
-                  <SelectItem value="approved">Approved</SelectItem>
-                  <SelectItem value="rejected">Rejected</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {allowFinanceActions && (
+              <div className="space-y-1.5">
+                <Label>Approval Status</Label>
+                <Select
+                  value={expForm.approval_status}
+                  onValueChange={(v) => fe('approval_status', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pending">Pending Approval</SelectItem>
+                    <SelectItem value="approved">Approved</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label>Supporting Document URL</Label>

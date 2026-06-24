@@ -125,8 +125,8 @@ SPARE_PARTS: "spare_parts",
 export const ROLE_ACCESS = {
   admin: ["*"],
 
-  ceo: [
-    "dashboard", "live_map", "business", "finance", "reports", "tickets",
+ ceo: [
+  "dashboard", "fund_requests", "live_map", "business", "finance", "reports", "tickets",
     "site_monitor", "assets_section", "assets", "notifications",
     "communication", "official_mail", "ark_connect", "operations_feed",
     "ops_dashboard", "inventory", "repair_jobs", "rr_intake",
@@ -137,12 +137,12 @@ export const ROLE_ACCESS = {
   ],
 
   ceo_pa: [
-    "dashboard", "reports", "notifications", "communication",
+    "dashboard", "fund_requests", "reports", "notifications", "communication",
     "official_mail", "ark_connect", "print_official_report",
   ],
 
   agm: [
-    "dashboard", "live_map", "tickets", "site_monitor", "engineering",
+    "dashboard", "fund_requests", "live_map", "tickets", "site_monitor", "engineering",
     "field_ops", "operations", "ops_dashboard", "operations_feed",
     "operations_part_requests", "approve_part_request", "reject_part_request",
     "send_to_inventory", "banks", "branches", "devices", "device_status",
@@ -156,7 +156,7 @@ export const ROLE_ACCESS = {
   ],
 
   manager: [
-    "dashboard", "live_map", "tickets", "site_monitor", "engineering",
+    "dashboard", "fund_requests", "live_map", "tickets", "site_monitor", "engineering",
     "field_ops", "operations", "ops_dashboard", "operations_feed",
     "operations_part_requests", "approve_part_request", "reject_part_request",
     "send_to_inventory", "banks", "branches", "devices", "device_status",
@@ -170,7 +170,7 @@ export const ROLE_ACCESS = {
   ],
 
   operations: [
-    "dashboard", "operations", "ops_dashboard", "operations_feed",
+    "dashboard", "fund_requests", "operations", "ops_dashboard", "operations_feed",
     "operations_part_requests", "tickets", "field_ops", "reports",
     "approve_part_request", "reject_part_request", "send_to_inventory",
     "print_operations_report", "print_ticket_report", "notifications",
@@ -178,7 +178,7 @@ export const ROLE_ACCESS = {
   ],
 
   helpdesk: [
-    "dashboard", "sla_analytics", "live_map", "tickets", "create_ticket",
+    "dashboard", "fund_requests", "sla_analytics", "live_map", "tickets", "create_ticket",
     "assign_ticket", "close_ticket", "site_monitor", "engineering",
     "field_ops", "operations", "ops_dashboard", "operations_feed",
     "banks", "branches", "devices", "device_status", "assignments",
@@ -188,13 +188,13 @@ export const ROLE_ACCESS = {
   ],
 
   engineer: [
-    "dashboard", "tickets", "field_ops", "engineering", "assets_section",
+    "dashboard", "fund_requests", "tickets", "field_ops", "engineering", "assets_section",
     "assets", "parts_request", "engineer_receive_part", "print_own_job_report",
     "notifications", "communication", "official_mail", "ark_connect",
   ],
 
   repair_head: [
-    "dashboard", "tickets", "repair_jobs", "rr_intake", "rr_consumables",
+    "dashboard", "fund_requests", "tickets", "repair_jobs", "rr_intake", "rr_consumables",
     "operations_feed", "receive_rr", "assign_rr_technician", "qa_pass",
     "qa_fail", "return_to_inventory", "scrap_part", "sell_part",
     "print_rr_report", "reports", "notifications", "communication",
@@ -202,13 +202,13 @@ export const ROLE_ACCESS = {
   ],
 
   repair_technician: [
-    "dashboard", "repair_jobs", "rr_consumables", "operations_feed",
+    "dashboard", "fund_requests", "repair_jobs", "rr_consumables", "operations_feed",
     "start_repair", "request_consumables", "submit_qa", "print_own_job_report",
     "notifications", "communication", "official_mail", "ark_connect",
   ],
 
   inventory: [
-  "dashboard",
+  "dashboard", "fund_requests",
   "assets_section",
   "assets",
 
@@ -244,19 +244,19 @@ export const ROLE_ACCESS = {
   ],
 
   procurement: [
-    "dashboard", "business", "procurement", "purchase_orders",
+    "dashboard", "fund_requests", "business", "procurement", "purchase_orders",
     "create_purchase_request", "operations_feed", "notifications",
     "communication", "official_mail", "ark_connect",
   ],
 
   crm: [
-    "dashboard", "business", "crm", "client_follow_up", "tickets",
+    "dashboard", "fund_requests", "business", "crm", "client_follow_up", "tickets",
     "operations_feed", "print_crm_report", "notifications", "communication",
     "official_mail", "ark_connect",
   ],
 
   hr: [
-    "dashboard", "hr", "staff_directory", "print_hr_report",
+    "dashboard", "fund_requests", "hr", "staff_directory", "print_hr_report",
     "notifications", "communication", "official_mail", "ark_connect",
   ],
 
@@ -305,6 +305,7 @@ export const ROLE_LABELS = {
 
 export const ROUTE_PERMISSIONS = {
   "/dashboard": "dashboard",
+  "/fund-requests": "fund_requests",
   "/tickets": "tickets",
   "/ticket": "tickets",
   "/operations": "operations",
