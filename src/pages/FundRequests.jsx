@@ -10,23 +10,81 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 
-const normalize = (v) => String(v || '').toLowerCase().trim();
+const normalize = (v) => String(v || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
 
-const canApproveHR = (user) => normalize(user?.role) === 'hr';
-const canApproveAGM = (user) => normalize(user?.role) === 'agm';
+const getRole = (user) => normalize(user?.role || user?.user_role || user?.position);
+
+const isHRRole = (user) => getRole(user) === 'hr';
+const isAGMRole = (user) => getRole(user) === 'agm';
+const isOpsRole = (user) =>
+  ['operations', 'operation', 'ops', 'manager', 'operational_manager'].includes(getRole(user));
+const isCEORole = (user) => getRole(user) === 'ceo';
+const isAdminRole = (user) => getRole(user) === 'admin';
+const isFinanceRole = (user) =>
+  ['finance', 'account', 'accounts', 'accountant'].includes(getRole(user));
+
+const canApproveHR = (user) => isHRRole(user);
+const canApproveAGM = (user) => isAGMRole(user);
 const canApproveOps = (user) =>
-  ['operations', 'operation', 'ops'].includes(normalize(user?.role));
-const canCEOApprove = (user) => normalize(user?.role) === 'ceo';
-const canDisburse = (user) =>
-  ['finance', 'accounts', 'accountant'].includes(normalize(user?.role));
+  ['operations', 'operation', 'ops', 'manager', 'operational_manager'].includes(normalize(user?.role));
+const canCEOApprove = (user) => isCEORole(user) || isAdminRole(user);
+const canDisburse = (user) => isFinanceRole(user);
 
-const isFullyApproved = (r) =>
-  r.ceo_override ||
+const isApproved = (value) => normalize(value) === 'approved';
+
+const isFullyApproved = (request) =>
+  request.ceo_override ||
   (
-    r.hr_status === 'approved' &&
-    r.agm_status === 'approved' &&
-    r.operations_status === 'approved'
+    isApproved(request.hr_status) &&
+    isApproved(request.agm_status) &&
+    isApproved(request.operations_status)
   );
+
+const canHRAct = (request) => !isApproved(request.hr_status) && !request.ceo_override;
+const canAGMAct = (request) =>
+  isApproved(request.hr_status) && !isApproved(request.agm_status) && !request.ceo_override;
+const canOpsAct = (request) =>
+  isApproved(request.hr_status) &&
+  isApproved(request.agm_status) &&
+  !isApproved(request.operations_status) &&
+  !request.ceo_override;
+
+const approvalRoles = [
+  'hr',
+  'operations',
+  'operation',
+  'ops',
+  'manager',
+  'operational_manager',
+  'agm',
+  'ceo',
+  'finance',
+  'accounts',
+  'accountant',
+  'admin',
+];
+
+function getRequestStage(request) {
+  if (normalize(request.finance_status) === 'disbursed' || normalize(request.status) === 'disbursed') {
+    return 'Disbursed';
+  }
+
+  if (request.ceo_override) return 'CEO Approved - Ready for Account';
+  if (!isApproved(request.hr_status)) return 'Pending HR Approval';
+  if (!isApproved(request.agm_status)) return 'Pending AGM Approval';
+  if (!isApproved(request.operations_status)) return 'Pending Operations Approval';
+  return 'Ready for Account Release';
+}
+
+function getStatusBadgeClass(request) {
+  const stage = getRequestStage(request);
+
+  if (stage === 'Disbursed') return 'bg-green-500/15 text-green-300 border-green-300';
+  if (stage === 'Ready for Account Release' || stage === 'CEO Approved - Ready for Account') {
+    return 'bg-blue-500/15 text-blue-300 border-blue-300';
+  }
+  return 'bg-amber-500/15 text-amber-300 border-amber-300';
+}
 
 export default function FundRequests() {
   const outlet = useOutletContext() || {};
@@ -43,28 +101,16 @@ export default function FundRequests() {
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['fund_requests'],
     queryFn: async () => {
-      let query = supabase
-  .from('fund_requests')
-  .select('*');
+      let query = supabase.from('fund_requests').select('*');
+      const role = getRole(user);
 
-const role = String(user?.role || '').toLowerCase();
+      if (!approvalRoles.includes(role)) {
+        query = query.eq('requested_by_email', user?.email);
+      }
 
-const approvalRoles = [
-  'hr',
-  'operations',
-  'agm',
-  'ceo',
-  'finance',
-  'admin',
-];
-
-if (!approvalRoles.includes(role)) {
-  query = query.eq('requested_by_email', user?.email);
-}
-
-const { data, error } = await query.order('created_at', {
-  ascending: false,
-});
+      const { data, error } = await query.order('created_at', {
+        ascending: false,
+      });
 
       if (error) throw error;
       return data || [];
@@ -90,6 +136,9 @@ const { data, error } = await query.order('created_at', {
       source_module: 'ARK ONE',
       status: 'pending',
       finance_status: 'pending_approval',
+      hr_status: 'pending',
+      agm_status: 'pending',
+      operations_status: 'pending',
     });
 
     if (error) {
@@ -114,21 +163,42 @@ const { data, error } = await query.order('created_at', {
     };
 
     if (type === 'hr') {
+      if (!canHRAct(request)) {
+        alert('This request is not at HR approval stage.');
+        return;
+      }
+
       payload.hr_status = 'approved';
       payload.hr_approved_by = user?.email || '';
       payload.hr_approved_at = new Date().toISOString();
+      payload.status = 'pending_agm_approval';
+      payload.finance_status = 'pending_approval';
     }
 
     if (type === 'agm') {
+      if (!canAGMAct(request)) {
+        alert('This request must be approved by HR before AGM approval.');
+        return;
+      }
+
       payload.agm_status = 'approved';
       payload.agm_approved_by = user?.email || '';
       payload.agm_approved_at = new Date().toISOString();
+      payload.status = 'pending_operations_approval';
+      payload.finance_status = 'pending_approval';
     }
 
     if (type === 'operations') {
+      if (!canOpsAct(request)) {
+        alert('This request must be approved by HR and AGM before Operations approval.');
+        return;
+      }
+
       payload.operations_status = 'approved';
       payload.operations_approved_by = user?.email || '';
       payload.operations_approved_at = new Date().toISOString();
+      payload.status = 'approved';
+      payload.finance_status = 'ready_for_disbursement';
     }
 
     if (type === 'ceo') {
@@ -137,18 +207,6 @@ const { data, error } = await query.order('created_at', {
       payload.ceo_approved_at = new Date().toISOString();
       payload.status = 'approved';
       payload.finance_status = 'ready_for_disbursement';
-    }
-
-    if (type !== 'ceo') {
-      const next = {
-        ...request,
-        ...payload,
-      };
-
-      if (isFullyApproved(next)) {
-        payload.status = 'approved';
-        payload.finance_status = 'ready_for_disbursement';
-      }
     }
 
     const { error } = await supabase
@@ -165,8 +223,13 @@ const { data, error } = await query.order('created_at', {
   };
 
   const disburse = async (request) => {
+    if (!canDisburse(user)) {
+      alert('Only Account/Finance can release funds.');
+      return;
+    }
+
     if (!isFullyApproved(request)) {
-      alert('This request is not fully approved yet.');
+      alert('This request is not fully approved yet. HR, AGM and Operations must approve before Account can release funds.');
       return;
     }
 
@@ -187,29 +250,24 @@ const { data, error } = await query.order('created_at', {
     }
 
     if (String(request.request_type || '').toLowerCase() === 'loan') {
-  await supabase.from('hr_loans').insert({
-    employee_name: request.requested_by_name || request.requested_by_email || 'Staff',
-    staff_id: request.staff_id || null,
-    department: request.department || null,
-    employee_id: request.requested_by_email || null,
-
-    loan_amount: Number(request.amount || 0),
-    loan_purpose: request.purpose,
-
-    repayment_amount: Number(request.repayment_amount || 0),
-    repayment_frequency: request.repayment_frequency || 'Monthly',
-
-    notes: request.notes || null,
-
-    outstanding_balance: Number(request.amount || 0),
-    total_amount_collected: 0,
-
-    clearance_status: 'Active',
-    approval_status: 'Approved',
-    approved_by: user?.email || null,
-    approval_date: new Date().toISOString(),
-  });
-}
+      await supabase.from('hr_loans').insert({
+        employee_name: request.requested_by_name || request.requested_by_email || 'Staff',
+        staff_id: request.staff_id || null,
+        department: request.department || null,
+        employee_id: request.requested_by_email || null,
+        loan_amount: Number(request.amount || 0),
+        loan_purpose: request.purpose,
+        repayment_amount: Number(request.repayment_amount || 0),
+        repayment_frequency: request.repayment_frequency || 'Monthly',
+        notes: request.notes || null,
+        outstanding_balance: Number(request.amount || 0),
+        total_amount_collected: 0,
+        clearance_status: 'Active',
+        approval_status: 'Approved',
+        approved_by: user?.email || null,
+        approval_date: new Date().toISOString(),
+      });
+    }
 
     qc.invalidateQueries({ queryKey: ['fund_requests'] });
     alert('Fund marked as disbursed.');
@@ -278,65 +336,81 @@ const { data, error } = await query.order('created_at', {
         <p className="text-white">Loading requests...</p>
       ) : (
         <div className="space-y-3">
-          {requests.map((r) => (
-            <Card key={r.id} className="p-4 space-y-3">
+          {requests.map((request) => (
+            <Card key={request.id} className="p-4 space-y-3">
               <div className="flex justify-between gap-3">
                 <div>
-                  <p className="font-bold">{r.request_type}</p>
-                  <p className="text-sm text-muted-foreground">{r.purpose}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-bold">{request.request_type}</p>
+                    <Badge variant="outline" className={getStatusBadgeClass(request)}>
+                      {getRequestStage(request)}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">{request.purpose}</p>
                   <p className="text-xs text-muted-foreground">
-                    Requested by {r.requested_by_name} · {r.department || 'No department'}
+                    Requested by {request.requested_by_name} · {request.department || 'No department'}
                   </p>
+                  {request.notes && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Notes: {request.notes}
+                    </p>
+                  )}
                 </div>
 
                 <div className="text-right">
                   <p className="text-2xl font-bold text-[#ff5a00]">
-                    ₦{Number(r.amount || 0).toLocaleString()}
+                    ₦{Number(request.amount || 0).toLocaleString()}
                   </p>
-                  <Badge>{r.status}</Badge>
+                  <Badge>{request.status}</Badge>
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-2 text-xs">
-                <Badge variant="outline">HR: {r.hr_status}</Badge>
-                <Badge variant="outline">AGM: {r.agm_status}</Badge>
-                <Badge variant="outline">Operations: {r.operations_status}</Badge>
-                {r.ceo_override && <Badge>CEO Override</Badge>}
-                <Badge variant="outline">Finance: {r.finance_status}</Badge>
+              <div className="grid md:grid-cols-4 gap-2 text-xs">
+                <Badge variant="outline">HR: {request.hr_status || 'pending'}</Badge>
+                <Badge variant="outline">AGM: {request.agm_status || 'pending'}</Badge>
+                <Badge variant="outline">Operations: {request.operations_status || 'pending'}</Badge>
+                <Badge variant="outline">Finance: {request.finance_status || 'pending_approval'}</Badge>
+                {request.ceo_override && <Badge>CEO Override</Badge>}
               </div>
 
               <div className="flex flex-wrap gap-2">
-                {canApproveHR(user) && r.hr_status !== 'approved' && (
-                  <Button size="sm" onClick={() => approve(r, 'hr')}>
+                {canApproveHR(user) && canHRAct(request) && (
+                  <Button size="sm" onClick={() => approve(request, 'hr')}>
                     HR Approve
                   </Button>
                 )}
 
-                {canApproveAGM(user) && r.agm_status !== 'approved' && (
-                  <Button size="sm" onClick={() => approve(r, 'agm')}>
+                {canApproveAGM(user) && canAGMAct(request) && (
+                  <Button size="sm" onClick={() => approve(request, 'agm')}>
                     AGM Approve
                   </Button>
                 )}
 
-                {canApproveOps(user) && r.operations_status !== 'approved' && (
-                  <Button size="sm" onClick={() => approve(r, 'operations')}>
+                {canApproveOps(user) && canOpsAct(request) && (
+                  <Button size="sm" onClick={() => approve(request, 'operations')}>
                     Operations Approve
                   </Button>
                 )}
 
-                {canCEOApprove(user) && !r.ceo_override && (
-                  <Button size="sm" onClick={() => approve(r, 'ceo')}>
-                    CEO Approve
+                {canCEOApprove(user) && !request.ceo_override && normalize(request.finance_status) !== 'disbursed' && (
+                  <Button size="sm" onClick={() => approve(request, 'ceo')}>
+                    CEO Override Approve
                   </Button>
                 )}
 
                 {canDisburse(user) &&
-                  isFullyApproved(r) &&
-                  r.finance_status !== 'disbursed' && (
-                    <Button size="sm" onClick={() => disburse(r)}>
+                  isFullyApproved(request) &&
+                  normalize(request.finance_status) !== 'disbursed' && (
+                    <Button size="sm" onClick={() => disburse(request)}>
                       Mark Disbursed
                     </Button>
                   )}
+
+                {canDisburse(user) && !isFullyApproved(request) && (
+                  <p className="text-xs text-amber-500 self-center">
+                    Waiting for HR, AGM and Operations approval before Account release.
+                  </p>
+                )}
               </div>
             </Card>
           ))}

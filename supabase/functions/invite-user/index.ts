@@ -137,7 +137,7 @@ serve(async (req) => {
     // SEND CREATE PASSWORD EMAIL
     const { data: linkData, error: linkError } =
   await supabaseAdmin.auth.admin.generateLink({
-    type: 'recovery',
+    type: 'invite',
     email: cleanEmail,
     options: {
       redirectTo:

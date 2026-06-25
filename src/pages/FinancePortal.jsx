@@ -191,14 +191,24 @@ function getFinanceRole(user) {
   return normalize(user?.role || user?.user_role || user?.position);
 }
 
+function canViewFullFinance(user) {
+  const role = getFinanceRole(user);
+  return ['admin', 'ceo', 'finance', 'account', 'accounts', 'accountant'].includes(role);
+}
+
 function canManageFinance(user) {
   const role = getFinanceRole(user);
-  return ['admin', 'ceo', 'agm'].includes(role);
+  return ['admin', 'ceo'].includes(role);
 }
 
 function canAddFinanceRecord(user) {
   const role = getFinanceRole(user);
-  return ['admin', 'ceo', 'agm', 'finance', 'accounts', 'accountant'].includes(role);
+  return ['admin', 'ceo', 'finance', 'accounts', 'accountant'].includes(role);
+}
+
+function canProcessDispatchFunds(user) {
+  const role = getFinanceRole(user);
+  return ['admin', 'ceo', 'finance', 'accounts', 'accountant'].includes(role);
 }
 
 export default function FinancePortal() {
@@ -799,7 +809,8 @@ export default function FinancePortal() {
     return statusMatch && searchMatch;
   });
 
-  const allowFinanceActions = canManageFinance(user);
+  const canSeeFullFinance = canViewFullFinance(user);
+  const allowFinanceActions = canProcessDispatchFunds(user);
   const allowAddFinanceRecords = canAddFinanceRecord(user);
 
   return (
@@ -858,47 +869,49 @@ export default function FinancePortal() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <TrendingUp className="w-5 h-5 text-green-500 mb-2" />
-          <p className="text-2xl font-bold text-green-600">{fmt(totalIncome)}</p>
-          <p className="text-xs text-muted-foreground">Total Income (Paid)</p>
-        </div>
+            {canSeeFullFinance && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="rounded-xl border bg-slate-900/50 p-4">
+                  <TrendingUp className="w-5 h-5 text-green-500 mb-2" />
+                  <p className="text-2xl font-bold text-green-600">{fmt(totalIncome)}</p>
+                  <p className="text-xs text-muted-foreground">Total Income (Paid)</p>
+                </div>
+        
+                <div className="rounded-xl border bg-slate-900/50 p-4">
+                  <TrendingDown className="w-5 h-5 text-red-500 mb-2" />
+                  <p className="text-2xl font-bold text-red-600">{fmt(totalExpenses)}</p>
+                  <p className="text-xs text-muted-foreground">Total Expenses</p>
+                </div>
+        
+                <div className="rounded-xl border bg-slate-900/50 p-4">
+                  <BarChart3
+                    className="w-5 h-5 mb-2"
+                    style={{
+                      color: profit >= 0 ? '#22c55e' : '#ef4444',
+                    }}
+                  />
+                  <p
+                    className="text-2xl font-bold"
+                    style={{
+                      color: profit >= 0 ? '#16a34a' : '#dc2626',
+                    }}
+                  >
+                    {fmt(Math.abs(profit))}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {profit >= 0 ? 'Net Profit' : 'Net Loss'}
+                  </p>
+                </div>
+        
+                <div className="rounded-xl border bg-slate-900/50 p-4">
+                  <AlertCircle className="w-5 h-5 text-amber-500 mb-2" />
+                  <p className="text-2xl font-bold text-amber-600">{fmt(totalOverdue)}</p>
+                  <p className="text-xs text-muted-foreground">Overdue</p>
+                </div>
+              </div>
+      )}
 
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <TrendingDown className="w-5 h-5 text-red-500 mb-2" />
-          <p className="text-2xl font-bold text-red-600">{fmt(totalExpenses)}</p>
-          <p className="text-xs text-muted-foreground">Total Expenses</p>
-        </div>
-
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <BarChart3
-            className="w-5 h-5 mb-2"
-            style={{
-              color: profit >= 0 ? '#22c55e' : '#ef4444',
-            }}
-          />
-          <p
-            className="text-2xl font-bold"
-            style={{
-              color: profit >= 0 ? '#16a34a' : '#dc2626',
-            }}
-          >
-            {fmt(Math.abs(profit))}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {profit >= 0 ? 'Net Profit' : 'Net Loss'}
-          </p>
-        </div>
-
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <AlertCircle className="w-5 h-5 text-amber-500 mb-2" />
-          <p className="text-2xl font-bold text-amber-600">{fmt(totalOverdue)}</p>
-          <p className="text-xs text-muted-foreground">Overdue</p>
-        </div>
-      </div>
-
-      {monthlyIncome.some((m) => m.income > 0) && (
+      {canSeeFullFinance && monthlyIncome.some((m) => m.income > 0) && (
         <div className="rounded-xl border bg-slate-900/50 p-4">
           <p className="text-sm font-semibold mb-3">
             Monthly Income (Last 6 Months)
@@ -921,10 +934,14 @@ export default function FinancePortal() {
       <Tabs defaultValue="dispatch-funds">
         <TabsList className="flex flex-wrap h-auto">
           <TabsTrigger value="dispatch-funds">Dispatch Funds</TabsTrigger>
-          <TabsTrigger value="income">Income / Invoices</TabsTrigger>
-          <TabsTrigger value="expenses">Expenses</TabsTrigger>
-          {expByCategory.length > 0 && (
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
+          {canSeeFullFinance && (
+            <>
+              <TabsTrigger value="income">Income / Invoices</TabsTrigger>
+              <TabsTrigger value="expenses">Expenses</TabsTrigger>
+              {expByCategory.length > 0 && (
+                <TabsTrigger value="analytics">Analytics</TabsTrigger>
+              )}
+            </>
           )}
         </TabsList>
 
@@ -1198,324 +1215,328 @@ export default function FinancePortal() {
           )}
         </TabsContent>
 
-        <TabsContent value="income" className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex gap-2 flex-wrap">
-              {['all', 'draft', 'sent', 'paid', 'overdue', 'cancelled'].map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setInvFilter(s)}
-                  className={
-                    'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all capitalize ' +
-                    (invFilter === s
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
-                  }
-                >
-                  {s === 'all' ? 'All' : INV_STATUS[s]?.label}
-                </button>
-              ))}
-            </div>
-
-            {allowAddFinanceRecords && (
-              <Button
-                size="sm"
-                onClick={() => {
-                  setEditingInv(null);
-                  setInvForm(EMPTY_INV);
-                  setInvOpen(true);
-                }}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                New Invoice
-              </Button>
-            )}
-          </div>
-
-          {loadingInv ? (
-            <div className="flex justify-center py-10">
-              <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredInvoices.map((inv) => {
-                const sc = INV_STATUS[inv.status] || INV_STATUS.draft;
-
-                return (
-                  <Card key={inv.id} className="p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {inv.invoice_number}
-                          </span>
-
-                          <Badge
-                            variant="outline"
-                            className={sc.color + ' text-[10px]'}
+        {canSeeFullFinance && (
+          <TabsContent value="income" className="space-y-4">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        {['all', 'draft', 'sent', 'paid', 'overdue', 'cancelled'].map((s) => (
+                          <button
+                            key={s}
+                            onClick={() => setInvFilter(s)}
+                            className={
+                              'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all capitalize ' +
+                              (invFilter === s
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
+                            }
                           >
-                            {sc.label}
-                          </Badge>
-                        </div>
-
-                        <p className="font-semibold">{inv.client_name}</p>
-
-                        {inv.description && (
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {inv.description}
-                          </p>
-                        )}
-
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                          {inv.payment_source && (
-                            <span>Source: {inv.payment_source}</span>
-                          )}
-                          {inv.payment_mode && <span>Mode: {inv.payment_mode}</span>}
-                          {inv.due_date && <span>Due: {safeDate(inv.due_date)}</span>}
-                          {inv.paid_date && (
-                            <span className="text-green-600">
-                              Paid: {safeDate(inv.paid_date)}
-                            </span>
-                          )}
-                        </div>
+                            {s === 'all' ? 'All' : INV_STATUS[s]?.label}
+                          </button>
+                        ))}
                       </div>
-
-                      <div className="text-right">
-                        <p className="text-2xl font-bold text-[#ff5a00]">{fmt(inv.amount)}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {inv.currency || 'NGN'}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 mt-3">
-                      {allowFinanceActions ? (
-                        <>
-                          <Select
-                            value={inv.status}
-                            onValueChange={(v) => updateInvStatus(inv, v)}
-                          >
-                            <SelectTrigger className="h-8 text-xs w-[140px]">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {Object.entries(INV_STATUS).map(([k, v]) => (
-                                <SelectItem key={k} value={k}>
-                                  {v.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setEditingInv(inv);
-                              setInvForm({
-                                ...EMPTY_INV,
-                                ...inv,
-                                amount: inv.amount?.toString() || '',
-                              });
-                              setInvOpen(true);
-                            }}
-                          >
-                            Edit
-                          </Button>
-                        </>
-                      ) : (
-                        <p className="text-xs text-amber-600">
-                          Locked after entry. Submit correction request for CEO/AGM approval.
-                        </p>
+          
+                      {allowAddFinanceRecords && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setEditingInv(null);
+                            setInvForm(EMPTY_INV);
+                            setInvOpen(true);
+                          }}
+                        >
+                          <Plus className="w-4 h-4 mr-1" />
+                          New Invoice
+                        </Button>
                       )}
                     </div>
-                  </Card>
-                );
-              })}
-
-              {filteredInvoices.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                  <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p>No invoices found</p>
-                </div>
-              )}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="expenses" className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex gap-2 flex-wrap">
-              <button
-                onClick={() => setExpCatFilter('all')}
-                className={
-                  'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
-                  (expCatFilter === 'all'
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
-                }
-              >
-                All Categories
-              </button>
-
-              {EXPENSE_CATEGORIES.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setExpCatFilter(c)}
-                  className={
-                    'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
-                    (expCatFilter === c
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
-                  }
-                >
-                  {c}
-                </button>
-              ))}
-            </div>
-
-            {allowAddFinanceRecords && (
-              <Button
-                size="sm"
-                onClick={() => {
-                  setEditingExp(null);
-                  setExpForm(EMPTY_EXP);
-                  setExpOpen(true);
-                }}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Record Expense
-              </Button>
-            )}
-          </div>
-
-          {loadingExp ? (
-            <div className="flex justify-center py-10">
-              <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredExpenses.map((exp) => {
-                const sc = APPROVAL_STATUS[exp.approval_status] || APPROVAL_STATUS.pending;
-
-                return (
-                  <Card key={exp.id} className="p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] bg-slate-50 border-slate-200"
-                          >
-                            {exp.category || 'Uncategorized'}
-                          </Badge>
-
-                          <Badge
-                            variant="outline"
-                            className={sc.color + ' text-[10px]'}
-                          >
-                            {sc.label}
-                          </Badge>
-
-                          {exp.expense_number && (
-                            <span className="font-mono text-[10px] text-muted-foreground">
-                              {exp.expense_number}
-                            </span>
-                          )}
-                        </div>
-
-                        <p className="font-semibold text-sm">{exp.description}</p>
-
-                        <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
-                          {exp.payment_method && (
-                            <span>Payment: {exp.payment_method}</span>
-                          )}
-                          {exp.staff_responsible && (
-                            <span>By: {exp.staff_responsible}</span>
-                          )}
-                          {exp.expense_date && <span>{safeDate(exp.expense_date)}</span>}
-                        </div>
-
-                        {exp.document_url && (
-                          <a
-                            href={exp.document_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-primary underline mt-1 block"
-                          >
-                            View Document
-                          </a>
+          
+                    {loadingInv ? (
+                      <div className="flex justify-center py-10">
+                        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {filteredInvoices.map((inv) => {
+                          const sc = INV_STATUS[inv.status] || INV_STATUS.draft;
+          
+                          return (
+                            <Card key={inv.id} className="p-4">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="font-mono text-xs text-muted-foreground">
+                                      {inv.invoice_number}
+                                    </span>
+          
+                                    <Badge
+                                      variant="outline"
+                                      className={sc.color + ' text-[10px]'}
+                                    >
+                                      {sc.label}
+                                    </Badge>
+                                  </div>
+          
+                                  <p className="font-semibold">{inv.client_name}</p>
+          
+                                  {inv.description && (
+                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                      {inv.description}
+                                    </p>
+                                  )}
+          
+                                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                    {inv.payment_source && (
+                                      <span>Source: {inv.payment_source}</span>
+                                    )}
+                                    {inv.payment_mode && <span>Mode: {inv.payment_mode}</span>}
+                                    {inv.due_date && <span>Due: {safeDate(inv.due_date)}</span>}
+                                    {inv.paid_date && (
+                                      <span className="text-green-600">
+                                        Paid: {safeDate(inv.paid_date)}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+          
+                                <div className="text-right">
+                                  <p className="text-2xl font-bold text-[#ff5a00]">{fmt(inv.amount)}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {inv.currency || 'NGN'}
+                                  </p>
+                                </div>
+                              </div>
+          
+                              <div className="flex gap-2 mt-3">
+                                {allowFinanceActions ? (
+                                  <>
+                                    <Select
+                                      value={inv.status}
+                                      onValueChange={(v) => updateInvStatus(inv, v)}
+                                    >
+                                      <SelectTrigger className="h-8 text-xs w-[140px]">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {Object.entries(INV_STATUS).map(([k, v]) => (
+                                          <SelectItem key={k} value={k}>
+                                            {v.label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+          
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setEditingInv(inv);
+                                        setInvForm({
+                                          ...EMPTY_INV,
+                                          ...inv,
+                                          amount: inv.amount?.toString() || '',
+                                        });
+                                        setInvOpen(true);
+                                      }}
+                                    >
+                                      Edit
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <p className="text-xs text-amber-600">
+                                    Locked after entry. Submit correction request for CEO/AGM approval.
+                                  </p>
+                                )}
+                              </div>
+                            </Card>
+                          );
+                        })}
+          
+                        {filteredInvoices.length === 0 && (
+                          <div className="text-center py-12 text-muted-foreground">
+                            <FileText className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                            <p>No invoices found</p>
+                          </div>
                         )}
                       </div>
+                    )}
+                  </TabsContent>
+        )}
 
-                      <div className="text-right">
-                        <p className="text-xl font-bold text-red-600">
-                          {fmt(exp.amount)}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {exp.currency || 'NGN'}
-                        </p>
+        {canSeeFullFinance && (
+          <TabsContent value="expenses" className="space-y-4">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={() => setExpCatFilter('all')}
+                          className={
+                            'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
+                            (expCatFilter === 'all'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
+                          }
+                        >
+                          All Categories
+                        </button>
+          
+                        {EXPENSE_CATEGORIES.map((c) => (
+                          <button
+                            key={c}
+                            onClick={() => setExpCatFilter(c)}
+                            className={
+                              'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
+                              (expCatFilter === c
+                                ? 'bg-primary text-primary-foreground border-primary'
+                                : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
+                            }
+                          >
+                            {c}
+                          </button>
+                        ))}
                       </div>
-                    </div>
-
-                    <div className="flex gap-2 mt-3">
-                      {allowFinanceActions ? (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setEditingExp(exp);
-                              setExpForm({
-                                ...EMPTY_EXP,
-                                ...exp,
-                                amount: exp.amount?.toString() || '',
-                              });
-                              setExpOpen(true);
-                            }}
-                          >
-                            Edit
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-green-600"
-                            onClick={() => updateExpenseApproval(exp, 'approved')}
-                          >
-                            Approve
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="text-red-600"
-                            onClick={() => updateExpenseApproval(exp, 'rejected')}
-                          >
-                            Reject
-                          </Button>
-                        </>
-                      ) : (
-                        <p className="text-xs text-amber-600">
-                          Locked after entry. Submit correction request for CEO/AGM approval.
-                        </p>
+          
+                      {allowAddFinanceRecords && (
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setEditingExp(null);
+                            setExpForm(EMPTY_EXP);
+                            setExpOpen(true);
+                          }}
+                        >
+                          <Plus className="w-4 h-4 mr-1" />
+                          Record Expense
+                        </Button>
                       )}
                     </div>
-                  </Card>
-                );
-              })}
+          
+                    {loadingExp ? (
+                      <div className="flex justify-center py-10">
+                        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {filteredExpenses.map((exp) => {
+                          const sc = APPROVAL_STATUS[exp.approval_status] || APPROVAL_STATUS.pending;
+          
+                          return (
+                            <Card key={exp.id} className="p-4">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] bg-slate-50 border-slate-200"
+                                    >
+                                      {exp.category || 'Uncategorized'}
+                                    </Badge>
+          
+                                    <Badge
+                                      variant="outline"
+                                      className={sc.color + ' text-[10px]'}
+                                    >
+                                      {sc.label}
+                                    </Badge>
+          
+                                    {exp.expense_number && (
+                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                        {exp.expense_number}
+                                      </span>
+                                    )}
+                                  </div>
+          
+                                  <p className="font-semibold text-sm">{exp.description}</p>
+          
+                                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground">
+                                    {exp.payment_method && (
+                                      <span>Payment: {exp.payment_method}</span>
+                                    )}
+                                    {exp.staff_responsible && (
+                                      <span>By: {exp.staff_responsible}</span>
+                                    )}
+                                    {exp.expense_date && <span>{safeDate(exp.expense_date)}</span>}
+                                  </div>
+          
+                                  {exp.document_url && (
+                                    <a
+                                      href={exp.document_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-xs text-primary underline mt-1 block"
+                                    >
+                                      View Document
+                                    </a>
+                                  )}
+                                </div>
+          
+                                <div className="text-right">
+                                  <p className="text-xl font-bold text-red-600">
+                                    {fmt(exp.amount)}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {exp.currency || 'NGN'}
+                                  </p>
+                                </div>
+                              </div>
+          
+                              <div className="flex gap-2 mt-3">
+                                {allowFinanceActions ? (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => {
+                                        setEditingExp(exp);
+                                        setExpForm({
+                                          ...EMPTY_EXP,
+                                          ...exp,
+                                          amount: exp.amount?.toString() || '',
+                                        });
+                                        setExpOpen(true);
+                                      }}
+                                    >
+                                      Edit
+                                    </Button>
+          
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-green-600"
+                                      onClick={() => updateExpenseApproval(exp, 'approved')}
+                                    >
+                                      Approve
+                                    </Button>
+          
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-red-600"
+                                      onClick={() => updateExpenseApproval(exp, 'rejected')}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <p className="text-xs text-amber-600">
+                                    Locked after entry. Submit correction request for CEO/AGM approval.
+                                  </p>
+                                )}
+                              </div>
+                            </Card>
+                          );
+                        })}
+          
+                        {filteredExpenses.length === 0 && (
+                          <div className="text-center py-12 text-muted-foreground">
+                            <TrendingDown className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                            <p>No expenses recorded</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </TabsContent>
+        )}
 
-              {filteredExpenses.length === 0 && (
-                <div className="text-center py-12 text-muted-foreground">
-                  <TrendingDown className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p>No expenses recorded</p>
-                </div>
-              )}
-            </div>
-          )}
-        </TabsContent>
-
-        {expByCategory.length > 0 && (
+        {canSeeFullFinance && expByCategory.length > 0 && (
           <TabsContent value="analytics" className="space-y-4">
             <div className="grid lg:grid-cols-2 gap-4">
               <div className="rounded-xl border bg-slate-900/50 p-4">

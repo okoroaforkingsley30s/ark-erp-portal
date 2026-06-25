@@ -1,13 +1,6 @@
 import React from 'react';
-import {
-  useNavigate,
-  useOutletContext,
-} from 'react-router-dom';
-
-import {
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabaseClient';
 
@@ -43,6 +36,11 @@ const typeIcons = {
   workflow: ClipboardList,
   workflow_notification: ClipboardList,
 
+  operations_feed: ClipboardList,
+  log_mention: MessageCircle,
+  log_action: ClipboardList,
+  mention: MessageCircle,
+
   system: Bell,
   system_alert: AlertTriangle,
 
@@ -53,6 +51,9 @@ const typeIcons = {
 
   leave_approved: CheckCircle2,
   loan_approved: CheckCircle2,
+  fund_request: DollarSign,
+  fund_request_approval: DollarSign,
+  dispatch_fund: DollarSign,
 
   purchase_approved: ClipboardList,
   purchase_order: ClipboardList,
@@ -83,6 +84,20 @@ async function fetchNotifications(userEmail) {
   return data || [];
 }
 
+function getNotificationData(notification) {
+  if (!notification) return {};
+
+  if (notification.data && typeof notification.data === 'object') {
+    return notification.data;
+  }
+
+  if (notification.metadata && typeof notification.metadata === 'object') {
+    return notification.metadata;
+  }
+
+  return {};
+}
+
 export default function Notifications() {
   const { user } = useOutletContext();
   const queryClient = useQueryClient();
@@ -97,37 +112,33 @@ export default function Notifications() {
   const markNotificationRead = async (id) => {
     const { error } = await supabase
       .from('notifications')
-      .update({
-        read: true,
-      })
+      .update({ read: true })
       .eq('id', id);
 
     if (error) {
-      console.error(
-        'Failed to mark notification as read:',
-        error
-      );
-
-      alert(
-        `Failed to mark notification as read: ${error.message}`
-      );
-
+      console.error('Failed to mark notification as read:', error);
+      alert(`Failed to mark notification as read: ${error.message}`);
       return false;
     }
 
-    queryClient.invalidateQueries({
-      queryKey: ['notifications'],
-    });
-
+    queryClient.invalidateQueries({ queryKey: ['notifications'] });
     return true;
   };
 
   const getNotificationTarget = (notification) => {
     if (!notification) return '/notifications';
 
-    if (notification.link) {
-      return notification.link;
-    }
+    const data = getNotificationData(notification);
+
+    const directTarget =
+      notification.target_url ||
+      notification.action_url ||
+      notification.link ||
+      data.target_url ||
+      data.action_url ||
+      data.link;
+
+    if (directTarget) return directTarget;
 
     if (
       notification.type === 'user_approval' ||
@@ -146,9 +157,43 @@ export default function Notifications() {
       const ticketId =
         notification.ticket_id ||
         notification.related_ticket_id ||
-        notification.data?.ticket_id;
+        data.ticket_id ||
+        data.related_ticket_id;
 
       return ticketId ? `/tickets/${ticketId}` : '/tickets';
+    }
+
+    if (
+      notification.type === 'operations_feed' ||
+      notification.type === 'log_mention' ||
+      notification.type === 'log_action' ||
+      notification.type === 'mention'
+    ) {
+      const logId =
+        notification.log_id ||
+        notification.operation_event_id ||
+        data.log_id ||
+        data.operation_event_id ||
+        data.event_id;
+
+      return logId
+        ? `/operations-feed?event=${logId}`
+        : '/operations-feed';
+    }
+
+    if (
+      notification.type === 'fund_request' ||
+      notification.type === 'fund_request_approval' ||
+      notification.type === 'dispatch_fund'
+    ) {
+      const requestId =
+        notification.fund_request_id ||
+        data.fund_request_id ||
+        data.request_id;
+
+      return requestId
+        ? `/fund-requests?id=${requestId}`
+        : '/fund-requests';
     }
 
     if (
@@ -186,7 +231,16 @@ export default function Notifications() {
       notification.type === 'purchase_order' ||
       notification.type === 'procurement'
     ) {
-      return '/procurement-lpo';
+      const poId =
+        notification.purchase_order_id ||
+        notification.po_id ||
+        data.purchase_order_id ||
+        data.po_id ||
+        data.request_id;
+
+      return poId
+        ? `/procurement-lpo?id=${poId}`
+        : '/procurement-lpo';
     }
 
     if (notification.type === 'asset_assigned') {
@@ -197,13 +251,6 @@ export default function Notifications() {
       return '/finance';
     }
 
-    if (
-      notification.type === 'system' ||
-      notification.type === 'system_alert'
-    ) {
-      return '/notifications';
-    }
-
     return '/notifications';
   };
 
@@ -212,7 +259,6 @@ export default function Notifications() {
 
     if (!notification.read) {
       const ok = await markNotificationRead(notification.id);
-
       if (!ok) return;
     }
 
@@ -222,52 +268,33 @@ export default function Notifications() {
   const handleMarkAllRead = async () => {
     const { error } = await supabase
       .from('notifications')
-      .update({
-        read: true,
-      })
+      .update({ read: true })
       .eq('user_email', user.email)
       .eq('read', false);
 
     if (error) {
-      console.error(
-        'Failed to mark all notifications as read:',
-        error
-      );
-
-      alert(
-        `Failed to mark all notifications as read: ${error.message}`
-      );
-
+      console.error('Failed to mark all notifications as read:', error);
+      alert(`Failed to mark all notifications as read: ${error.message}`);
       return;
     }
 
-    queryClient.invalidateQueries({
-      queryKey: ['notifications'],
-    });
+    queryClient.invalidateQueries({ queryKey: ['notifications'] });
   };
 
-  const unreadCount =
-    notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
     <div className="space-y-5 max-w-3xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">
-            Notifications
-          </h1>
-
+          <h1 className="text-2xl font-bold">Notifications</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {unreadCount} unread
           </p>
         </div>
 
         {unreadCount > 0 && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleMarkAllRead}
-          >
+          <Button variant="outline" size="sm" onClick={handleMarkAllRead}>
             <BellOff className="w-4 h-4 mr-2" />
             Mark All Read
           </Button>
@@ -278,10 +305,7 @@ export default function Notifications() {
         {notifications.length === 0 && (
           <div className="text-center py-16 text-muted-foreground">
             <Bell className="w-10 h-10 mx-auto mb-3 opacity-30" />
-
-            <p className="text-lg font-medium">
-              No notifications yet
-            </p>
+            <p className="text-lg font-medium">No notifications yet</p>
           </div>
         )}
 
@@ -294,8 +318,7 @@ export default function Notifications() {
               key={n.id}
               className={cn(
                 'p-4 transition-all cursor-pointer hover:shadow-sm hover:border-primary/50',
-                isUnread &&
-                  'border-l-4 border-l-primary bg-primary/[0.02]'
+                isUnread && 'border-l-4 border-l-primary bg-primary/[0.02]'
               )}
               onClick={() => handleNotificationClick(n)}
             >
@@ -303,28 +326,19 @@ export default function Notifications() {
                 <div
                   className={cn(
                     'w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0',
-                    isUnread
-                      ? 'bg-primary/10'
-                      : 'bg-muted'
+                    isUnread ? 'bg-primary/10' : 'bg-muted'
                   )}
                 >
                   <Icon
                     className={cn(
                       'w-4 h-4',
-                      isUnread
-                        ? 'text-primary'
-                        : 'text-muted-foreground'
+                      isUnread ? 'text-primary' : 'text-muted-foreground'
                     )}
                   />
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <p
-                    className={cn(
-                      'text-sm',
-                      isUnread && 'font-semibold'
-                    )}
-                  >
+                  <p className={cn('text-sm', isUnread && 'font-semibold')}>
                     {n.title}
                   </p>
 
@@ -334,10 +348,7 @@ export default function Notifications() {
 
                   <p className="text-[10px] text-muted-foreground mt-1.5">
                     {n.created_at
-                      ? format(
-                          new Date(n.created_at),
-                          'MMM d, yyyy h:mm a'
-                        )
+                      ? format(new Date(n.created_at), 'MMM d, yyyy h:mm a')
                       : ''}
                   </p>
                 </div>

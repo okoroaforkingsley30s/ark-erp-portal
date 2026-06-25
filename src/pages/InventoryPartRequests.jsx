@@ -128,8 +128,7 @@ function matchesEngineerCard(request, key) {
     status === "pending_inventory" ||
     status === "sent_to_inventory" ||
     inventoryStatus === "sent_to_inventory" ||
-    inventoryStatus === "pending_inventory" ||
-    inventoryStatus === "pending"
+    inventoryStatus === "pending_inventory"
   );
 }
 
@@ -297,7 +296,9 @@ async function updateEngineerInventoryStatus({ id, action, fundData = {}, user =
     const state = getInventoryState(currentRequest);
 
     if (currentRequest.finance_status !== "disbursed") {
-      throw new Error("Finance has not disbursed dispatch fund yet. Request dispatch fund and wait for Accounts disbursement before dispatching.");
+      throw new Error(
+        "Finance has not disbursed dispatch fund yet. Request dispatch fund and wait for Accounts disbursement before dispatching."
+      );
     }
 
     if (state !== "ready_for_dispatch") {
@@ -369,7 +370,9 @@ async function updateEngineerInventoryStatus({ id, action, fundData = {}, user =
     const state = getInventoryState(currentRequest);
 
     if (state !== "ready_for_dispatch") {
-      throw new Error("This part is not ready for dispatch fund request yet. It must pass RR QA and be returned to Inventory first.");
+      throw new Error(
+        "This part is not ready for dispatch fund request yet. It must pass RR QA and be returned to Inventory first."
+      );
     }
 
     if (
@@ -377,7 +380,9 @@ async function updateEngineerInventoryStatus({ id, action, fundData = {}, user =
       currentRequest.rr_status !== "returned_inventory" &&
       currentRequest.inventory_status !== "rr_verified"
     ) {
-      throw new Error("Inventory cannot request dispatch fund until RR QA is passed and the part is returned to Inventory.");
+      throw new Error(
+        "Inventory cannot request dispatch fund until RR QA is passed and the part is returned to Inventory."
+      );
     }
 
     const requestedAmount = Number(fundData.requested_amount || 0);
@@ -412,17 +417,30 @@ async function updateEngineerInventoryStatus({ id, action, fundData = {}, user =
     throw new Error("Invalid inventory action.");
   }
 
-  const { data, error } = await supabase
-    .from("part_requests")
-    .update(updateData)
-    .eq("id", id)
-    .select()
-    .single();
+  let data = null;
 
-  if (error) throw error;
-
+  /*
+    Dispatch fund request must be inserted before changing part_requests to
+    Pending Finance. This prevents the old issue where Inventory showed
+    "Fund Pending Finance" but Accounts/Finance had no row to see.
+  */
   if (action === "request_fund") {
     const requestedAmount = Number(fundData.requested_amount || 0);
+
+    const { data: existingFund, error: existingFundError } = await supabase
+      .from("inventory_dispatch_fund_requests")
+      .select("id, status, finance_status")
+      .eq("part_request_id", id)
+      .neq("finance_status", "rejected")
+      .maybeSingle();
+
+    if (existingFundError) throw existingFundError;
+
+    if (existingFund?.id) {
+      throw new Error(
+        "A dispatch fund request already exists for this part. Accounts must approve, reject, or disburse it first."
+      );
+    }
 
     const { error: fundError } = await supabase
       .from("inventory_dispatch_fund_requests")
@@ -442,21 +460,60 @@ async function updateEngineerInventoryStatus({ id, action, fundData = {}, user =
           getDestination(currentRequest) ||
           "Not specified",
         engineer_name: getEngineerName(currentRequest),
-        engineer_email: currentRequest.engineer_email || currentRequest.engineer || null,
+        engineer_email:
+          currentRequest.engineer_email ||
+          currentRequest.engineer ||
+          currentRequest.requested_by_email ||
+          null,
         logistics_type: fundData.logistics_type || "waybill",
         requested_amount: requestedAmount,
         approved_amount: 0,
         reason: fundData.reason || "Dispatch fund requested by Inventory",
-        inventory_note: fundData.inventory_note || fundData.reason || "Dispatch fund requested by Inventory",
+        inventory_note:
+          fundData.inventory_note ||
+          fundData.reason ||
+          "Dispatch fund requested by Inventory",
         status: "pending_finance",
         finance_status: "pending_review",
-        requested_by: user?.full_name || user?.name || user?.email || "Inventory",
-        requested_by_email: user?.email || null,
+        requested_by:
+          user?.full_name ||
+          user?.name ||
+          user?.user_email ||
+          user?.email ||
+          "Inventory",
+        requested_by_email: user?.email || user?.user_email || null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       });
 
-    if (fundError) throw fundError;
+    if (fundError) {
+      throw new Error(
+        fundError.message ||
+          "Dispatch fund request could not be created. Check RLS policy for inventory_dispatch_fund_requests."
+      );
+    }
+
+    const { data: updatedRequest, error } = await supabase
+      .from("part_requests")
+      .update(updateData)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    data = updatedRequest;
+  } else {
+    const { data: updatedRequest, error } = await supabase
+      .from("part_requests")
+      .update(updateData)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    data = updatedRequest;
   }
 
   await supabase.from("part_lifecycle_logs").insert({
