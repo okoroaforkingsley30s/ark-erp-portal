@@ -481,11 +481,23 @@ useEffect(() => {
     const gps = await getCurrentPosition();
 
     const statusTimeMap = {
-      accepted: { accepted_at: now },
-      traveling: { started_at: now },
-      arrived_on_site: { arrived_at: now },
-      in_progress: { started_at: now },
-      pending_review: { submitted_review_at: now },
+      accepted: {
+        accepted_at: now,
+      },
+      traveling: {
+        trip_started_at: now,
+      },
+      arrived_on_site: {
+        arrived_at: now,
+      },
+      in_progress: {
+        started_at: now,
+        work_started_at: now,
+      },
+      pending_review: {
+        submitted_review_at: now,
+        submitted_at: now,
+      },
     };
 
     const { error } = await supabase
@@ -2087,6 +2099,7 @@ function TicketDetailsModal({
           evidence_photos: [...allBeforePhotos, ...allAfterPhotos],
           evidence_videos: allVideos,
           submitted_review_at: now,
+          submitted_at: now,
           updated_at: now,
           resolved_date: now,
         })
@@ -2247,21 +2260,33 @@ function TicketDetailsModal({
           />
 
           <TimelineItem
+            icon={<Clock size={15} />}
+            label="Assigned At"
+            value={formatDate(ticket.assigned_at)}
+          />
+
+          <TimelineItem
             icon={<CheckCircle size={15} />}
             label="Accepted"
             value={formatDate(ticket.accepted_at)}
           />
 
           <TimelineItem
-            icon={<PlayCircle size={15} />}
-            label="Started Trip / Work"
-            value={formatDate(ticket.started_at)}
+            icon={<Navigation size={15} />}
+            label="Trip Started"
+            value={formatDate(ticket.trip_started_at)}
           />
 
           <TimelineItem
             icon={<MapPin size={15} />}
             label="Arrived On Site"
             value={formatDate(ticket.arrived_at)}
+          />
+
+          <TimelineItem
+            icon={<PlayCircle size={15} />}
+            label="Work Started"
+            value={formatDate(ticket.work_started_at || ticket.started_at)}
           />
 
           <TimelineItem
@@ -2291,7 +2316,7 @@ function TicketDetailsModal({
           <TimelineItem
             icon={<Upload size={15} />}
             label="Submitted Review"
-            value={formatDate(ticket.submitted_review_at)}
+            value={formatDate(ticket.submitted_at || ticket.submitted_review_at)}
           />
 
           <TimelineItem

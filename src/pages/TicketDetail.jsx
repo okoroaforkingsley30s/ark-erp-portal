@@ -99,15 +99,15 @@ function EvidenceLinks({ title, icon, items }) {
       </p>
 
       <div className="flex flex-wrap gap-2">
-        {safeItems.map((item, i) => {
+        {safeItems.map((item, index) => {
           const fileUrl = getFileUrl(item);
-          const fileName = getFileName(item, `${title} ${i + 1}`);
+          const fileName = getFileName(item, `${title} ${index + 1}`);
 
           if (!fileUrl) return null;
 
           return (
             <a
-              key={`${title}-${i}`}
+              key={`${title}-${index}`}
               href={fileUrl}
               target="_blank"
               rel="noopener noreferrer"
@@ -165,18 +165,22 @@ export default function TicketDetail() {
 
     if (error) throw error;
 
-    await supabase.from('audit_logs').insert({
+    const { error: auditError } = await supabase.from('audit_logs').insert({
       action: 'ticket_updated',
       entity_type: 'Ticket',
       entity_id: id,
-      user_email: user.email,
-      user_name: user.full_name || user.name || user.email,
+      user_email: user?.email,
+      user_name: user?.full_name || user?.name || user?.email,
       details: JSON.stringify(data),
       created_at: new Date().toISOString(),
     });
 
-    queryClient.invalidateQueries({ queryKey: ['ticket', id] });
-    queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    if (auditError) {
+      console.warn('Ticket audit log could not be saved:', auditError.message);
+    }
+
+    await queryClient.invalidateQueries({ queryKey: ['ticket', id] });
+    await queryClient.invalidateQueries({ queryKey: ['tickets'] });
   };
 
   const handleAssign = async (engineerEmail) => {
@@ -190,18 +194,21 @@ export default function TicketDetail() {
       return;
     }
 
-    const eng = engineers.find((e) => e.email === engineerEmail);
-    const ticketTitle = ticket?.title || ticket?.ticket_id || 'Untitled Ticket';
+    const engineer = engineers.find((item) => item.email === engineerEmail);
+    const ticketTitle = ticket?.title || ticket?.ticket_id || ticket?.ticket_number || 'Untitled Ticket';
     const ticketLink = `/tickets/${id}`;
+    const now = new Date().toISOString();
 
     try {
       await updateTicket({
         assigned_to: engineerEmail,
-        assigned_to_name: eng?.full_name || engineerEmail,
+        assigned_engineer_email: engineerEmail,
+        assigned_to_name: engineer?.full_name || engineerEmail,
         status: 'assigned',
+        assigned_at: now,
       });
 
-      const { data: notifyData, error: notifyError } = await supabase
+      const { error: notifyError } = await supabase
         .from('notifications')
         .insert({
           user_email: engineerEmail,
@@ -209,29 +216,23 @@ export default function TicketDetail() {
           message: `You have been assigned ticket: ${ticketTitle}`,
           type: 'ticket_assigned',
           link: ticketLink,
+          related_id: id,
+          related_type: 'ticket',
           sound: 'bell',
           read: false,
-          created_at: new Date().toISOString(),
-        })
-        .select();
-
-      console.log('Ticket assignment notification result:', {
-        notifyData,
-        notifyError,
-        engineerEmail,
-        ticketId: id,
-      });
+          created_at: now,
+        });
 
       if (notifyError) {
-        alert('Ticket notification failed: ' + notifyError.message);
-        return;
+        console.warn('Ticket assigned but notification failed:', notifyError.message);
+        alert('Ticket assigned successfully, but notification could not be sent.');
+      } else {
+        alert(`Ticket assigned and notification sent to ${engineerEmail}`);
       }
 
-      alert(`Ticket assigned and notification sent to ${engineerEmail}`);
-
-      queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      queryClient.invalidateQueries({ queryKey: ['ticket', id] });
-      queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      await queryClient.invalidateQueries({ queryKey: ['ticket', id] });
+      await queryClient.invalidateQueries({ queryKey: ['tickets'] });
     } catch (error) {
       console.error('Ticket assignment failed:', error);
       alert('Ticket assignment failed: ' + (error?.message || 'Unknown error'));
@@ -239,20 +240,21 @@ export default function TicketDetail() {
   };
 
   const handleStatusChange = async (newStatus) => {
+    const now = new Date().toISOString();
     const data = { status: newStatus };
 
     if (newStatus === 'resolved') {
-      data.resolved_date = new Date().toISOString();
+      data.resolved_date = now;
     }
 
     if (newStatus === 'closed') {
-      data.closed_date = new Date().toISOString();
+      data.closed_date = now;
     }
 
     await updateTicket(data);
 
     if (newStatus === 'resolved' && ticket.client_email) {
-      await supabase.from('notifications').insert({
+      const { error } = await supabase.from('notifications').insert({
         user_email: ticket.client_email,
         title: 'Ticket Resolved',
         message: `Your ticket "${ticket.title}" has been resolved.`,
@@ -260,13 +262,17 @@ export default function TicketDetail() {
         related_id: id,
         related_type: 'ticket',
         read: false,
-        created_at: new Date().toISOString(),
+        created_at: now,
       });
+
+      if (error) {
+        console.warn('Client resolution notification failed:', error.message);
+      }
     }
   };
 
-  const handleComment = async (e) => {
-    e.preventDefault();
+  const handleComment = async (event) => {
+    event.preventDefault();
 
     if (!comment.trim()) return;
 
@@ -275,9 +281,9 @@ export default function TicketDetail() {
     try {
       const { error } = await supabase.from('comments').insert({
         ticket_id: id,
-        author_email: user.email,
-        author_name: user.full_name || user.name || user.email,
-        content: comment,
+        author_email: user?.email,
+        author_name: user?.full_name || user?.name || user?.email,
+        content: comment.trim(),
         is_internal: isInternal,
         created_at: new Date().toISOString(),
       });
@@ -287,7 +293,7 @@ export default function TicketDetail() {
       setComment('');
       setIsInternal(false);
 
-      queryClient.invalidateQueries({ queryKey: ['comments', id] });
+      await queryClient.invalidateQueries({ queryKey: ['comments', id] });
     } catch (error) {
       alert('Error sending comment: ' + error.message);
     } finally {
@@ -296,9 +302,11 @@ export default function TicketDetail() {
   };
 
   const handleRate = async () => {
+    if (!rating) return;
+
     await updateTicket({
       rating,
-      rating_comment: ratingComment,
+      rating_comment: ratingComment.trim(),
     });
   };
 
@@ -319,7 +327,7 @@ export default function TicketDetail() {
   }
 
   const visibleComments = comments.filter(
-    (c) => role !== 'client' || !c.is_internal
+    (item) => role !== 'client' || !item.is_internal
   );
 
   const evidencePhotos = Array.isArray(ticket.evidence_photos)
@@ -328,6 +336,10 @@ export default function TicketDetail() {
 
   const evidenceVideos = Array.isArray(ticket.evidence_videos)
     ? ticket.evidence_videos
+    : [];
+
+  const attachments = Array.isArray(ticket.attachments)
+    ? ticket.attachments
     : [];
 
   return (
@@ -341,21 +353,21 @@ export default function TicketDetail() {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-sm font-mono text-muted-foreground">
-              {ticket.ticket_id}
+              {ticket.ticket_number || ticket.ticket_id}
             </span>
 
             <Badge
               variant="outline"
               className={`${priorityColors[ticket.priority]} text-[10px]`}
             >
-              {priorityLabels[ticket.priority]}
+              {priorityLabels[ticket.priority] || ticket.priority}
             </Badge>
 
             <Badge
               variant="outline"
               className={`${statusColors[ticket.status]} text-[10px]`}
             >
-              {statusLabels[ticket.status]}
+              {statusLabels[ticket.status] || ticket.status}
             </Badge>
           </div>
 
@@ -382,25 +394,11 @@ export default function TicketDetail() {
                 {ticket.description}
               </p>
 
-              {ticket.attachments?.length > 0 && (
-                <div className="mt-4 space-y-2">
-                  <p className="text-xs font-semibold text-muted-foreground">
-                    Attachments
-                  </p>
-
-                  {ticket.attachments.map((url, i) => (
-                    <a
-                      key={i}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-primary hover:underline block"
-                    >
-                      Attachment {i + 1}
-                    </a>
-                  ))}
-                </div>
-              )}
+              <EvidenceLinks
+                title="Attachments"
+                icon={<Image className="w-3.5 h-3.5" />}
+                items={attachments}
+              />
             </CardContent>
           </Card>
 
@@ -440,34 +438,36 @@ export default function TicketDetail() {
                 </p>
               )}
 
-              {visibleComments.map((c) => (
-                <div key={c.id} className="flex gap-3">
+              {visibleComments.map((item) => (
+                <div key={item.id} className="flex gap-3">
                   <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <span className="text-[10px] font-bold text-primary">
-                      {c.author_name?.[0]?.toUpperCase() || '?'}
+                      {item.author_name?.[0]?.toUpperCase() || '?'}
                     </span>
                   </div>
 
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-semibold">
-                        {c.author_name}
+                        {item.author_name}
                       </span>
 
-                      {c.is_internal && (
+                      {item.is_internal && (
                         <Badge variant="outline" className="text-[9px]">
                           Internal
                         </Badge>
                       )}
 
                       <span className="text-[10px] text-muted-foreground">
-                        {c.created_at
-                          ? format(new Date(c.created_at), 'MMM d, h:mm a')
+                        {item.created_at
+                          ? format(new Date(item.created_at), 'MMM d, h:mm a')
                           : ''}
                       </span>
                     </div>
 
-                    <p className="text-sm mt-1">{c.content}</p>
+                    <p className="text-sm mt-1 whitespace-pre-wrap">
+                      {item.content}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -479,7 +479,7 @@ export default function TicketDetail() {
                   placeholder="Add a comment..."
                   className="h-20"
                   value={comment}
-                  onChange={(e) => setComment(e.target.value)}
+                  onChange={(event) => setComment(event.target.value)}
                 />
 
                 <div className="flex items-center justify-between">
@@ -488,7 +488,7 @@ export default function TicketDetail() {
                       <input
                         type="checkbox"
                         checked={isInternal}
-                        onChange={(e) => setIsInternal(e.target.checked)}
+                        onChange={(event) => setIsInternal(event.target.checked)}
                         className="rounded"
                       />
                       Internal note
@@ -521,11 +521,15 @@ export default function TicketDetail() {
 
               <CardContent className="space-y-3">
                 <div className="flex gap-1">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <button key={s} onClick={() => setRating(s)}>
+                  {[1, 2, 3, 4, 5].map((score) => (
+                    <button
+                      key={score}
+                      type="button"
+                      onClick={() => setRating(score)}
+                    >
                       <Star
                         className={`w-6 h-6 ${
-                          s <= rating
+                          score <= rating
                             ? 'text-primary fill-primary'
                             : 'text-muted-foreground'
                         }`}
@@ -537,7 +541,7 @@ export default function TicketDetail() {
                 <Textarea
                   placeholder="Leave feedback..."
                   value={ratingComment}
-                  onChange={(e) => setRatingComment(e.target.value)}
+                  onChange={(event) => setRatingComment(event.target.value)}
                   className="h-16"
                 />
 
@@ -556,7 +560,7 @@ export default function TicketDetail() {
                 <p className="text-xs text-muted-foreground mb-1">Status</p>
 
                 {role === 'admin' || role === 'helpdesk' || role === 'engineer' ? (
-                  <Select value={ticket.status} onValueChange={handleStatusChange}>
+                  <Select value={ticket.status || ''} onValueChange={handleStatusChange}>
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue />
                     </SelectTrigger>
@@ -572,7 +576,7 @@ export default function TicketDetail() {
                   </Select>
                 ) : (
                   <Badge variant="outline" className={statusColors[ticket.status]}>
-                    {statusLabels[ticket.status]}
+                    {statusLabels[ticket.status] || ticket.status}
                   </Badge>
                 )}
               </div>
@@ -581,7 +585,7 @@ export default function TicketDetail() {
                 <p className="text-xs text-muted-foreground mb-1">Category</p>
                 <div className="flex items-center gap-1.5 text-sm">
                   <Tag className="w-3.5 h-3.5 text-muted-foreground" />
-                  {categoryLabels[ticket.category]}
+                  {categoryLabels[ticket.category] || ticket.category || 'Not set'}
                 </div>
               </div>
 
@@ -589,7 +593,7 @@ export default function TicketDetail() {
                 <p className="text-xs text-muted-foreground mb-1">Client</p>
                 <div className="flex items-center gap-1.5 text-sm">
                   <User className="w-3.5 h-3.5 text-muted-foreground" />
-                  {ticket.client_name || ticket.client_email}
+                  {ticket.client_name || ticket.client_email || 'Not set'}
                 </div>
               </div>
 
@@ -599,15 +603,18 @@ export default function TicketDetail() {
                 </p>
 
                 {role === 'admin' || role === 'helpdesk' ? (
-                  <Select value={ticket.assigned_to || ''} onValueChange={handleAssign}>
+                  <Select
+                    value={ticket.assigned_to || ticket.assigned_engineer_email || ''}
+                    onValueChange={handleAssign}
+                  >
                     <SelectTrigger className="h-8 text-xs">
                       <SelectValue placeholder="Assign engineer..." />
                     </SelectTrigger>
 
                     <SelectContent>
-                      {engineers.map((eng) => (
-                        <SelectItem key={eng.email} value={eng.email}>
-                          {eng.full_name || eng.email}
+                      {engineers.map((engineer) => (
+                        <SelectItem key={engineer.email} value={engineer.email}>
+                          {engineer.full_name || engineer.email}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -625,9 +632,18 @@ export default function TicketDetail() {
                   <Clock className="w-3.5 h-3.5 text-muted-foreground" />
                   {ticket.created_at
                     ? format(new Date(ticket.created_at), 'MMM d, yyyy h:mm a')
-                    : ''}
+                    : 'Not recorded'}
                 </div>
               </div>
+
+              {ticket.assigned_at && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Assigned</p>
+                  <p className="text-sm">
+                    {format(new Date(ticket.assigned_at), 'MMM d, yyyy h:mm a')}
+                  </p>
+                </div>
+              )}
 
               {ticket.resolved_date && (
                 <div>
@@ -642,11 +658,11 @@ export default function TicketDetail() {
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Rating</p>
                   <div className="flex gap-0.5">
-                    {[1, 2, 3, 4, 5].map((s) => (
+                    {[1, 2, 3, 4, 5].map((score) => (
                       <Star
-                        key={s}
+                        key={score}
                         className={`w-4 h-4 ${
-                          s <= ticket.rating
+                          score <= ticket.rating
                             ? 'text-primary fill-primary'
                             : 'text-muted'
                         }`}
@@ -669,36 +685,6 @@ export default function TicketDetail() {
                     Escalate
                   </Button>
                 )}
-
-              {role === 'engineer' && ticket.status === 'assigned' && (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => handleStatusChange('in_progress')}
-                  >
-                    Accept
-                  </Button>
-                </div>
-              )}
-
-              {role === 'engineer' && ticket.status === 'in_progress' && (
-                <div className="space-y-2">
-                  <Textarea
-                    placeholder="Resolution notes..."
-                    className="h-16 text-xs"
-                    onChange={(e) => setComment(e.target.value)}
-                  />
-
-                  <Button
-                    size="sm"
-                    className="w-full"
-                    onClick={() => handleStatusChange('resolved')}
-                  >
-                    Mark Resolved
-                  </Button>
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>
