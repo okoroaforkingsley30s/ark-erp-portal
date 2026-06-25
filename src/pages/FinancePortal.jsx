@@ -39,6 +39,8 @@ import {
   Wallet,
   Clock,
   PackageCheck,
+  ShoppingCart,
+  Building2,
 } from 'lucide-react';
 
 import { format, isValid } from 'date-fns';
@@ -81,6 +83,50 @@ const DISPATCH_FUND_STATUS = {
   },
   disbursed: {
     label: 'Disbursed',
+    color: 'bg-green-500/15 text-green-300 border-green-200',
+  },
+};
+
+const PO_STATUS = {
+  Draft: { label: 'Draft', color: 'bg-slate-500/15 text-slate-300 border-slate-200' },
+  'Pending Approval': {
+    label: 'Pending Approval',
+    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
+  },
+  'Pending HR Approval': {
+    label: 'Pending HR Approval',
+    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
+  },
+  'Pending AGM Approval': {
+    label: 'Pending AGM Approval',
+    color: 'bg-purple-500/15 text-purple-300 border-purple-200',
+  },
+  'Pending Operations Approval': {
+    label: 'Pending Operations Approval',
+    color: 'bg-orange-500/15 text-orange-300 border-orange-200',
+  },
+  'Pending Account Release': {
+    label: 'Pending Account Release',
+    color: 'bg-cyan-500/15 text-cyan-300 border-cyan-200',
+  },
+  'Funds Released': {
+    label: 'Funds Released',
+    color: 'bg-blue-500/15 text-blue-300 border-blue-200',
+  },
+  Approved: {
+    label: 'Approved',
+    color: 'bg-green-500/15 text-green-300 border-green-200',
+  },
+  Rejected: {
+    label: 'Rejected',
+    color: 'bg-red-500/15 text-red-300 border-red-200',
+  },
+  Issued: {
+    label: 'Issued',
+    color: 'bg-blue-500/15 text-blue-300 border-blue-200',
+  },
+  Completed: {
+    label: 'Completed',
     color: 'bg-green-500/15 text-green-300 border-green-200',
   },
 };
@@ -187,6 +233,26 @@ function getFundDestination(request) {
   return request.destination || request.branch_name || request.location || 'N/A';
 }
 
+function getPOStatusStyle(lpo) {
+  return PO_STATUS[lpo?.status] || PO_STATUS.Draft;
+}
+
+function getPOItems(lpo) {
+  return Array.isArray(lpo?.items) ? lpo.items : [];
+}
+
+function getPOItemsCount(lpo) {
+  return getPOItems(lpo).length;
+}
+
+function getPOTotal(lpo) {
+  return Number(lpo?.total_amount_ngn || 0);
+}
+
+function getPOSupplier(lpo) {
+  return lpo?.supplier_name || 'No supplier';
+}
+
 function getFinanceRole(user) {
   return normalize(user?.role || user?.user_role || user?.position);
 }
@@ -233,6 +299,10 @@ export default function FinancePortal() {
   const [fundActionBusy, setFundActionBusy] = useState(null);
   const [fundActionForms, setFundActionForms] = useState({});
 
+  const [poFilter, setPoFilter] = useState('all');
+  const [poSearch, setPoSearch] = useState('');
+  const [poActionBusy, setPoActionBusy] = useState(null);
+
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ['invoices'],
     queryFn: async () => {
@@ -272,6 +342,25 @@ export default function FinancePortal() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('inventory_dispatch_fund_requests')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(300);
+
+      if (error) throw error;
+
+      return data || [];
+    },
+  });
+
+  const {
+    data: purchaseOrders = [],
+    isLoading: loadingPurchaseOrders,
+    error: purchaseOrderError,
+  } = useQuery({
+    queryKey: ['finance_lpos_account_release'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('lpos')
         .select('*')
         .order('created_at', { ascending: false })
         .limit(300);
@@ -329,8 +418,26 @@ export default function FinancePortal() {
     };
   }, [dispatchFunds]);
 
-  const monthlyIncome = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date();
+  const purchaseOrderStats = useMemo(() => {
+    const pendingRelease = purchaseOrders.filter(
+      (po) => po.status === 'Pending Account Release'
+    );
+
+    const released = purchaseOrders.filter((po) => po.status === 'Funds Released');
+    const issued = purchaseOrders.filter((po) => po.status === 'Issued');
+    const completed = purchaseOrders.filter((po) => po.status === 'Completed');
+
+    return {
+      pendingReleaseCount: pendingRelease.length,
+      releasedCount: released.length,
+      issuedCount: issued.length,
+      completedCount: completed.length,
+      pendingReleaseAmount: pendingRelease.reduce((s, po) => s + getPOTotal(po), 0),
+      releasedAmount: released.reduce((s, po) => s + getPOTotal(po), 0),
+    };
+  }, [purchaseOrders]);
+
+  const monthlyIncome = Array.from({ length: 6 }, (_, i) => {    const d = new Date();
     d.setMonth(d.getMonth() - (5 - i));
 
     const m = d.toLocaleString('default', { month: 'short' });
@@ -777,6 +884,62 @@ export default function FinancePortal() {
     }
   };
 
+  const writePOFinanceEvent = async (lpo, actionText, severity = 'info') => {
+    await supabase.from('operations_events').insert({
+      event_type: 'PURCHASE_ORDER_FINANCE_UPDATE',
+      title: `Finance ${actionText}`,
+      description: `Finance ${actionText} for ${lpo.lpo_number || 'purchase order'} - ${getPOSupplier(lpo)}`,
+      source_module: 'Finance',
+      entity_type: 'lpo',
+      entity_id: lpo.id,
+      severity,
+    });
+  };
+
+  const markPOFundsReleased = async (lpo) => {
+    if (!allowFinanceActions) {
+      alert('You do not have permission to release PO funds.');
+      return;
+    }
+
+    if (lpo.status !== 'Pending Account Release') {
+      alert('Only purchase orders waiting for Account Release can be released.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Mark funds as released for this purchase order? Procurement will now be able to issue the PO.'
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setPoActionBusy(lpo.id);
+
+      const { error } = await supabase
+        .from('lpos')
+        .update({
+          status: 'Funds Released',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', lpo.id);
+
+      if (error) throw error;
+
+      await writePOFinanceEvent(lpo, 'released purchase order funds');
+
+      qc.invalidateQueries({ queryKey: ['finance_lpos_account_release'] });
+      qc.invalidateQueries({ queryKey: ['lpos'] });
+
+      alert('PO funds released. Procurement can now issue the PO.');
+    } catch (err) {
+      console.error(err);
+      alert(err.message || 'Failed to release PO funds.');
+    } finally {
+      setPoActionBusy(null);
+    }
+  };
+
   const filteredInvoices = invoices.filter(
     (i) => invFilter === 'all' || i.status === invFilter
   );
@@ -809,6 +972,26 @@ export default function FinancePortal() {
     return statusMatch && searchMatch;
   });
 
+  const filteredPurchaseOrders = purchaseOrders.filter((po) => {
+    const q = poSearch.toLowerCase().trim();
+
+    const statusMatch = poFilter === 'all' || po.status === poFilter;
+
+    const searchMatch =
+      !q ||
+      String(po.lpo_number || '').toLowerCase().includes(q) ||
+      String(po.title || '').toLowerCase().includes(q) ||
+      String(po.supplier_name || '').toLowerCase().includes(q) ||
+      String(po.requested_by_name || '').toLowerCase().includes(q) ||
+      getPOItems(po).some(
+        (item) =>
+          String(item.description || '').toLowerCase().includes(q) ||
+          String(item.part_number || '').toLowerCase().includes(q)
+      );
+
+    return statusMatch && searchMatch;
+  });
+
   const canSeeFullFinance = canViewFullFinance(user);
   const allowFinanceActions = canProcessDispatchFunds(user);
   const allowAddFinanceRecords = canAddFinanceRecord(user);
@@ -822,12 +1005,12 @@ export default function FinancePortal() {
             Finance Portal
           </h1>
           <p className="text-sm text-muted-foreground">
-            Dispatch fund approval · Income & expense management · Financial reporting
+            Dispatch funds · PO fund release · Income & expense management · Financial reporting
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="rounded-xl border bg-slate-900/50 p-4">
           <Wallet className="w-5 h-5 text-amber-500 mb-2" />
           <p className="text-2xl font-bold text-amber-500">
@@ -865,6 +1048,16 @@ export default function FinancePortal() {
           </p>
           <p className="text-xs text-muted-foreground">
             Rejected Dispatch Funds
+          </p>
+        </div>
+
+        <div className="rounded-xl border bg-slate-900/50 p-4">
+          <ShoppingCart className="w-5 h-5 text-cyan-500 mb-2" />
+          <p className="text-2xl font-bold text-cyan-500">
+            {purchaseOrderStats.pendingReleaseCount}
+          </p>
+          <p className="text-xs text-muted-foreground">
+            PO Funds To Release · {fmt(purchaseOrderStats.pendingReleaseAmount)}
           </p>
         </div>
       </div>
@@ -934,6 +1127,7 @@ export default function FinancePortal() {
       <Tabs defaultValue="dispatch-funds">
         <TabsList className="flex flex-wrap h-auto">
           <TabsTrigger value="dispatch-funds">Dispatch Funds</TabsTrigger>
+          {canSeeFullFinance && <TabsTrigger value="purchase-orders">PO Fund Release</TabsTrigger>}
           {canSeeFullFinance && (
             <>
               <TabsTrigger value="income">Income / Invoices</TabsTrigger>
@@ -1214,6 +1408,234 @@ export default function FinancePortal() {
             </div>
           )}
         </TabsContent>
+
+        {canSeeFullFinance && (
+          <TabsContent value="purchase-orders" className="space-y-4">
+            <div className="rounded-xl border bg-slate-900/50 p-4 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                    <ShoppingCart className="w-5 h-5 text-[#ff5a00]" />
+                    Purchase Order Fund Release
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Fully approved purchase orders appear here when they reach Pending Account Release.
+                  </p>
+                </div>
+
+                <Input
+                  className="max-w-sm bg-slate-950/50"
+                  value={poSearch}
+                  onChange={(e) => setPoSearch(e.target.value)}
+                  placeholder="Search PO, supplier, requester, item..."
+                />
+              </div>
+
+              <div className="flex gap-2 flex-wrap">
+                {[
+                  ['all', 'All'],
+                  ['Pending Account Release', 'Pending Release'],
+                  ['Funds Released', 'Funds Released'],
+                  ['Issued', 'Issued'],
+                  ['Completed', 'Completed'],
+                  ['Rejected', 'Rejected'],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setPoFilter(key)}
+                    className={
+                      'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
+                      (poFilter === key
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-slate-900/50 border-border text-muted-foreground hover:bg-muted')
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {purchaseOrderError && (
+              <Card className="p-4 border-red-500/30 bg-red-500/10">
+                <p className="text-sm text-red-300">
+                  Failed to load purchase orders: {purchaseOrderError.message}
+                </p>
+              </Card>
+            )}
+
+            {loadingPurchaseOrders ? (
+              <div className="flex justify-center py-10">
+                <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {filteredPurchaseOrders.map((po) => {
+                  const statusStyle = getPOStatusStyle(po);
+                  const busy = poActionBusy === po.id;
+                  const pendingRelease = po.status === 'Pending Account Release';
+                  const fundsReleased = po.status === 'Funds Released';
+                  const issuedOrCompleted = ['Issued', 'Completed'].includes(po.status);
+
+                  return (
+                    <Card key={po.id} className="p-4 bg-slate-900/60 border-slate-700">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={statusStyle.color + ' text-[10px]'}
+                            >
+                              {statusStyle.label}
+                            </Badge>
+
+                            {po.lpo_number && (
+                              <Badge variant="outline" className="text-[10px] font-mono">
+                                {po.lpo_number}
+                              </Badge>
+                            )}
+
+                            {po.created_at && (
+                              <span className="text-xs text-muted-foreground">
+                                {safeDate(po.created_at)}
+                              </span>
+                            )}
+                          </div>
+
+                          <div>
+                            <p className="font-semibold text-white">
+                              {po.title || 'Purchase Order'}
+                            </p>
+
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+                              <Building2 className="w-3 h-3" />
+                              Supplier: {getPOSupplier(po)}
+                            </p>
+
+                            <p className="text-xs text-muted-foreground">
+                              Requested By: {po.requested_by_name || 'N/A'}
+                              {po.requested_by_email ? ` · ${po.requested_by_email}` : ''}
+                            </p>
+
+                            <p className="text-xs text-muted-foreground">
+                              Items: {getPOItemsCount(po)}
+                              {po.delivery_expected_date
+                                ? ` · Expected Delivery: ${safeDate(po.delivery_expected_date)}`
+                                : ''}
+                            </p>
+
+                            {po.approved_by && (
+                              <p className="text-xs text-green-300 mt-1">
+                                Approved By: {po.approved_by}
+                                {po.approval_date ? ` · ${safeDate(po.approval_date)}` : ''}
+                              </p>
+                            )}
+
+                            {po.rejection_reason && (
+                              <p className="text-xs text-red-300 mt-1">
+                                Rejection Reason: {po.rejection_reason}
+                              </p>
+                            )}
+
+                            {getPOItems(po).length > 0 && (
+                              <div className="mt-2 rounded-lg border border-slate-700 bg-slate-950/40 p-2">
+                                <p className="text-[11px] font-semibold text-slate-300 mb-1">
+                                  Items Preview
+                                </p>
+                                <div className="space-y-1">
+                                  {getPOItems(po)
+                                    .slice(0, 3)
+                                    .map((item, index) => (
+                                      <p
+                                        key={`${po.id}-item-${index}`}
+                                        className="text-[11px] text-muted-foreground"
+                                      >
+                                        {index + 1}. {item.part_number ? `${item.part_number} · ` : ''}
+                                        {item.description || 'Item'} × {item.quantity_requested || 0}
+                                      </p>
+                                    ))}
+                                  {getPOItems(po).length > 3 && (
+                                    <p className="text-[11px] text-muted-foreground">
+                                      +{getPOItems(po).length - 3} more item(s)
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="text-right min-w-[180px]">
+                          <p className="text-xs text-muted-foreground">PO Total</p>
+                          <p className="text-2xl font-bold text-[#ff5a00]">
+                            {fmt(getPOTotal(po))}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {po.currency || 'NGN'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {!allowFinanceActions && pendingRelease && (
+                        <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-500/10 p-3">
+                          <p className="text-xs text-amber-300">
+                            Your role can view this PO, but cannot release funds.
+                          </p>
+                        </div>
+                      )}
+
+                      {allowFinanceActions && pendingRelease && (
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <Button
+                            size="sm"
+                            className="bg-blue-600 hover:bg-blue-700 text-white"
+                            disabled={busy}
+                            onClick={() => markPOFundsReleased(po)}
+                          >
+                            {busy ? (
+                              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                            ) : (
+                              <Wallet className="w-4 h-4 mr-1" />
+                            )}
+                            Release Funds
+                          </Button>
+
+                          <span className="text-xs text-cyan-300 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Waiting for Account to release funds.
+                          </span>
+                        </div>
+                      )}
+
+                      {fundsReleased && (
+                        <div className="mt-4 rounded-lg border border-blue-400/20 bg-blue-500/10 p-3">
+                          <p className="text-xs text-blue-300">
+                            Funds released. Procurement can now issue this purchase order.
+                          </p>
+                        </div>
+                      )}
+
+                      {issuedOrCompleted && (
+                        <div className="mt-4 rounded-lg border border-green-400/20 bg-green-500/10 p-3">
+                          <p className="text-xs text-green-300">
+                            Purchase order has moved beyond fund release stage.
+                          </p>
+                        </div>
+                      )}
+                    </Card>
+                  );
+                })}
+
+                {filteredPurchaseOrders.length === 0 && (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <ShoppingCart className="w-10 h-10 mx-auto mb-3 opacity-30" />
+                    <p>No purchase orders found</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </TabsContent>
+        )}
 
         {canSeeFullFinance && (
           <TabsContent value="income" className="space-y-4">

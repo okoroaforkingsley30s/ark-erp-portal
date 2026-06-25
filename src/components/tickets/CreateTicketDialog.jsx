@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,7 +32,6 @@ const EMPTY_FORM = {
   assigned_to_name: '',
   assigned_to: '',
   sla_level: 'standard',
-
   title: '',
   description: '',
   category: 'hardware',
@@ -46,15 +45,17 @@ const generateTicketId = () => {
   return `TCK-${stamp}-${random}`;
 };
 
-const getDeviceBranch = (device) => device.branch_name || device.branch || device.location || '';
+const getDeviceBranch = (device) =>
+  device.branch_name || device.branch || device.location || '';
 
-const getDeviceTerminalId = (device) => (
-  device.atm_terminal_id ||
-  device.terminal_id ||
-  device.device_id ||
-  device.id ||
-  ''
-).toString();
+const getDeviceTerminalId = (device) =>
+  (
+    device.atm_terminal_id ||
+    device.terminal_id ||
+    device.device_id ||
+    device.id ||
+    ''
+  ).toString();
 
 const getDeviceName = (device) =>
   device.device_name ||
@@ -72,11 +73,12 @@ const getAssignedEngineer = (device, engineers) => {
 
   if (!assigned) return null;
 
-  const match = engineers.find((engineer) => (
-    engineer.email === assigned ||
-    engineer.full_name === assigned ||
-    engineer.engineer_name === assigned
-  ));
+  const match = engineers.find(
+    (engineer) =>
+      engineer.email === assigned ||
+      engineer.full_name === assigned ||
+      engineer.engineer_name === assigned
+  );
 
   return {
     email: match?.email || (assigned.includes('@') ? assigned : ''),
@@ -85,14 +87,46 @@ const getAssignedEngineer = (device, engineers) => {
 };
 
 export default function CreateTicketDialog({ open, onOpenChange, user }) {
+  const draftKey = `ark_one_create_ticket_draft_${user?.email || 'guest'}`;
+
   const [form, setForm] = useState(EMPTY_FORM);
   const [files, setFiles] = useState([]);
+  const [fileNames, setFileNames] = useState([]);
   const [saving, setSaving] = useState(false);
   const [branchSearch, setBranchSearch] = useState('');
 
   const queryClient = useQueryClient();
-
   const isStaff = STAFF_ROLES.includes(user?.role);
+
+  useEffect(() => {
+    if (!open) return;
+
+    try {
+      const saved = localStorage.getItem(draftKey);
+      if (!saved) return;
+
+      const parsed = JSON.parse(saved);
+
+      if (parsed?.form) setForm({ ...EMPTY_FORM, ...parsed.form });
+      if (parsed?.branchSearch) setBranchSearch(parsed.branchSearch);
+      if (Array.isArray(parsed?.fileNames)) setFileNames(parsed.fileNames);
+    } catch (error) {
+      console.warn('Could not restore ticket draft:', error);
+    }
+  }, [open, draftKey]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const payload = {
+      form,
+      branchSearch,
+      fileNames,
+      savedAt: new Date().toISOString(),
+    };
+
+    localStorage.setItem(draftKey, JSON.stringify(payload));
+  }, [open, draftKey, form, branchSearch, fileNames]);
 
   const { data: devices = [] } = useQuery({
     queryKey: ['devices-for-ticket'],
@@ -132,18 +166,18 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
   });
 
   const banks = useMemo(() => {
-    const unique = [...new Set(devices.map(d => d.bank_name).filter(Boolean))];
-    return unique.map(name => ({ id: name, bank_name: name }));
+    const unique = [...new Set(devices.map((d) => d.bank_name).filter(Boolean))];
+    return unique.map((name) => ({ id: name, bank_name: name }));
   }, [devices]);
 
   const branches = useMemo(() => {
     const filtered = form.bank_name
-      ? devices.filter(d => d.bank_name === form.bank_name)
+      ? devices.filter((d) => d.bank_name === form.bank_name)
       : devices;
 
     const unique = [...new Set(filtered.map(getDeviceBranch).filter(Boolean))];
 
-    return unique.map(name => ({
+    return unique.map((name) => ({
       id: name,
       branch_name: name,
       bank_name: form.bank_name,
@@ -156,14 +190,12 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
     if (!q) return branches.slice(0, 30);
 
     return branches
-      .filter((branch) =>
-        branch.branch_name?.toLowerCase().includes(q)
-      )
+      .filter((branch) => branch.branch_name?.toLowerCase().includes(q))
       .slice(0, 30);
   }, [branches, branchSearch]);
 
   const filteredDevices = useMemo(() => {
-    return devices.filter(d => {
+    return devices.filter((d) => {
       const deviceBranch = getDeviceBranch(d);
 
       if (form.bank_name && d.bank_name !== form.bank_name) return false;
@@ -173,22 +205,75 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
     });
   }, [devices, form.bank_name, form.branch_name]);
 
-  const f = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const f = (key, value) => {
+    setForm((previous) => ({ ...previous, [key]: value }));
+  };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const clearDraft = () => {
+    localStorage.removeItem(draftKey);
+    setForm(EMPTY_FORM);
+    setBranchSearch('');
+    setFiles([]);
+    setFileNames([]);
+  };
+
+  const handleCancel = () => {
+    const hasDraft =
+      form.title ||
+      form.description ||
+      form.bank_name ||
+      form.branch_name ||
+      form.terminal_id ||
+      form.assigned_to ||
+      files.length > 0;
+
+    if (hasDraft) {
+      const ok = window.confirm(
+        'You have unsaved ticket details. Do you want to close and clear this draft?'
+      );
+
+      if (!ok) return;
+    }
+
+    clearDraft();
+    onOpenChange(false);
+  };
+
+  const handleDialogOpenChange = (nextOpen) => {
+    if (nextOpen) {
+      onOpenChange(true);
+      return;
+    }
+
+    // Prevent parent/dialog from closing accidentally.
+    // Only Cancel button or successful ticket creation can close it.
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
 
     if (!user?.email) {
       alert('You must be logged in to create a ticket.');
       return;
     }
 
+    if (!form.title.trim()) {
+      alert('Please enter ticket title.');
+      return;
+    }
+
+    if (!form.description.trim()) {
+      alert('Please enter ticket description.');
+      return;
+    }
+
     setSaving(true);
 
     try {
+      const now = new Date().toISOString();
       const ticketNumber = generateTicketId();
 
-      const attachments = files.map(file => ({
+      const attachments = files.map((file) => ({
         name: file.name,
         type: file.type,
         size: file.size,
@@ -197,24 +282,18 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
       const ticketData = {
         title: form.title.trim(),
         description: form.description.trim(),
-
         category: form.category,
         priority: form.priority,
-
         ticket_id: ticketNumber,
         ticket_number: ticketNumber,
-
         client_email: user.email,
-        client_name: user.full_name || user.email,
-
+        client_name: user.full_name || user.name || user.email,
         status: form.assigned_to ? 'assigned' : 'new',
-
         attachments,
-
         department: user.department || '',
-
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: now,
+        updated_at: now,
+        last_action_at: now,
       };
 
       if (isStaff) {
@@ -224,7 +303,12 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
         ticketData.device_name = form.device_name || null;
         ticketData.assigned_to_name = form.assigned_to_name || null;
         ticketData.assigned_to = form.assigned_to || null;
+        ticketData.assigned_engineer_email = form.assigned_to || null;
         ticketData.sla_level = form.sla_level || 'standard';
+
+        if (form.assigned_to) {
+          ticketData.assigned_at = now;
+        }
       }
 
       const { data: insertedTicket, error } = await supabase
@@ -274,11 +358,8 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
 
       alert('Ticket created successfully');
 
-      setForm(EMPTY_FORM);
-      setBranchSearch('');
-      setFiles([]);
+      clearDraft();
       onOpenChange(false);
-
     } catch (err) {
       console.error(err);
       alert('Unexpected error creating ticket.');
@@ -288,8 +369,12 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+      <DialogContent
+        className="sm:max-w-2xl max-h-[90vh] overflow-y-auto"
+        onInteractOutside={(event) => event.preventDefault()}
+        onEscapeKeyDown={(event) => event.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Create Support Ticket</DialogTitle>
         </DialogHeader>
@@ -306,8 +391,8 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                   <Label>Bank</Label>
                   <Select
                     value={form.bank_name}
-                    onValueChange={(v) => {
-                      f('bank_name', v);
+                    onValueChange={(value) => {
+                      f('bank_name', value);
                       f('branch_name', '');
                       f('terminal_id', '');
                       f('device_name', '');
@@ -319,9 +404,9 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                     </SelectTrigger>
 
                     <SelectContent>
-                      {banks.map((b) => (
-                        <SelectItem key={b.id} value={b.bank_name}>
-                          {b.bank_name}
+                      {banks.map((bank) => (
+                        <SelectItem key={bank.id} value={bank.bank_name}>
+                          {bank.bank_name}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -334,9 +419,13 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                   <Input
                     value={branchSearch}
                     disabled={!form.bank_name}
-                    placeholder={form.bank_name ? 'Type full branch/location name...' : 'Select bank first...'}
-                    onChange={(e) => {
-                      const value = e.target.value;
+                    placeholder={
+                      form.bank_name
+                        ? 'Type full branch/location name...'
+                        : 'Select bank first...'
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
 
                       setBranchSearch(value);
                       f('branch_name', value);
@@ -347,21 +436,21 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
 
                   {form.bank_name && branchSearch && filteredBranches.length > 0 && (
                     <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 text-white shadow-2xl">
-                      {filteredBranches.map((b) => (
-  <button
-    key={b.id || b.branch_name}
-    type="button"
-    className="w-full text-left px-3 py-2 text-sm text-white bg-slate-900 hover:bg-slate-800 border-b border-slate-700 last:border-b-0"
-    onClick={() => {
-      setBranchSearch(b.branch_name);
-      f('branch_name', b.branch_name);
-      f('terminal_id', '');
-      f('device_name', '');
-    }}
-  >
-    {b.branch_name}
-  </button>
-))}
+                      {filteredBranches.map((branch) => (
+                        <button
+                          key={branch.id || branch.branch_name}
+                          type="button"
+                          className="w-full text-left px-3 py-2 text-sm text-white bg-slate-900 hover:bg-slate-800 border-b border-slate-700 last:border-b-0"
+                          onClick={() => {
+                            setBranchSearch(branch.branch_name);
+                            f('branch_name', branch.branch_name);
+                            f('terminal_id', '');
+                            f('device_name', '');
+                          }}
+                        >
+                          {branch.branch_name}
+                        </button>
+                      ))}
                     </div>
                   )}
 
@@ -383,11 +472,15 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                 <Label>Device / Terminal</Label>
                 <Select
                   value={form.terminal_id}
-                  onValueChange={(v) => {
-                    const dev = filteredDevices.find(d => getDeviceTerminalId(d) === v);
-                    const assignedEngineer = dev ? getAssignedEngineer(dev, engineers) : null;
+                  onValueChange={(value) => {
+                    const dev = filteredDevices.find(
+                      (device) => getDeviceTerminalId(device) === value
+                    );
+                    const assignedEngineer = dev
+                      ? getAssignedEngineer(dev, engineers)
+                      : null;
 
-                    f('terminal_id', v);
+                    f('terminal_id', value);
                     f('device_name', dev ? getDeviceName(dev) : '');
 
                     if (assignedEngineer) {
@@ -401,12 +494,14 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                   </SelectTrigger>
 
                   <SelectContent>
-                    {filteredDevices.map((d) => {
-                      const value = getDeviceTerminalId(d);
-                      const label = `${getDeviceName(d)} ${value ? `(${value})` : ''}`;
+                    {filteredDevices.map((device) => {
+                      const value = getDeviceTerminalId(device);
+                      const label = `${getDeviceName(device)} ${
+                        value ? `(${value})` : ''
+                      }`;
 
                       return (
-                        <SelectItem key={d.id} value={value}>
+                        <SelectItem key={device.id} value={value}>
                           {label}
                         </SelectItem>
                       );
@@ -423,7 +518,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
               required
               placeholder="Brief description of the issue"
               value={form.title}
-              onChange={(e) => f('title', e.target.value)}
+              onChange={(event) => f('title', event.target.value)}
             />
           </div>
 
@@ -434,14 +529,17 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
               placeholder="Provide detailed information about the issue..."
               className="h-24"
               value={form.description}
-              onChange={(e) => f('description', e.target.value)}
+              onChange={(event) => f('description', event.target.value)}
             />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Category</Label>
-              <Select value={form.category} onValueChange={(v) => f('category', v)}>
+              <Select
+                value={form.category}
+                onValueChange={(value) => f('category', value)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -461,7 +559,10 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
 
             <div className="space-y-2">
               <Label>Priority</Label>
-              <Select value={form.priority} onValueChange={(v) => f('priority', v)}>
+              <Select
+                value={form.priority}
+                onValueChange={(value) => f('priority', value)}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -482,10 +583,10 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                 <Label>Assign Engineer</Label>
                 <Select
                   value={form.assigned_to}
-                  onValueChange={(v) => {
-                    const eng = engineers.find(e => e.email === v);
-                    f('assigned_to', v);
-                    f('assigned_to_name', eng?.full_name || v);
+                  onValueChange={(value) => {
+                    const engineer = engineers.find((item) => item.email === value);
+                    f('assigned_to', value);
+                    f('assigned_to_name', engineer?.full_name || value);
                   }}
                 >
                   <SelectTrigger>
@@ -493,9 +594,10 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                   </SelectTrigger>
 
                   <SelectContent>
-                    {engineers.map((e) => (
-                      <SelectItem key={e.id} value={e.email}>
-                        {e.full_name || e.email} — {e.department || 'Engineer'}
+                    {engineers.map((engineer) => (
+                      <SelectItem key={engineer.id} value={engineer.email}>
+                        {engineer.full_name || engineer.email} —{' '}
+                        {engineer.department || 'Engineer'}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -504,7 +606,10 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
 
               <div className="space-y-2">
                 <Label>SLA Level</Label>
-                <Select value={form.sla_level} onValueChange={(v) => f('sla_level', v)}>
+                <Select
+                  value={form.sla_level}
+                  onValueChange={(value) => f('sla_level', value)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -527,7 +632,9 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
               <span className="text-sm text-muted-foreground">
                 {files.length > 0
                   ? `${files.length} file(s) selected`
-                  : 'Click to upload files or photos'}
+                  : fileNames.length > 0
+                    ? `${fileNames.length} previous file name(s) saved. Please reselect files before submitting.`
+                    : 'Click to upload files or photos'}
               </span>
 
               <input
@@ -535,13 +642,23 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
                 multiple
                 accept="image/*,.pdf,.doc,.docx"
                 className="hidden"
-                onChange={(e) => setFiles(Array.from(e.target.files))}
+                onChange={(event) => {
+                  const selected = Array.from(event.target.files || []);
+                  setFiles(selected);
+                  setFileNames(selected.map((file) => file.name));
+                }}
               />
             </label>
+
+            {fileNames.length > 0 && files.length === 0 && (
+              <p className="text-xs text-amber-500">
+                Browser security does not restore selected files after refresh. Please reselect attachments before creating ticket.
+              </p>
+            )}
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={handleCancel}>
               Cancel
             </Button>
 
