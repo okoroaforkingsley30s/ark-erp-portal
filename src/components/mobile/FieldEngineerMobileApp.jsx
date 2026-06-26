@@ -2804,40 +2804,39 @@ function TicketDetailsModal({
         </SectionCard>
 
         <SectionCard title="Video Evidence Optional">
-          <div className="space-y-3">
-            <input
-              type="file"
-              accept="video/*"
-              capture="environment"
-              onChange={handleVideoChange}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
+  <div className="space-y-3">
+    <input
+      type="file"
+      accept="video/*"
+      onChange={handleVideoChange}
+      className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
+    />
 
-            {videoFiles.length > 0 && (
-              <p className="text-xs text-green-400">
-                {videoFiles.length} video(s) selected.
-              </p>
-            )}
+    {videoFiles.length > 0 && (
+      <p className="text-xs text-green-400">
+        {videoFiles.length} video(s) selected.
+      </p>
+    )}
 
-            {existingVideos.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-400">Existing Videos:</p>
+    {existingVideos.length > 0 && (
+      <div className="space-y-2">
+        <p className="text-xs text-slate-400">Existing Videos:</p>
 
-                {existingVideos.map((item, index) => (
-                  <a
-                    key={`${item.url}-${index}`}
-                    href={item.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="block text-xs text-blue-400 underline"
-                  >
-                    View video {index + 1}
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        </SectionCard>
+        {existingVideos.map((item, index) => (
+          <a
+            key={`${item.url}-${index}`}
+            href={item.url}
+            target="_blank"
+            rel="noreferrer"
+            className="block text-xs text-blue-400 underline"
+          >
+            View video {index + 1}
+          </a>
+        ))}
+      </div>
+    )}
+  </div>
+</SectionCard>
 
         <SectionCard title="Completion Report">
           <textarea
