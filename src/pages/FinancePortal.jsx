@@ -179,7 +179,7 @@ const EMPTY_EXP = {
   payment_method: '',
   description: '',
   staff_responsible: '',
-  approval_status: 'pending',
+  approval_status: 'approved',
   expense_date: new Date().toISOString().slice(0, 10),
   document_url: '',
   notes: '',
@@ -383,9 +383,9 @@ export default function FinancePortal() {
     .filter((i) => i.status === 'overdue')
     .reduce((s, i) => s + Number(i.amount || 0), 0);
 
-  const approvedExpenses = expenses.filter((e) => e.approval_status === 'approved');
+  const activeExpenses = expenses.filter((e) => normalize(e.approval_status) !== 'rejected');
 
-  const totalExpenses = approvedExpenses.reduce(
+  const totalExpenses = activeExpenses.reduce(
     (s, e) => s + Number(e.amount || 0),
     0
   );
@@ -463,7 +463,7 @@ export default function FinancePortal() {
   const expByCategory = EXPENSE_CATEGORIES.map((cat) => ({
     name: cat,
     value: expenses
-      .filter((e) => e.category === cat && e.approval_status === 'approved')
+      .filter((e) => e.category === cat && normalize(e.approval_status) !== 'rejected')
       .reduce((s, e) => s + Number(e.amount || 0), 0),
   })).filter((c) => c.value > 0);
 
@@ -491,7 +491,38 @@ export default function FinancePortal() {
 
   const getApprovedAmount = (request) => {
     const form = fundActionForms[request.id] || {};
-    return form.approved_amount ?? request.approved_amount ?? request.requested_amount ?? '';
+
+    if (
+      form.approved_amount !== undefined &&
+      form.approved_amount !== null &&
+      String(form.approved_amount).trim() !== ''
+    ) {
+      return form.approved_amount;
+    }
+
+    const savedApprovedAmount = Number(request.approved_amount || 0);
+
+    if (savedApprovedAmount > 0) {
+      return savedApprovedAmount;
+    }
+
+    return request.requested_amount ?? '';
+  };
+
+  const getDisplayApprovedAmount = (request) => {
+    const savedApprovedAmount = Number(request.approved_amount || 0);
+
+    if (savedApprovedAmount > 0) {
+      return savedApprovedAmount;
+    }
+
+    const status = getFundFinanceStatus(request);
+
+    if (['approved', 'disbursed'].includes(status)) {
+      return Number(request.requested_amount || 0);
+    }
+
+    return 0;
   };
 
   const getFinanceNote = (request) => {
@@ -625,9 +656,15 @@ export default function FinancePortal() {
         description: expForm.description,
         staff_responsible: expForm.staff_responsible || null,
         staff_email: user?.email || '',
-        approval_status: canManageFinance(user)
-          ? expForm.approval_status || 'pending'
-          : 'pending',
+        approval_status: editingExp
+          ? expForm.approval_status || editingExp.approval_status || 'approved'
+          : 'approved',
+        approved_by: editingExp
+          ? expForm.approved_by || editingExp.approved_by || user?.email || ''
+          : user?.email || '',
+        approved_date: editingExp
+          ? expForm.approved_date || editingExp.approved_date || new Date().toISOString()
+          : new Date().toISOString(),
         expense_date: expForm.expense_date || null,
         document_url: expForm.document_url || null,
         notes: expForm.notes || null,
@@ -774,11 +811,12 @@ export default function FinancePortal() {
 
       await writeFinanceEvent(fundRequest, 'approved dispatch fund request');
 
-      qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
-      qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
-      qc.invalidateQueries({ queryKey: ['part_requests_dashboard'] });
+      await qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
+      await qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
+      await qc.invalidateQueries({ queryKey: ['part_requests_dashboard'] });
+      await qc.refetchQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
 
-      alert('Dispatch fund approved.');
+      alert(`Dispatch fund approved for ${fmt(approvedAmount)}.`);
     } catch (err) {
       console.error(err);
       alert(err.message || 'Failed to approve dispatch fund.');
@@ -833,7 +871,7 @@ export default function FinancePortal() {
   };
 
   const markDispatchFundDisbursed = async (fundRequest) => {
-    const approvedAmount = Number(fundRequest.approved_amount || fundRequest.requested_amount || 0);
+    const approvedAmount = Number(getApprovedAmount(fundRequest) || fundRequest.requested_amount || 0);
 
     if (!approvedAmount || approvedAmount <= 0) {
       alert('Approved amount is missing. Approve the fund request first.');
@@ -871,11 +909,12 @@ export default function FinancePortal() {
 
       await writeFinanceEvent(fundRequest, 'disbursed dispatch fund');
 
-      qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
-      qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
-      qc.invalidateQueries({ queryKey: ['part_requests_dashboard'] });
+      await qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
+      await qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
+      await qc.invalidateQueries({ queryKey: ['part_requests_dashboard'] });
+      await qc.refetchQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
 
-      alert('Dispatch fund marked as disbursed. Inventory can now dispatch.');
+      alert(`Dispatch fund marked as disbursed for ${fmt(approvedAmount)}. Inventory can now dispatch.`);
     } catch (err) {
       console.error(err);
       alert(err.message || 'Failed to mark fund as disbursed.');
@@ -1279,7 +1318,7 @@ export default function FinancePortal() {
 
                         <p className="text-xs text-muted-foreground mt-2">Approved</p>
                         <p className="text-lg font-bold text-green-500">
-                          {fmt(request.approved_amount)}
+                          {fmt(getDisplayApprovedAmount(request))}
                         </p>
                       </div>
                     </div>
