@@ -2764,11 +2764,12 @@ function TicketDetailsModal({
 
         <SectionCard title="After Repair Photos">
           <div className="space-y-3">
-            <input
+           <input
   type="file"
   accept="image/*"
   multiple
-  onChange={handleBeforePhotoChange}
+  onChange={handleAfterPhotoChange}
+  className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
 />
 
             {afterFiles.length > 0 && (
