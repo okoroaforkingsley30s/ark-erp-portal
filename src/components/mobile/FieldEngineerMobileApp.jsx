@@ -2640,13 +2640,11 @@ function TicketDetailsModal({
           </p>
 
           <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            multiple
-            onChange={(e) => setPartEvidence(Array.from(e.target.files || []))}
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-          />
+  type="file"
+  accept="image/*"
+  multiple
+  onChange={handleBeforePhotoChange}
+/>
 
           {partEvidence.length > 0 && (
             <p className="text-xs text-green-400">
@@ -2730,12 +2728,11 @@ function TicketDetailsModal({
         <SectionCard title="Before Repair Photos">
           <div className="space-y-3">
             <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleBeforePhotoChange}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
+  type="file"
+  accept="image/*"
+  multiple
+  onChange={handleBeforePhotoChange}
+/>
 
             {beforeFiles.length > 0 && (
               <p className="text-xs text-green-400">
@@ -2768,12 +2765,11 @@ function TicketDetailsModal({
         <SectionCard title="After Repair Photos">
           <div className="space-y-3">
             <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={handleAfterPhotoChange}
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm"
-            />
+  type="file"
+  accept="image/*"
+  multiple
+  onChange={handleBeforePhotoChange}
+/>
 
             {afterFiles.length > 0 && (
               <p className="text-xs text-green-400">
