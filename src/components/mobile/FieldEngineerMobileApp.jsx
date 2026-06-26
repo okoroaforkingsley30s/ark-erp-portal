@@ -1852,37 +1852,52 @@ function TicketDetailsModal({
       ? ticket.attachments.rejection_log
       : [];
 
-  const currentPartRequestStatus = String(
-    ticket?.part_request_status || ticket?.dispatch_status || ''
-  ).toLowerCase();
+  const ticketStatus = String(ticket?.status || '').toLowerCase();
 
-  const hasLinkedPartRequest = Boolean(
-    ticket?.linked_part_request_id ||
-      ticket?.part_request_type ||
-      ['pending_parts', 'pending_bank'].includes(
-        String(ticket?.status || '').toLowerCase()
-      )
+const currentPartRequestStatus = String(
+  ticket?.part_request_status ||
+    ticket?.dispatch_status ||
+    ticket?.finance_status ||
+    ticket?.lifecycle_status ||
+    ''
+).toLowerCase();
+
+const hasLinkedPartRequest = Boolean(
+  ticket?.linked_part_request_id ||
+    ticket?.part_request_type ||
+    ['pending_parts', 'pending_bank'].includes(ticketStatus)
+);
+
+const partReadyToReceive =
+  hasLinkedPartRequest &&
+  [
+    'dispatched_to_engineer',
+    'dispatched',
+    'ready_for_engineer_receive',
+    'ready_for_dispatch',
+    'dispatch_fund_disbursed',
+    'disbursed',
+  ].includes(currentPartRequestStatus);
+
+const partAlreadyReceived =
+  hasLinkedPartRequest &&
+  ['received_by_engineer', 'received', 'part_received'].includes(
+    currentPartRequestStatus
   );
 
-  const partReadyToReceive =
-    hasLinkedPartRequest &&
-    [
-      'dispatched_to_engineer',
-      'dispatched',
-      'ready_for_engineer_receive',
-    ].includes(currentPartRequestStatus);
-
-  const partAlreadyReceived =
-    hasLinkedPartRequest &&
-    ['received_by_engineer', 'received'].includes(currentPartRequestStatus);
-
-  const partLocked =
-    hasLinkedPartRequest &&
-    !partReadyToReceive &&
-    !partAlreadyReceived &&
-    !['closed', 'completed', 'cancelled', 'rejected'].includes(
-      currentPartRequestStatus
-    );
+const partLocked =
+  hasLinkedPartRequest &&
+  !partReadyToReceive &&
+  !partAlreadyReceived &&
+  ![
+    'closed',
+    'completed',
+    'cancelled',
+    'rejected',
+    'ready_for_dispatch',
+    'dispatch_fund_disbursed',
+    'disbursed',
+  ].includes(currentPartRequestStatus);
 
   const uploadEvidenceFiles = async (files, type) => {
     const uploaded = [];
