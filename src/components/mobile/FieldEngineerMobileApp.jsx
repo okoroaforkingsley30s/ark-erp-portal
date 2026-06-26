@@ -32,6 +32,10 @@ import {
   Image,
   Video,
   FileText,
+  Wallet,
+  CalendarDays,
+  Landmark,
+  HandCoins,
 } from 'lucide-react';
 
 import { supabase } from '@/lib/supabaseClient';
@@ -127,6 +131,169 @@ const ticketStatusToEngineerStatus = (status) => {
   if (['accepted', 'assigned'].includes(clean)) return 'busy';
 
   return 'online';
+};
+
+const MOBILE_REQUEST_CATEGORIES = {
+  fund: {
+    label: 'Fund',
+    title: 'Fund Request',
+    icon: Wallet,
+    needsAmount: true,
+    needsFinance: true,
+    types: [
+      'Salary Advance',
+      'Travel Allowance',
+      'Emergency Support',
+      'Welfare',
+      'Project Advance',
+      'Other Fund Request',
+    ],
+  },
+  loan: {
+    label: 'Loan',
+    title: 'Loan Request',
+    icon: Landmark,
+    needsAmount: true,
+    needsFinance: true,
+    types: [
+      'Salary Loan',
+      'Emergency Loan',
+      'Staff Loan',
+      'Asset Loan',
+      'Other Loan',
+    ],
+  },
+  float: {
+    label: 'Float',
+    title: 'Float Request',
+    icon: HandCoins,
+    needsAmount: true,
+    needsFinance: true,
+    types: [
+      'Field Float',
+      'Travel Float',
+      'Project Float',
+      'Logistics Float',
+      'Operational Float',
+      'Other Float',
+    ],
+  },
+  leave: {
+    label: 'Leave',
+    title: 'Leave Request',
+    icon: CalendarDays,
+    needsAmount: false,
+    needsFinance: false,
+    types: [
+      'Annual Leave',
+      'Sick Leave',
+      'Casual Leave',
+      'Maternity Leave',
+      'Paternity Leave',
+      'Compassionate Leave',
+      'Study Leave',
+      'Unpaid Leave',
+    ],
+  },
+  other: {
+    label: 'Other',
+    title: 'Other Request',
+    icon: FileText,
+    needsAmount: false,
+    needsFinance: false,
+    types: [
+      'Work Tools Request',
+      'Document Request',
+      'Permission Request',
+      'Schedule Request',
+      'General Request',
+    ],
+  },
+};
+
+const MOBILE_REQUEST_DEFAULT_CATEGORY = 'fund';
+
+const createMobileRequestForm = () => ({
+  request_category: MOBILE_REQUEST_DEFAULT_CATEGORY,
+  request_type: MOBILE_REQUEST_CATEGORIES[MOBILE_REQUEST_DEFAULT_CATEGORY].types[0],
+  amount: '',
+  purpose: '',
+  start_date: '',
+  end_date: '',
+  return_date: '',
+  repayment_amount: '',
+  repayment_frequency: 'Monthly',
+  attachment_url: '',
+  notes: '',
+});
+
+const normalizeRequestValue = (value) =>
+  String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
+
+const getMobileRequestCategory = (request) => {
+  const raw = normalizeRequestValue(request?.request_category);
+
+  if (raw && MOBILE_REQUEST_CATEGORIES[raw]) return raw;
+
+  const type = normalizeRequestValue(request?.request_type);
+
+  if (type.includes('leave')) return 'leave';
+  if (type.includes('loan')) return 'loan';
+  if (type.includes('float')) return 'float';
+
+  return 'fund';
+};
+
+const mobileRequestNeedsFinance = (request) => {
+  const category = getMobileRequestCategory(request);
+  return Boolean(MOBILE_REQUEST_CATEGORIES[category]?.needsFinance);
+};
+
+const mobileRequestApproved = (value) => normalizeRequestValue(value) === 'approved';
+
+const getMobileRequestStage = (request) => {
+  const financeStatus = normalizeRequestValue(request?.finance_status);
+  const status = normalizeRequestValue(request?.status);
+
+  if (financeStatus === 'disbursed' || status === 'disbursed') return 'Disbursed';
+  if (status === 'completed') return 'Completed';
+  if (request?.ceo_override && mobileRequestNeedsFinance(request)) return 'CEO Approved - Ready for Account';
+  if (request?.ceo_override && !mobileRequestNeedsFinance(request)) return 'CEO Approved - Completed';
+  if (!mobileRequestApproved(request?.hr_status)) return 'Pending HR';
+  if (!mobileRequestApproved(request?.agm_status)) return 'Pending AGM';
+  if (!mobileRequestApproved(request?.operations_status)) return 'Pending Operations';
+  if (mobileRequestNeedsFinance(request)) return 'Ready for Account';
+
+  return 'Approved / Completed';
+};
+
+const getMobileRequestStatusClass = (request) => {
+  const stage = getMobileRequestStage(request);
+
+  if (['Disbursed', 'Completed', 'Approved / Completed', 'CEO Approved - Completed'].includes(stage)) {
+    return 'bg-green-500/15 border-green-500/40 text-green-300';
+  }
+
+  if (['Ready for Account', 'CEO Approved - Ready for Account'].includes(stage)) {
+    return 'bg-blue-500/15 border-blue-500/40 text-blue-300';
+  }
+
+  return 'bg-amber-500/15 border-amber-500/40 text-amber-300';
+};
+
+const mobileMoney = (value) => `₦${Number(value || 0).toLocaleString()}`;
+
+const calculateMobileLeaveDays = (start, end) => {
+  if (!start || !end) return null;
+
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return null;
+
+  const days = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24)) + 1;
+
+  return days > 0 ? days : null;
 };
 
 export default function FieldEngineerMobileApp({
@@ -797,6 +964,8 @@ useEffect(() => {
 
         {activeTab === 'parts' && <PartsScreen tickets={tickets} user={user} />}
 
+        {activeTab === 'requests' && <RequestScreen user={user} />}
+
         {activeTab === 'connect' && (
           <ConnectScreen
             user={user}
@@ -870,7 +1039,7 @@ useEffect(() => {
       )}
 
       <nav
-        className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 border-t border-slate-800 grid grid-cols-6 pt-2"
+        className="fixed bottom-0 left-0 right-0 z-50 bg-slate-900 border-t border-slate-800 grid grid-cols-7 pt-2"
         style={{
           paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
         }}
@@ -879,6 +1048,7 @@ useEffect(() => {
         <BottomItem icon={<ClipboardList size={20} />} label="Jobs" active={activeTab === 'jobs'} badge={tickets.length} onClick={() => setActiveTab('jobs')} />
         <BottomItem icon={<Ticket size={20} />} label="Tickets" active={activeTab === 'tickets'} onClick={() => setActiveTab('tickets')} />
         <BottomItem icon={<Package size={20} />} label="Parts" active={activeTab === 'parts'} onClick={() => setActiveTab('parts')} />
+        <BottomItem icon={<FileText size={20} />} label="Request" active={activeTab === 'requests'} onClick={() => setActiveTab('requests')} />
         <BottomItem icon={<MessageCircle size={20} />} label="Connect" active={activeTab === 'connect'} badge={dmCount} onClick={() => setActiveTab('connect')} />
         <BottomItem icon={<User size={20} />} label="Profile" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
       </nav>
@@ -1096,7 +1266,7 @@ function HomeScreen({
       <section>
         <h3 className="font-bold text-base mb-2">Quick Actions</h3>
 
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-5 gap-2">
           <QuickAction
             icon={<ClipboardList size={25} />}
             label="Jobs"
@@ -1119,6 +1289,12 @@ function HomeScreen({
             icon={<Package size={25} />}
             label="Parts"
             onClick={() => onTabChange('parts')}
+          />
+
+          <QuickAction
+            icon={<FileText size={25} />}
+            label="Request"
+            onClick={() => onTabChange('requests')}
           />
         </div>
       </section>
@@ -3433,6 +3609,478 @@ function PartsScreen({ tickets, user }) {
 }
 
 
+
+function RequestScreen({ user }) {
+  const [form, setForm] = useState(createMobileRequestForm);
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [filter, setFilter] = useState('all');
+
+  const categoryConfig =
+    MOBILE_REQUEST_CATEGORIES[form.request_category] ||
+    MOBILE_REQUEST_CATEGORIES[MOBILE_REQUEST_DEFAULT_CATEGORY];
+  const CategoryIcon = categoryConfig.icon;
+
+  const fetchRequests = useCallback(async () => {
+    if (!user?.email) return;
+
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from('fund_requests')
+      .select('*')
+      .eq('requested_by_email', user.email)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      console.error('Mobile request fetch error:', error);
+      setRequests([]);
+    } else {
+      setRequests(data || []);
+    }
+
+    setLoading(false);
+  }, [user?.email]);
+
+  useEffect(() => {
+    fetchRequests();
+  }, [fetchRequests]);
+
+  useEffect(() => {
+    if (!user?.email) return;
+
+    const channel = supabase
+      .channel(`femobi-requests-${user.email}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fund_requests' },
+        (payload) => {
+          const row = payload.new || payload.old || {};
+
+          if (row.requested_by_email === user.email) {
+            fetchRequests();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.email, fetchRequests]);
+
+  const updateForm = (key, value) => {
+    setForm((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
+  const changeCategory = (category) => {
+    const next = MOBILE_REQUEST_CATEGORIES[category]
+      ? category
+      : MOBILE_REQUEST_DEFAULT_CATEGORY;
+
+    setForm((current) => ({
+      ...current,
+      request_category: next,
+      request_type: MOBILE_REQUEST_CATEGORIES[next].types[0],
+      amount: MOBILE_REQUEST_CATEGORIES[next].needsAmount ? current.amount : '',
+      start_date: next === 'leave' ? current.start_date : '',
+      end_date: next === 'leave' ? current.end_date : '',
+      return_date: next === 'leave' ? current.return_date : '',
+      repayment_amount: next === 'loan' ? current.repayment_amount : '',
+      repayment_frequency: next === 'loan' ? current.repayment_frequency : 'Monthly',
+    }));
+  };
+
+  const submitRequest = async () => {
+    if (!user?.email) {
+      alert('User profile is not ready. Please sign in again.');
+      return;
+    }
+
+    if (!form.request_type) {
+      alert('Select a request type.');
+      return;
+    }
+
+    if (categoryConfig.needsAmount && (!form.amount || Number(form.amount) <= 0)) {
+      alert('Enter a valid amount.');
+      return;
+    }
+
+    if (!form.purpose.trim()) {
+      alert('Enter the purpose or reason for this request.');
+      return;
+    }
+
+    const leaveDays = calculateMobileLeaveDays(form.start_date, form.end_date);
+
+    if (form.request_category === 'leave') {
+      if (!form.start_date || !form.end_date) {
+        alert('Select leave start date and end date.');
+        return;
+      }
+
+      if (!leaveDays) {
+        alert('Leave end date must be after or same as start date.');
+        return;
+      }
+    }
+
+    setSubmitting(true);
+
+    const payload = {
+      request_category: form.request_category,
+      request_type: form.request_type,
+      request_subtype: form.request_type,
+      amount: categoryConfig.needsAmount ? Number(form.amount || 0) : 0,
+      purpose: form.purpose.trim(),
+      notes: form.notes || null,
+      start_date: form.start_date || null,
+      end_date: form.end_date || null,
+      return_date: form.return_date || null,
+      days_count: leaveDays,
+      attachment_url: form.attachment_url || null,
+      repayment_amount:
+        form.request_category === 'loan' && form.repayment_amount
+          ? Number(form.repayment_amount)
+          : null,
+      repayment_frequency:
+        form.request_category === 'loan'
+          ? form.repayment_frequency || 'Monthly'
+          : null,
+      requested_by: user?.id || null,
+      requested_by_email: user?.email || null,
+      requested_by_name: user?.full_name || user?.name || user?.email || 'Field Engineer',
+      department: user?.department || FIELD_DEPARTMENT,
+      role: user?.role || 'field_engineer',
+      source_module: 'FEMobi',
+      status: 'pending',
+      finance_status: categoryConfig.needsFinance ? 'pending_approval' : 'not_required',
+      hr_status: 'pending',
+      agm_status: 'pending',
+      operations_status: 'pending',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('fund_requests').insert(payload);
+
+    setSubmitting(false);
+
+    if (error) {
+      console.error('Mobile request submit error:', error);
+      alert(`Could not submit request: ${error.message}`);
+      return;
+    }
+
+    setForm(createMobileRequestForm());
+    fetchRequests();
+    alert('Request submitted. You can track approval status below.');
+  };
+
+  const filteredRequests = requests.filter((request) => {
+    if (filter === 'all') return true;
+
+    if (filter === 'pending') {
+      return getMobileRequestStage(request).toLowerCase().includes('pending');
+    }
+
+    if (filter === 'complete') {
+      return ['Disbursed', 'Completed', 'Approved / Completed', 'CEO Approved - Completed'].includes(
+        getMobileRequestStage(request)
+      );
+    }
+
+    return getMobileRequestCategory(request) === filter;
+  });
+
+  return (
+    <div className="space-y-4 pb-2">
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <p className="text-xs text-orange-400 font-semibold">Staff Self-Service</p>
+        <h2 className="text-2xl font-bold text-white mt-1">Requests</h2>
+        <p className="text-sm text-slate-400 mt-2">
+          Submit fund, loan, float, leave and general requests from the field.
+        </p>
+      </section>
+
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-10 h-10 rounded-full bg-orange-500/15 border border-orange-500/30 text-orange-400 flex items-center justify-center">
+            <CategoryIcon size={21} />
+          </div>
+          <div>
+            <h3 className="font-bold text-white">New Request</h3>
+            <p className="text-xs text-slate-400">Choose request category and fill details.</p>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-400">Category</label>
+          <select
+            value={form.request_category}
+            onChange={(event) => changeCategory(event.target.value)}
+            className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+          >
+            {Object.entries(MOBILE_REQUEST_CATEGORIES).map(([key, item]) => (
+              <option key={key} value={key}>
+                {item.title}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-400">Type</label>
+          <select
+            value={form.request_type}
+            onChange={(event) => updateForm('request_type', event.target.value)}
+            className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+          >
+            {categoryConfig.types.map((type) => (
+              <option key={type} value={type}>
+                {type}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {categoryConfig.needsAmount && (
+          <div>
+            <label className="text-xs text-slate-400">Amount</label>
+            <input
+              type="number"
+              value={form.amount}
+              onChange={(event) => updateForm('amount', event.target.value)}
+              placeholder="0"
+              className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+            />
+          </div>
+        )}
+
+        {form.request_category === 'leave' && (
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-xs text-slate-400">Start</label>
+              <input
+                type="date"
+                value={form.start_date}
+                onChange={(event) => updateForm('start_date', event.target.value)}
+                className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-2 py-3 text-xs text-white"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400">End</label>
+              <input
+                type="date"
+                value={form.end_date}
+                onChange={(event) => updateForm('end_date', event.target.value)}
+                className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-2 py-3 text-xs text-white"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400">Return</label>
+              <input
+                type="date"
+                value={form.return_date}
+                onChange={(event) => updateForm('return_date', event.target.value)}
+                className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-2 py-3 text-xs text-white"
+              />
+            </div>
+          </div>
+        )}
+
+        {form.request_category === 'loan' && (
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-slate-400">Repayment</label>
+              <input
+                type="number"
+                value={form.repayment_amount}
+                onChange={(event) => updateForm('repayment_amount', event.target.value)}
+                placeholder="Optional"
+                className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400">Frequency</label>
+              <select
+                value={form.repayment_frequency}
+                onChange={(event) => updateForm('repayment_frequency', event.target.value)}
+                className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+              >
+                <option value="Monthly">Monthly</option>
+                <option value="Bi-weekly">Bi-weekly</option>
+                <option value="Weekly">Weekly</option>
+                <option value="One-off">One-off</option>
+              </select>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className="text-xs text-slate-400">Purpose / Reason</label>
+          <textarea
+            value={form.purpose}
+            onChange={(event) => updateForm('purpose', event.target.value)}
+            placeholder="Explain why this request is needed"
+            className="mt-1 w-full min-h-[90px] rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-400">Attachment URL</label>
+          <input
+            value={form.attachment_url}
+            onChange={(event) => updateForm('attachment_url', event.target.value)}
+            placeholder="Optional document link"
+            className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+          />
+        </div>
+
+        <div>
+          <label className="text-xs text-slate-400">Notes</label>
+          <textarea
+            value={form.notes}
+            onChange={(event) => updateForm('notes', event.target.value)}
+            placeholder="Optional note"
+            className="mt-1 w-full min-h-[70px] rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+          />
+        </div>
+
+        <button
+          type="button"
+          disabled={submitting}
+          onClick={submitRequest}
+          className="w-full rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white disabled:opacity-60"
+        >
+          {submitting ? 'Submitting...' : 'Submit Request'}
+        </button>
+      </section>
+
+      <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="font-bold text-white">My Requests</h3>
+            <p className="text-xs text-slate-400">Track approval and finance status.</p>
+          </div>
+
+          <button
+            type="button"
+            onClick={fetchRequests}
+            className="rounded-xl bg-slate-800 border border-slate-700 px-3 py-2 text-xs"
+          >
+            {loading ? 'Loading' : 'Refresh'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {[
+            ['all', 'All'],
+            ['pending', 'Pending'],
+            ['complete', 'Done'],
+            ['leave', 'Leave'],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              className={`rounded-xl py-2 text-[11px] font-semibold border ${
+                filter === key
+                  ? 'bg-orange-500 border-orange-500 text-white'
+                  : 'bg-slate-800 border-slate-700 text-slate-300'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {loading ? (
+          <EmptyText text="Loading requests..." />
+        ) : filteredRequests.length === 0 ? (
+          <EmptyText text="No request found." />
+        ) : (
+          <div className="space-y-3">
+            {filteredRequests.map((request) => {
+              const category = getMobileRequestCategory(request);
+              const currentConfig = MOBILE_REQUEST_CATEGORIES[category] || MOBILE_REQUEST_CATEGORIES.fund;
+              const CurrentIcon = currentConfig.icon;
+              const needsFinance = mobileRequestNeedsFinance(request);
+
+              return (
+                <div key={request.id} className="rounded-2xl bg-slate-800 border border-slate-700 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-slate-600 bg-slate-900 px-2 py-1 text-[10px] text-slate-300">
+                          <CurrentIcon size={12} />
+                          {currentConfig.label}
+                        </span>
+                        <span className={`rounded-full border px-2 py-1 text-[10px] ${getMobileRequestStatusClass(request)}`}>
+                          {getMobileRequestStage(request)}
+                        </span>
+                      </div>
+
+                      <h4 className="font-semibold text-white mt-2 truncate">
+                        {request.request_type || 'Request'}
+                      </h4>
+
+                      <p className="text-xs text-slate-400 mt-1 line-clamp-2">
+                        {request.purpose || 'No purpose provided.'}
+                      </p>
+
+                      {category === 'leave' && (
+                        <p className="text-xs text-purple-300 mt-1">
+                          {request.start_date || 'Start'} - {request.end_date || 'End'}
+                          {request.days_count ? ` • ${request.days_count} day(s)` : ''}
+                        </p>
+                      )}
+
+                      <p className="text-[10px] text-slate-500 mt-2">
+                        {formatDate(request.created_at)}
+                      </p>
+                    </div>
+
+                    <div className="text-right shrink-0">
+                      <p className="text-sm font-bold text-orange-400">
+                        {needsFinance ? mobileMoney(request.amount) : 'No ₦'}
+                      </p>
+                      <p className="text-[10px] text-slate-500 mt-1">
+                        {request.finance_status || (needsFinance ? 'pending' : 'not_required')}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1 mt-3 text-[10px]">
+                    <span className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-slate-300">
+                      HR: {request.hr_status || 'pending'}
+                    </span>
+                    <span className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-slate-300">
+                      AGM: {request.agm_status || 'pending'}
+                    </span>
+                    <span className="rounded-lg bg-slate-900 border border-slate-700 px-2 py-1 text-slate-300">
+                      OPS: {request.operations_status || 'pending'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
 function ConnectScreen({
   user,
   dmCount,
@@ -3813,30 +4461,6 @@ function WhatsAppChatModal({ chat, user, onClose, onSent }) {
 
   useEffect(() => {
     if (!user?.email) return;
-    useEffect(() => {
-  if (!user?.email) return;
-
-  const heartbeat = async () => {
-    await upsertOperationStatus({
-      entity_type: 'engineer',
-      entity_id: user.id || user.email,
-      entity_name:
-        user.full_name || user.name || user.email,
-      status: 'online',
-      last_seen: new Date().toISOString(),
-      source_module: 'FEMobi',
-      metadata: {
-        email: user.email,
-      },
-    });
-  };
-
-  heartbeat();
-
-  const timer = setInterval(heartbeat, 60000);
-
-  return () => clearInterval(timer);
-}, [user]);
 
     const channel = supabase
       .channel(`femobi-chat-${chat.id}-${user.email}`)
