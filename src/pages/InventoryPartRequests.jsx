@@ -49,6 +49,17 @@ const consumableCards = [
   { key: "all", title: "All Consumables", icon: ListChecks, color: "bg-[#102969]" },
 ];
 
+const repairJobCards = [
+  { key: "pending", title: "Waiting RR Intake", icon: Wrench, color: "bg-amber-500" },
+  { key: "assigned", title: "Assigned Jobs", icon: PackageCheck, color: "bg-blue-600" },
+  { key: "under_repair", title: "Under Repair", icon: Wrench, color: "bg-orange-600" },
+  { key: "waiting_qa", title: "Waiting QA", icon: ListChecks, color: "bg-purple-600" },
+  { key: "qa_passed", title: "QA Passed", icon: PackageCheck, color: "bg-green-600" },
+  { key: "qa_failed", title: "QA Failed", icon: XCircle, color: "bg-red-600" },
+  { key: "completed", title: "Returned Inventory", icon: RotateCcw, color: "bg-slate-700" },
+  { key: "all", title: "All Repair Jobs", icon: ListChecks, color: "bg-[#102969]" },
+];
+
 function normalize(value) {
   return String(value || "").toLowerCase().trim();
 }
@@ -212,6 +223,64 @@ function matchesConsumableCard(request, key) {
   return false;
 }
 
+function getRepairJobPartName(job) {
+  return job.item_name || job.part_name || job.module_name || job.spare_part_name || "RR Job Part";
+}
+
+function getRepairJobType(job) {
+  return job.repair_type || job.job_type || job.work_type || job.service_type || "QA Inspection";
+}
+
+function matchesRepairJobCard(job, key) {
+  const status = normalize(job.status);
+  const lifecycleStatus = normalize(job.lifecycle_status);
+  const rrStatus = normalize(job.rr_status);
+  const qaStatus = normalize(job.qa_status);
+
+  if (key === "all") return true;
+
+  if (key === "pending") {
+    return (
+      status === "pending_rr" ||
+      status === "received_by_rr" ||
+      lifecycleStatus === "pending_rr" ||
+      rrStatus === "pending_rr" ||
+      rrStatus === "waiting_intake"
+    );
+  }
+
+  if (key === "assigned") {
+    return status === "assigned" || lifecycleStatus === "assigned_to_rr_technician";
+  }
+
+  if (key === "under_repair") {
+    return status === "under_repair" || status === "refurbishing" || lifecycleStatus === "under_repair";
+  }
+
+  if (key === "waiting_qa") {
+    return status === "waiting_qa" || lifecycleStatus === "waiting_qa";
+  }
+
+  if (key === "qa_passed") {
+    return status === "qa_passed" || qaStatus === "passed";
+  }
+
+  if (key === "qa_failed") {
+    return status === "qa_failed" || qaStatus === "failed";
+  }
+
+  if (key === "completed") {
+    return (
+      status === "returned_inventory" ||
+      status === "returned_to_inventory" ||
+      lifecycleStatus === "returned_inventory" ||
+      lifecycleStatus === "returned_to_inventory"
+    );
+  }
+
+  return false;
+}
+
 async function fetchInventoryPartRequests() {
   const { data, error } = await supabase
     .from("part_requests")
@@ -241,6 +310,74 @@ async function fetchRRConsumableRequests() {
 
   if (error) throw error;
   return data || [];
+}
+
+async function fetchRepairJobs() {
+  const { data, error } = await supabase
+    .from("repair_jobs")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+function createJobNumber() {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10).replaceAll("-", "");
+  const suffix = Math.floor(1000 + Math.random() * 9000);
+  return `RR-${date}-${suffix}`;
+}
+
+async function createInventoryRepairJob({ form, user }) {
+  const now = new Date().toISOString();
+  const partRequestId = form.part_request_id || null;
+  const selectedPartRequest = form.selected_part_request || null;
+
+  const insertData = {
+    job_number: createJobNumber(),
+    ticket_id: selectedPartRequest?.ticket_id || selectedPartRequest?.ticket_number || null,
+    part_request_id: partRequestId,
+    module_name: form.part_name || selectedPartRequest?.part_name || selectedPartRequest?.module_name || "Inventory Part",
+    serial_number: form.serial_number || selectedPartRequest?.serial_number || null,
+    status: "pending_rr",
+    created_at: now,
+    updated_at: now,
+  };
+
+  const { data, error } = await supabase
+    .from("repair_jobs")
+    .insert(insertData)
+    .select()
+    .single();
+
+  if (error) throw error;
+
+  if (partRequestId) {
+    await supabase
+      .from("part_requests")
+      .update({
+        inventory_status: "transferred_rr",
+        rr_status: "pending_rr",
+        status: "pending_rr",
+        lifecycle_status: "repair_job_created",
+        dispatch_status: "waiting_rr",
+        updated_at: now,
+      })
+      .eq("id", partRequestId);
+  }
+
+  await supabase.from("operations_events").insert({
+    event_type: "INVENTORY_REPAIR_JOB_CREATED",
+    title: "Inventory created RR repair job",
+    description: `Inventory created ${insertData.job_number} for ${insertData.module_name}`,
+    source_module: "Inventory",
+    entity_type: "repair_job",
+    entity_id: data.id,
+    severity: "info",
+  });
+
+  return data;
 }
 
 async function updateEngineerInventoryStatus({ id, action, fundData = {}, user = null }) {
@@ -623,6 +760,7 @@ export default function InventoryPartRequests() {
   const [active, setActive] = useState("pending");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState(null);
+  const [showRepairJobForm, setShowRepairJobForm] = useState(false);
 
   const {
     data: engineerRequests = [],
@@ -642,7 +780,21 @@ export default function InventoryPartRequests() {
     queryFn: fetchRRConsumableRequests,
   });
 
-  const cards = requestType === "engineer" ? engineerCards : consumableCards;
+  const {
+    data: repairJobs = [],
+    isLoading: repairJobLoading,
+    error: repairJobError,
+  } = useQuery({
+    queryKey: ["inventory_repair_jobs"],
+    queryFn: fetchRepairJobs,
+  });
+
+  const cards =
+    requestType === "engineer"
+      ? engineerCards
+      : requestType === "repair_jobs"
+      ? repairJobCards
+      : consumableCards;
   const activeTitle = cards.find((card) => card.key === active)?.title || "All Requests";
 
   const filteredEngineer = useMemo(() => {
@@ -687,13 +839,56 @@ export default function InventoryPartRequests() {
     });
   }, [consumableRequests, active, search]);
 
-  const visibleRows = requestType === "engineer" ? filteredEngineer : filteredConsumables;
-  const isLoading = requestType === "engineer" ? engineerLoading : consumableLoading;
-  const error = requestType === "engineer" ? engineerError : consumableError;
+  const filteredRepairJobs = useMemo(() => {
+    const q = search.toLowerCase().trim();
+
+    return repairJobs.filter((job) => {
+      const cardMatch = matchesRepairJobCard(job, active);
+
+      const searchMatch =
+        !q ||
+        String(job.job_number || "").toLowerCase().includes(q) ||
+        getRepairJobPartName(job).toLowerCase().includes(q) ||
+        String(job.serial_number || "").toLowerCase().includes(q) ||
+        String(job.ticket_id || "").toLowerCase().includes(q) ||
+        String(job.part_request_id || "").toLowerCase().includes(q) ||
+        String(job.status || "").toLowerCase().includes(q) ||
+        String(job.lifecycle_status || "").toLowerCase().includes(q) ||
+        String(job.rr_status || "").toLowerCase().includes(q) ||
+        String(job.qa_status || "").toLowerCase().includes(q);
+
+      return cardMatch && searchMatch;
+    });
+  }, [repairJobs, active, search]);
+
+  const visibleRows =
+    requestType === "engineer"
+      ? filteredEngineer
+      : requestType === "repair_jobs"
+      ? filteredRepairJobs
+      : filteredConsumables;
+
+  const isLoading =
+    requestType === "engineer"
+      ? engineerLoading
+      : requestType === "repair_jobs"
+      ? repairJobLoading
+      : consumableLoading;
+
+  const error =
+    requestType === "engineer"
+      ? engineerError
+      : requestType === "repair_jobs"
+      ? repairJobError
+      : consumableError;
 
   const countFor = (key) => {
     if (requestType === "engineer") {
       return engineerRequests.filter((request) => matchesEngineerCard(request, key)).length;
+    }
+
+    if (requestType === "repair_jobs") {
+      return repairJobs.filter((job) => matchesRepairJobCard(job, key)).length;
     }
 
     return consumableRequests.filter((request) => matchesConsumableCard(request, key)).length;
@@ -726,11 +921,27 @@ export default function InventoryPartRequests() {
     },
   });
 
+  const repairJobMutation = useMutation({
+    mutationFn: createInventoryRepairJob,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inventory_repair_jobs"] });
+      qc.invalidateQueries({ queryKey: ["inventory_part_requests"] });
+      qc.invalidateQueries({ queryKey: ["rr_part_requests"] });
+      setShowRepairJobForm(false);
+      alert("Repair job created and sent to RR Intake successfully.");
+    },
+    onError: (err) => {
+      console.error(err);
+      alert(`Repair job failed: ${err.message}`);
+    },
+  });
+
   const switchType = (type) => {
     setRequestType(type);
     setActive("pending");
     setExpanded(null);
     setSearch("");
+    setShowRepairJobForm(false);
   };
 
   return (
@@ -760,22 +971,34 @@ export default function InventoryPartRequests() {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-white">
-              Inventory Requests
+              Inventory Control Center
             </h1>
             <p className="text-sm text-blue-100">
-              One inventory control center for engineer part requests and RR consumable requests. QA-passed RR parts can be returned to stock only after RR testing is passed.
+              Manage engineer part requests, create repair jobs for RR, and release RR consumables from one Inventory workflow.
             </p>
           </div>
 
-          {canAccess(role, "print_inventory_report") && (
-            <Button
-              onClick={() => window.print()}
-              className="gap-2 bg-[#ff5a00] hover:bg-[#e24f00] text-white"
-            >
-              <Printer className="h-4 w-4" />
-              Print Report
-            </Button>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {requestType === "repair_jobs" && (
+              <Button
+                onClick={() => setShowRepairJobForm((value) => !value)}
+                className="gap-2 bg-[#ff5a00] hover:bg-[#e24f00] text-white"
+              >
+                <Wrench className="h-4 w-4" />
+                {showRepairJobForm ? "Close Repair Job" : "Repair Job"}
+              </Button>
+            )}
+
+            {canAccess(role, "print_inventory_report") && (
+              <Button
+                onClick={() => window.print()}
+                className="gap-2 bg-white text-[#102969] hover:bg-blue-50"
+              >
+                <Printer className="h-4 w-4" />
+                Print Report
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -789,6 +1012,17 @@ export default function InventoryPartRequests() {
           }
         >
           Engineer Part Requests
+        </Button>
+
+        <Button
+          onClick={() => switchType("repair_jobs")}
+          className={
+            requestType === "repair_jobs"
+              ? "bg-[#ff5a00] hover:bg-[#e24f00] text-white"
+              : "bg-[#102969] hover:bg-[#173b9a] text-white"
+          }
+        >
+          Repair Jobs
         </Button>
 
         <Button
@@ -840,6 +1074,8 @@ export default function InventoryPartRequests() {
               placeholder={
                 requestType === "engineer"
                   ? "Search ticket, part, engineer, or status..."
+                  : requestType === "repair_jobs"
+                  ? "Search job number, part, serial, ticket, or status..."
                   : "Search consumable, repair job, module, serial, reason, or status..."
               }
               value={search}
@@ -848,6 +1084,14 @@ export default function InventoryPartRequests() {
           </div>
         </CardContent>
       </Card>
+
+      {requestType === "repair_jobs" && showRepairJobForm && (
+        <CreateRepairJobPanel
+          engineerRequests={engineerRequests}
+          mutation={repairJobMutation}
+          user={user}
+        />
+      )}
 
       <div id="inventory-print-area">
         <Card className="bg-[#102969] border border-white/10 shadow-xl print:bg-white print:shadow-none print:border-none">
@@ -887,6 +1131,10 @@ export default function InventoryPartRequests() {
   mutation={engineerMutation}
   user={user}
 />
+            )}
+
+            {!isLoading && !error && visibleRows.length > 0 && requestType === "repair_jobs" && (
+              <RepairJobsTable rows={visibleRows} />
             )}
 
             {!isLoading && !error && visibleRows.length > 0 && requestType === "consumable" && (
@@ -1027,7 +1275,7 @@ function EngineerTable({ rows, expanded, setExpanded, mutation, user }) {
                   <div className="flex flex-wrap gap-2">
                     {canDoInventoryAction(request, "send_to_rr", user) && (
                       <Button size="sm" className="bg-orange-600 hover:bg-orange-700 text-white" disabled={mutation.isPending} onClick={() => mutation.mutate({ id: request.id, action: "rr" })}>
-                        Send To RR For Testing
+Create Repair Job
                       </Button>
                     )}
 
@@ -1233,6 +1481,265 @@ function EngineerTable({ rows, expanded, setExpanded, mutation, user }) {
                 </tr>
               )}
             </Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CreateRepairJobPanel({ engineerRequests, mutation, user }) {
+  const [form, setForm] = useState({
+    source: "inventory_stock",
+    part_request_id: "",
+    part_name: "",
+    serial_number: "",
+    quantity: "1",
+    repair_type: "QA Inspection",
+    priority: "Normal",
+    reason: "",
+  });
+
+  const selectableRequests = engineerRequests.filter((request) => {
+    const status = normalize(request.status);
+    const inventoryStatus = normalize(request.inventory_status);
+    const rrStatus = normalize(request.rr_status);
+
+    return (
+      status === "pending_inventory" ||
+      status === "sent_to_inventory" ||
+      inventoryStatus === "pending_inventory" ||
+      inventoryStatus === "sent_to_inventory" ||
+      rrStatus === "pending_rr"
+    );
+  });
+
+  const selectedRequest = selectableRequests.find(
+    (request) => String(request.id) === String(form.part_request_id)
+  );
+
+  const update = (field, value) => {
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const submit = () => {
+    const selected = selectedRequest || null;
+    const partName = form.part_name || (selected ? getPartName(selected) : "");
+
+    if (!partName.trim()) {
+      alert("Please enter or select the part for this repair job.");
+      return;
+    }
+
+    mutation.mutate({
+      user,
+      form: {
+        ...form,
+        selected_part_request: selected,
+        part_name: partName,
+      },
+    });
+  };
+
+  return (
+    <Card className="no-print bg-[#102969] border border-white/10 shadow-xl">
+      <CardHeader className="bg-[#08153d] border-b border-white/10">
+        <CardTitle className="text-white">Create Repair Job</CardTitle>
+        <p className="text-sm text-blue-100">
+          Use this when Inventory receives a part that must go to RR for QA, repair, refurbishment, diagnostics, or scrap assessment.
+        </p>
+      </CardHeader>
+
+      <CardContent className="pt-6 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div>
+            <label className="text-xs text-blue-100">Part Source</label>
+            <select
+              className="mt-1 h-10 w-full rounded-md bg-[#08153d] border border-white/20 px-3 text-sm text-white"
+              value={form.source}
+              onChange={(e) => update("source", e.target.value)}
+            >
+              <option value="inventory_stock">Inventory Stock</option>
+              <option value="engineer_part_request">Engineer Part Request</option>
+              <option value="new_purchase">New Purchase / Procurement</option>
+              <option value="returned_part">Returned Part</option>
+              <option value="bank_return">Bank / Customer Return</option>
+              <option value="warehouse_transfer">Warehouse Transfer</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-blue-100">Link Engineer Request Optional</label>
+            <select
+              className="mt-1 h-10 w-full rounded-md bg-[#08153d] border border-white/20 px-3 text-sm text-white"
+              value={form.part_request_id}
+              onChange={(e) => {
+                const value = e.target.value;
+                const selected = selectableRequests.find(
+                  (request) => String(request.id) === String(value)
+                );
+
+                setForm((current) => ({
+                  ...current,
+                  part_request_id: value,
+                  part_name: selected ? getPartName(selected) : current.part_name,
+                  serial_number: selected?.serial_number || current.serial_number,
+                }));
+              }}
+            >
+              <option value="">Not linked</option>
+              {selectableRequests.map((request) => (
+                <option key={request.id} value={request.id}>
+                  {getTicketNumber(request)} - {getPartName(request)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-blue-100">Part / Module Name</label>
+            <Input
+              className="mt-1 bg-[#08153d] border-white/20 text-white placeholder:text-slate-300"
+              placeholder="e.g. EPP, card reader, printer board"
+              value={form.part_name}
+              onChange={(e) => update("part_name", e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-blue-100">Serial Number</label>
+            <Input
+              className="mt-1 bg-[#08153d] border-white/20 text-white placeholder:text-slate-300"
+              placeholder="Serial number if available"
+              value={form.serial_number}
+              onChange={(e) => update("serial_number", e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <div>
+            <label className="text-xs text-blue-100">Quantity</label>
+            <Input
+              type="number"
+              min="1"
+              className="mt-1 bg-[#08153d] border-white/20 text-white placeholder:text-slate-300"
+              value={form.quantity}
+              onChange={(e) => update("quantity", e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label className="text-xs text-blue-100">Repair Type</label>
+            <select
+              className="mt-1 h-10 w-full rounded-md bg-[#08153d] border border-white/20 px-3 text-sm text-white"
+              value={form.repair_type}
+              onChange={(e) => update("repair_type", e.target.value)}
+            >
+              <option>QA Inspection</option>
+              <option>Repair</option>
+              <option>Refurbishment</option>
+              <option>Diagnostic</option>
+              <option>Firmware Upgrade</option>
+              <option>Cleaning</option>
+              <option>Burn-in Test</option>
+              <option>Scrap Assessment</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-blue-100">Priority</label>
+            <select
+              className="mt-1 h-10 w-full rounded-md bg-[#08153d] border border-white/20 px-3 text-sm text-white"
+              value={form.priority}
+              onChange={(e) => update("priority", e.target.value)}
+            >
+              <option>Normal</option>
+              <option>High</option>
+              <option>Critical</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs text-blue-100">Reason / Note</label>
+            <Input
+              className="mt-1 bg-[#08153d] border-white/20 text-white placeholder:text-slate-300"
+              placeholder="Why this part is going to RR"
+              value={form.reason}
+              onChange={(e) => update("reason", e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            className="bg-[#ff5a00] hover:bg-[#e24f00] text-white"
+            disabled={mutation.isPending}
+            onClick={submit}
+          >
+            Create Repair Job & Send To RR
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function RepairJobsTable({ rows }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm border-collapse">
+        <thead className="bg-[#ff5a00] text-white print:bg-[#102969]">
+          <tr>
+            <th className="text-left p-3 border border-white/20">Date</th>
+            <th className="text-left p-3 border border-white/20">Repair Job</th>
+            <th className="text-left p-3 border border-white/20">Part / Module</th>
+            <th className="text-left p-3 border border-white/20">Serial</th>
+            <th className="text-left p-3 border border-white/20">Type</th>
+            <th className="text-left p-3 border border-white/20">Status</th>
+            <th className="text-left p-3 border border-white/20">RR</th>
+            <th className="text-left p-3 border border-white/20">QA</th>
+            <th className="text-left p-3 border border-white/20">Linked Request</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {rows.map((job, index) => (
+            <tr
+              key={job.id}
+              className={`text-white ${
+                index % 2 === 0 ? "bg-[#102969]" : "bg-[#0b1f5e]"
+              } hover:bg-[#173b9a] print:text-[#102969] print:bg-white`}
+            >
+              <td className="p-3 border border-white/10 print:border-slate-300">
+                {job.created_at ? new Date(job.created_at).toLocaleDateString() : "N/A"}
+              </td>
+              <td className="p-3 border border-white/10 font-semibold print:border-slate-300">
+                {job.job_number || job.id}
+              </td>
+              <td className="p-3 border border-white/10 print:border-slate-300">
+                {getRepairJobPartName(job)}
+              </td>
+              <td className="p-3 border border-white/10 print:border-slate-300">
+                {job.serial_number || "N/A"}
+              </td>
+              <td className="p-3 border border-white/10 print:border-slate-300">
+                {getRepairJobType(job)}
+              </td>
+              <td className="p-3 border border-white/10 uppercase text-xs font-semibold print:border-slate-300">
+                {job.status || "pending_rr"}
+              </td>
+              <td className="p-3 border border-white/10 uppercase text-xs font-semibold print:border-slate-300">
+                {job.rr_status || "waiting intake"}
+              </td>
+              <td className="p-3 border border-white/10 uppercase text-xs font-semibold print:border-slate-300">
+                {job.qa_status || "pending"}
+              </td>
+              <td className="p-3 border border-white/10 print:border-slate-300">
+                {job.part_request_id || job.ticket_id || "N/A"}
+              </td>
+            </tr>
           ))}
         </tbody>
       </table>

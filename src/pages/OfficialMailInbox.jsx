@@ -886,7 +886,7 @@ export default function OfficialMailInbox() {
 
                     <input
                       value={composer.bcc}
-                      onChange={(event) => updateComposer('bcc', event.target.value)}
+                      onChange={(event) => updateComposer('bcc', ent.target.value)}
                       placeholder="BCC"
                       className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900 outline-none focus:border-[#ff5a00]"
                     />
