@@ -658,6 +658,127 @@ function getPriorityStyle(priority) {
   return `${toneClasses('blue').card} text-blue-300`;
 }
 
+const getFileUrl = (item) => {
+  if (!item) return '';
+  if (typeof item === 'string') return item;
+  return item.url || item.publicUrl || item.file_url || item.href || '';
+};
+
+const getFileName = (item, fallback) => {
+  if (!item) return fallback;
+  if (typeof item === 'string') {
+    const clean = item.split('?')[0];
+    const parts = clean.split('/');
+    return parts[parts.length - 1] || fallback;
+  }
+  return item.name || item.filename || fallback;
+};
+
+const getTicketPhotoGroups = (ticket) => {
+  const beforePhotos = Array.isArray(ticket?.before_photos)
+    ? ticket.before_photos
+    : [];
+
+  const afterPhotos = Array.isArray(ticket?.after_photos)
+    ? ticket.after_photos
+    : [];
+
+  const evidencePhotos = Array.isArray(ticket?.evidence_photos)
+    ? ticket.evidence_photos.filter((item) => {
+        const type = typeof item === 'object' && item !== null ? item.type : '';
+        return type !== 'before-photos' && type !== 'after-photos';
+      })
+    : [];
+
+  const closurePhotos = Array.isArray(ticket?.closure_photos)
+    ? ticket.closure_photos
+    : [];
+
+  const closurePhotoUrl = ticket?.closure_photo_url
+    ? [ticket.closure_photo_url]
+    : [];
+
+  return [
+    { title: 'Before Photos', photos: beforePhotos },
+    { title: 'After Photos', photos: afterPhotos },
+    { title: 'Evidence Photos', photos: evidencePhotos },
+    { title: 'Closure Photos', photos: [...closurePhotos, ...closurePhotoUrl] },
+  ];
+};
+
+const hasTicketPhotos = (ticket) =>
+  getTicketPhotoGroups(ticket).some((group) =>
+    group.photos.some((photo) => Boolean(getFileUrl(photo)))
+  );
+
+function EngineerPhotoGallery({ ticket }) {
+  const groups = getTicketPhotoGroups(ticket).filter((group) =>
+    group.photos.some((photo) => Boolean(getFileUrl(photo)))
+  );
+
+  if (groups.length === 0) {
+    return (
+      <div className="mt-3 rounded-2xl border border-blue-400/10 bg-[#06143A] p-4">
+        <p className="text-sm font-bold text-white">Engineer Photos</p>
+        <p className="mt-2 text-sm text-blue-100/50">
+          No engineer photos are attached to this ticket yet.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-2xl border border-blue-400/10 bg-[#06143A] p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="text-sm font-bold text-white">Engineer Photos</p>
+        <span className="rounded-full border border-orange-400/20 bg-orange-500/10 px-3 py-1 text-[11px] font-bold text-orange-200">
+          Saved on ticket
+        </span>
+      </div>
+
+      <div className="space-y-4">
+        {groups.map((group) => (
+          <div key={group.title}>
+            <p className="mb-2 text-xs font-bold text-orange-300">
+              {group.title}
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {group.photos.map((photo, index) => {
+                const url = getFileUrl(photo);
+                const name = getFileName(photo, `${group.title} ${index + 1}`);
+
+                if (!url) return null;
+
+                return (
+                  <a
+                    key={`${group.title}-${index}-${url}`}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block overflow-hidden rounded-xl border border-blue-400/10 bg-[#0B1E4D]"
+                    title={name}
+                  >
+                    <img
+                      src={url}
+                      alt={name}
+                      loading="lazy"
+                      className="h-28 w-full object-cover"
+                    />
+                    <div className="truncate px-2 py-1 text-[10px] text-blue-100/60">
+                      {name}
+                    </div>
+                  </a>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Tickets() {
   const { user } = useOutletContext();
   const queryClient = useQueryClient();
@@ -868,6 +989,11 @@ export default function Tickets() {
   };
 
   const approveCompletion = async (ticket) => {
+    if (isFinalClosedTicket(ticket)) {
+      alert('This ticket is already approved or closed.');
+      return;
+    }
+
     const now = new Date().toISOString();
 
     const { error } = await supabase
@@ -895,6 +1021,13 @@ export default function Tickets() {
 
   const rejectCompletion = async () => {
     if (!rejectingTicket) return;
+
+    if (isFinalClosedTicket(rejectingTicket)) {
+      alert('This ticket is already approved or closed.');
+      setRejectingTicket(null);
+      setRejectReason('');
+      return;
+    }
 
     if (!rejectReason.trim()) {
       alert('Please enter rejection reason.');
@@ -945,6 +1078,11 @@ export default function Tickets() {
   };
 
   const escalateTicket = async (ticket) => {
+    if (isFinalClosedTicket(ticket)) {
+      alert('Closed or approved tickets cannot be escalated.');
+      return;
+    }
+
     const now = new Date().toISOString();
 
     const { error } = await supabase
@@ -1527,7 +1665,11 @@ function TicketDashboardCard({
   onEscalate,
 }) {
   const timeline = getTimeline(ticket).filter((row) => row.value);
-  const canReviewThis = canReviewCompletion && isPendingReviewTicket(ticket);
+  const finalClosed = isFinalClosedTicket(ticket);
+  const canReviewThis =
+    canReviewCompletion &&
+    isPendingReviewTicket(ticket) &&
+    !finalClosed;
 
   return (
     <article className="overflow-hidden rounded-3xl border border-blue-400/10 bg-[#0B1E4D] shadow-xl transition hover:border-orange-500/30">
@@ -1634,7 +1776,7 @@ function TicketDashboardCard({
           </>
         )}
 
-        {!ticket.escalated && (
+        {!ticket.escalated && !finalClosed && (
           <Button
             variant="outline"
             size="sm"
@@ -1702,6 +1844,8 @@ function TicketDashboardCard({
               </div>
             )}
           </div>
+
+          <EngineerPhotoGallery ticket={ticket} />
 
           {canReviewThis && (
             <div className="mt-4 flex flex-wrap justify-end gap-2">
