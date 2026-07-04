@@ -2,8 +2,8 @@ import { useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
-import { HashRouter as Router, Route, Routes } from 'react-router-dom';
-import { supabase } from "@/integrations/supabase/client";
+import { HashRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { supabase } from "@/lib/supabaseClient";
 
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
@@ -140,7 +140,7 @@ const AuthenticatedApp = () => {
 
   return (
     <Routes>
-      <Route path="/" element={<Welcome />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="/welcome" element={<Welcome />} />
       <Route path="/login" element={<Welcome />} />
       <Route path="/signin" element={<Welcome />} />
