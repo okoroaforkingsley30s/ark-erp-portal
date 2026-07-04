@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase } from "@/lib/supabaseClient";
 import {
   PackageCheck,
   AlertTriangle,
@@ -301,8 +301,8 @@ async function fetchRRConsumableRequests() {
         job_number,
         ticket_id,
         part_request_id,
-        module_name,
-        serial_number,
+        item_name,
+        device_name,
         status
       )
     `)
@@ -329,55 +329,264 @@ function createJobNumber() {
   return `RR-${date}-${suffix}`;
 }
 
-async function createInventoryRepairJob({ form, user }) {
-  const now = new Date().toISOString();
-  const partRequestId = form.part_request_id || null;
-  const selectedPartRequest = form.selected_part_request || null;
+function parseSelectedPartNumber(request) {
+  const text = [
+    request?.reason_note,
+    request?.inventory_note,
+    request?.operations_note,
+    request?.reason,
+    request?.description,
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-  const insertData = {
-    job_number: createJobNumber(),
-    ticket_id: selectedPartRequest?.ticket_id || selectedPartRequest?.ticket_number || null,
-    part_request_id: partRequestId,
-    module_name: form.part_name || selectedPartRequest?.part_name || selectedPartRequest?.module_name || "Inventory Part",
-    serial_number: form.serial_number || selectedPartRequest?.serial_number || null,
-    status: "pending_rr",
-    created_at: now,
-    updated_at: now,
+  const match = text.match(/Part\s*No\s*:\s*([^|\n]+)/i);
+  return match?.[1]?.trim() || request?.part_number || null;
+}
+
+function getStockQuantityColumn(part) {
+  if (!part) return null;
+
+  if (Object.prototype.hasOwnProperty.call(part, "quantity_available")) {
+    return "quantity_available";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(part, "current_stock")) {
+    return "current_stock";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(part, "stock_quantity")) {
+    return "stock_quantity";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(part, "available_quantity")) {
+    return "available_quantity";
+  }
+
+  if (Object.prototype.hasOwnProperty.call(part, "quantity")) {
+    return "quantity";
+  }
+
+  return null;
+}
+
+async function findInventoryStockForRequest(request) {
+  const partNumber = parseSelectedPartNumber(request);
+  const partName = getPartName(request);
+
+  if (partNumber) {
+    const { data, error } = await supabase
+      .from("spare_parts")
+      .select("*")
+      .ilike("part_number", partNumber)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  if (partName) {
+    const { data, error } = await supabase
+      .from("spare_parts")
+      .select("*")
+      .ilike("part_name", `%${partName}%`)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (data) return data;
+  }
+
+  return null;
+}
+
+async function deductInventoryStockForRequest(request) {
+  const requestedQty = Number(request?.quantity || 1);
+
+  if (!requestedQty || requestedQty <= 0) {
+    throw new Error("Invalid requested quantity.");
+  }
+
+  const stockItem = await findInventoryStockForRequest(request);
+
+  if (!stockItem?.id) {
+    throw new Error(
+      `Inventory stock item not found for ${getPartName(request)}. Please confirm the selected stock item before sending to RR.`
+    );
+  }
+
+  const qtyColumn = getStockQuantityColumn(stockItem);
+
+  if (!qtyColumn) {
+    throw new Error(
+      `No supported stock quantity column found for ${getPartName(request)}.`
+    );
+  }
+
+  const currentQty = Number(stockItem[qtyColumn] || 0);
+
+  if (currentQty < requestedQty) {
+    throw new Error(
+      `Insufficient stock for ${getPartName(request)}. Available: ${currentQty}, Requested: ${requestedQty}.`
+    );
+  }
+
+  const { error } = await supabase
+    .from("spare_parts")
+    .update({
+      [qtyColumn]: currentQty - requestedQty,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", stockItem.id);
+
+  if (error) throw error;
+
+  return {
+    stock_item_id: stockItem.id,
+    stock_column: qtyColumn,
+    previous_quantity: currentQty,
+    deducted_quantity: requestedQty,
+    new_quantity: currentQty - requestedQty,
   };
+}
+
+async function createOrUpdateRepairJobForRR({ request, user = null, deductStock = false, manualForm = null }) {
+  const now = new Date().toISOString();
+  const partRequestId = request?.id || manualForm?.part_request_id || null;
+  const partName = manualForm?.part_name || (request ? getPartName(request) : "Inventory Part");
+
+  let existingJob = null;
+
+  if (partRequestId) {
+    const { data, error } = await supabase
+      .from("repair_jobs")
+      .select("id")
+      .eq("part_request_id", partRequestId)
+      .maybeSingle();
+
+    if (error) throw error;
+    existingJob = data;
+  }
+
+  let stockAudit = null;
+
+  if (deductStock && request && !existingJob?.id) {
+    stockAudit = await deductInventoryStockForRequest(request);
+  }
+
+  const jobPayload = {
+    ticket_id: request?.ticket_number || request?.ticket_id || null,
+    part_request_id: partRequestId,
+    device_name: partName,
+    terminal_id: request?.terminal_id || null,
+    bank_name: request?.bank_name || null,
+    branch_name: request?.branch_name || null,
+    fault_description:
+      manualForm?.reason ||
+      request?.reason_note ||
+      request?.reason_category ||
+      request?.operations_note ||
+      request?.inventory_note ||
+      "Sent to RR for mandatory verification",
+    assigned_to: null,
+    status: "pending_rr",
+    priority: manualForm?.priority || request?.priority || "normal",
+    received_by: null,
+    completed_at: null,
+    updated_at: now,
+    source_type: manualForm?.source || "part_request",
+    received_from: "Inventory",
+    item_name: partName,
+    part_number: parseSelectedPartNumber(request) || request?.part_number || null,
+    machine_brand: request?.machine_brand || request?.device_brand || null,
+    machine_model: request?.machine_model || request?.device_model || null,
+    quantity_received: Number(manualForm?.quantity || request?.quantity || 1),
+    condition_on_arrival: "sent_from_inventory",
+    action_required: manualForm?.repair_type || "qa_repair_refurbish",
+    test_result: "pending",
+    good_quantity: 0,
+    bad_quantity: Number(manualForm?.quantity || request?.quantity || 1),
+    inventory_transfer_status: "not_ready",
+    final_remark: stockAudit
+      ? `Created from Inventory. Stock deducted: ${stockAudit.deducted_quantity}. Remaining: ${stockAudit.new_quantity}.`
+      : "Created from Inventory and waiting for RR HOD intake.",
+    assigned_rr_technician: null,
+    assigned_by: null,
+    assigned_at: null,
+  };
+
+  if (existingJob?.id) {
+    const { data, error } = await supabase
+      .from("repair_jobs")
+      .update(jobPayload)
+      .eq("id", existingJob.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
 
   const { data, error } = await supabase
     .from("repair_jobs")
-    .insert(insertData)
+    .insert({
+      ...jobPayload,
+      job_number: request?.ticket_number
+        ? `RR-${request.ticket_number}-${String(partRequestId || Date.now()).slice(0, 8)}`
+        : createJobNumber(),
+      created_at: now,
+    })
     .select()
     .single();
 
   if (error) throw error;
+  return data;
+}
 
-  if (partRequestId) {
+async function createInventoryRepairJob({ form, user }) {
+  const now = new Date().toISOString();
+  const selectedPartRequest = form.selected_part_request || null;
+
+  const repairJob = await createOrUpdateRepairJobForRR({
+    request: selectedPartRequest,
+    user,
+    deductStock: false,
+    manualForm: form,
+  });
+
+  if (selectedPartRequest?.id) {
     await supabase
       .from("part_requests")
       .update({
         inventory_status: "transferred_rr",
         rr_status: "pending_rr",
         status: "pending_rr",
-        lifecycle_status: "repair_job_created",
+        lifecycle_status: "issued_to_rr",
         dispatch_status: "waiting_rr",
         updated_at: now,
       })
-      .eq("id", partRequestId);
+      .eq("id", selectedPartRequest.id);
   }
+
+  await supabase.from("part_lifecycle_logs").insert({
+    part_request_id: selectedPartRequest?.id || null,
+    status: "issued_to_rr",
+    department: "Inventory",
+    note: "Inventory created repair job and sent item to RR HOD intake.",
+  });
 
   await supabase.from("operations_events").insert({
     event_type: "INVENTORY_REPAIR_JOB_CREATED",
-    title: "Inventory created RR repair job",
-    description: `Inventory created ${insertData.job_number} for ${insertData.module_name}`,
+    title: "Inventory sent item to RR HOD intake",
+    description: `Inventory created ${repairJob.job_number || repairJob.id} for ${repairJob.item_name || "RR item"}`,
     source_module: "Inventory",
     entity_type: "repair_job",
-    entity_id: data.id,
+    entity_id: repairJob.id,
     severity: "info",
   });
 
-  return data;
+  return repairJob;
 }
 
 async function updateEngineerInventoryStatus({ id, action, fundData = {}, user = null }) {
@@ -552,6 +761,14 @@ async function updateEngineerInventoryStatus({ id, action, fundData = {}, user =
 
   if (!Object.keys(updateData).length) {
     throw new Error("Invalid inventory action.");
+  }
+
+  if (action === "rr") {
+    await createOrUpdateRepairJobForRR({
+      request: currentRequest,
+      user,
+      deductStock: true,
+    });
   }
 
   let data = null;
@@ -832,8 +1049,8 @@ export default function InventoryPartRequests() {
         String(request.status || "").toLowerCase().includes(q) ||
         String(request.inventory_status || "").toLowerCase().includes(q) ||
         String(request.repair_jobs?.job_number || "").toLowerCase().includes(q) ||
-        String(request.repair_jobs?.module_name || "").toLowerCase().includes(q) ||
-        String(request.repair_jobs?.serial_number || "").toLowerCase().includes(q);
+        String(request.repair_jobs?.item_name || "").toLowerCase().includes(q) ||
+        String(request.repair_jobs?.device_name || "").toLowerCase().includes(q);
 
       return cardMatch && searchMatch;
     });
@@ -1275,7 +1492,7 @@ function EngineerTable({ rows, expanded, setExpanded, mutation, user }) {
                   <div className="flex flex-wrap gap-2">
                     {canDoInventoryAction(request, "send_to_rr", user) && (
                       <Button size="sm" className="bg-orange-600 hover:bg-orange-700 text-white" disabled={mutation.isPending} onClick={() => mutation.mutate({ id: request.id, action: "rr" })}>
-Create Repair Job
+Send To RR HOD
                       </Button>
                     )}
 
@@ -1823,7 +2040,7 @@ function ConsumableTable({ rows, mutation, user }) {
                 </td>
 
                 <td className="p-3 border border-white/10 print:border-slate-300">
-                  {request.module_name || "N/A"}
+                  {request.module_name || request.failed_part || request.job_number || "N/A"}
                 </td>
 
                 <td className="p-3 border border-white/10 font-semibold print:border-slate-300">

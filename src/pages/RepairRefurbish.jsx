@@ -19,19 +19,28 @@ import {
   AlertTriangle,
   RotateCcw,
   DollarSign,
+  CheckCircle,
+  Archive,
+  History,
+  XCircle,
 } from 'lucide-react';
 
 const STATUS = {
+  pending_rr: 'Waiting RR HOD Intake',
   received: 'Received By HOD',
   assigned: 'Assigned To Me',
   refurbishing: 'Under Repair',
+  under_repair: 'Under Repair',
   awaiting_parts: 'Awaiting Consumables',
   awaiting_fund: 'Awaiting Fund',
   testing: 'Submitted To HOD QA',
+  waiting_qa: 'Submitted To HOD QA',
   qa_failed: 'QA Failed / Rework',
-  ready_for_inventory: 'QA Passed / HOD Review',
-  sent_to_inventory: 'Sent To Inventory',
-  scrap: 'Scrap',
+  ready_for_inventory: 'QA Passed / Waiting Inventory Return',
+  qa_passed: 'QA Passed',
+  sent_to_inventory: 'Job Completed / Sent To Inventory',
+  scrap: 'Scrapped',
+  scrapped: 'Scrapped',
 };
 
 const TEST_RESULT = {
@@ -72,17 +81,33 @@ function getRepairJobState(job) {
   const testResult = normalize(job?.test_result);
   const transferStatus = normalize(job?.inventory_transfer_status);
 
-  if (status === 'sent_to_inventory' || transferStatus === 'transferred') return 'sent_to_inventory';
-  if (status === 'ready_for_inventory' || testResult === 'passed') return 'ready_for_inventory';
+  if (status === 'sent_to_inventory' || transferStatus === 'transferred') {
+    return 'sent_to_inventory';
+  }
+
+  if (status === 'scrap' || status === 'scrapped') return 'scrap';
+  if (status === 'ready_for_inventory' || status === 'qa_passed' || testResult === 'passed') {
+    return 'ready_for_inventory';
+  }
+
   if (status === 'qa_failed' || testResult === 'failed') return 'qa_failed';
-  if (status === 'testing') return 'testing';
+  if (status === 'testing' || status === 'waiting_qa') return 'testing';
   if (status === 'awaiting_parts') return 'awaiting_parts';
   if (status === 'awaiting_fund') return 'awaiting_fund';
   if (status === 'refurbishing' || status === 'under_repair') return 'refurbishing';
   if (status === 'assigned' || status === 'received' || status === 'pending_rr') return 'assigned';
-  if (status === 'scrap' || status === 'scrapped') return 'scrap';
 
   return status || 'assigned';
+}
+
+function isCompletedJob(job) {
+  const state = getRepairJobState(job);
+  return ['sent_to_inventory', 'scrap'].includes(state);
+}
+
+function isHistoryJob(job) {
+  const state = getRepairJobState(job);
+  return ['sent_to_inventory', 'scrap', 'ready_for_inventory'].includes(state);
 }
 
 function canDoRepairJobAction(job, action) {
@@ -113,6 +138,50 @@ function filterPayloadByExistingColumns(row, payload) {
   });
 
   return safePayload;
+}
+
+function getTerminalMessage(job) {
+  const state = getRepairJobState(job);
+
+  if (state === 'sent_to_inventory') {
+    return 'Job completed and sent back to Inventory';
+  }
+
+  if (state === 'ready_for_inventory') {
+    return 'QA passed. Waiting for RR HOD to send back to Inventory';
+  }
+
+  if (state === 'testing') {
+    return 'Submitted to RR HOD for QA review';
+  }
+
+  if (state === 'scrap') {
+    return 'Job closed as scrapped';
+  }
+
+  return 'Waiting for RR HOD action';
+}
+
+function statusBadgeClass(job) {
+  const state = getRepairJobState(job);
+
+  if (state === 'sent_to_inventory') {
+    return 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/30';
+  }
+
+  if (state === 'ready_for_inventory') {
+    return 'bg-green-500/10 text-green-300 border border-green-500/20';
+  }
+
+  if (state === 'qa_failed' || state === 'scrap') {
+    return 'bg-red-500/10 text-red-300 border border-red-500/20';
+  }
+
+  if (state === 'testing') {
+    return 'bg-blue-500/10 text-blue-300 border border-blue-500/20';
+  }
+
+  return 'bg-[#ff5a00]/15 text-[#ff5a00] border border-[#ff5a00]/30';
 }
 
 export default function RepairRefurbish() {
@@ -348,11 +417,13 @@ export default function RepairRefurbish() {
       assigned: jobs.filter((j) =>
         ['assigned', 'received', 'pending_rr'].includes(normalize(j.status))
       ).length,
-      underRepair: jobs.filter((j) => j.status === 'refurbishing').length,
-      awaitingParts: jobs.filter((j) => j.status === 'awaiting_parts').length,
-      awaitingFund: jobs.filter((j) => j.status === 'awaiting_fund').length,
-      waitingQa: jobs.filter((j) => j.status === 'testing').length,
-      qaFailed: jobs.filter((j) => j.status === 'qa_failed' || j.test_result === 'failed').length,
+      underRepair: jobs.filter((j) => ['refurbishing', 'under_repair'].includes(normalize(j.status))).length,
+      awaitingParts: jobs.filter((j) => normalize(j.status) === 'awaiting_parts').length,
+      awaitingFund: jobs.filter((j) => normalize(j.status) === 'awaiting_fund').length,
+      waitingQa: jobs.filter((j) => ['testing', 'waiting_qa'].includes(normalize(j.status))).length,
+      qaFailed: jobs.filter((j) => normalize(j.status) === 'qa_failed' || normalize(j.test_result) === 'failed').length,
+      completed: jobs.filter((j) => getRepairJobState(j) === 'sent_to_inventory').length,
+      history: jobs.filter(isHistoryJob).length,
     }),
     [jobs]
   );
@@ -361,29 +432,35 @@ export default function RepairRefurbish() {
     let list = jobs;
 
     if (activeFilter === 'assigned_to_me') {
-      if (!canViewAll && profileId) {
-        list = list.filter((j) => j.assigned_rr_technician === profileId);
-      }
+      list = list.filter((j) => !isHistoryJob(j));
     }
 
     if (activeFilter === 'under_repair') {
-      list = list.filter((j) => j.status === 'refurbishing');
+      list = list.filter((j) => ['refurbishing', 'under_repair'].includes(normalize(j.status)));
     }
 
     if (activeFilter === 'awaiting_parts') {
-      list = list.filter((j) => j.status === 'awaiting_parts');
+      list = list.filter((j) => normalize(j.status) === 'awaiting_parts');
     }
 
     if (activeFilter === 'awaiting_fund') {
-      list = list.filter((j) => j.status === 'awaiting_fund');
+      list = list.filter((j) => normalize(j.status) === 'awaiting_fund');
     }
 
     if (activeFilter === 'waiting_qa') {
-      list = list.filter((j) => j.status === 'testing');
+      list = list.filter((j) => ['testing', 'waiting_qa'].includes(normalize(j.status)));
     }
 
     if (activeFilter === 'qa_failed') {
-      list = list.filter((j) => j.status === 'qa_failed' || j.test_result === 'failed');
+      list = list.filter((j) => normalize(j.status) === 'qa_failed' || normalize(j.test_result) === 'failed');
+    }
+
+    if (activeFilter === 'completed') {
+      list = list.filter((j) => getRepairJobState(j) === 'sent_to_inventory');
+    }
+
+    if (activeFilter === 'history') {
+      list = list.filter(isHistoryJob);
     }
 
     if (search) {
@@ -410,12 +487,12 @@ export default function RepairRefurbish() {
     }
 
     return list;
-  }, [jobs, search, activeFilter, profileId, canViewAll]);
+  }, [jobs, search, activeFilter]);
 
   const statusCards = [
     {
       key: 'assigned_to_me',
-      label: canViewAll ? 'Assigned Jobs' : 'Assigned To Me',
+      label: canViewAll ? 'Active Jobs' : 'Assigned To Me',
       value: counts.assigned,
       icon: Wrench,
     },
@@ -424,6 +501,8 @@ export default function RepairRefurbish() {
     { key: 'awaiting_fund', label: 'Awaiting Fund', value: counts.awaitingFund, icon: DollarSign },
     { key: 'waiting_qa', label: 'Submitted QA', value: counts.waitingQa, icon: ClipboardCheck },
     { key: 'qa_failed', label: 'QA Failed', value: counts.qaFailed, icon: AlertTriangle },
+    { key: 'completed', label: 'Completed', value: counts.completed, icon: CheckCircle },
+    { key: 'history', label: 'Job History', value: counts.history, icon: History },
   ];
 
   return (
@@ -436,7 +515,7 @@ export default function RepairRefurbish() {
           </h1>
 
           <p className="text-slate-300">
-            RR Technician workspace: repair, request consumables/funds, and submit completed jobs to RR HOD for QA.
+            RR Technician workspace: repair, request consumables/funds, submit to RR HOD QA, and view completed job history.
           </p>
         </div>
       </div>
@@ -446,11 +525,11 @@ export default function RepairRefurbish() {
           RR Technician page only:
         </p>
         <p className="text-xs text-emerald-100 mt-1">
-          Start repair, request consumables, request repair fund, and submit QA. QA pass/fail, scrap, and send Inventory belong to RR HOD.
+          Active jobs stay here until RR HOD sends them back to Inventory. Completed jobs move into Job History.
         </p>
       </div>
 
-      <div className="grid md:grid-cols-3 xl:grid-cols-6 gap-4">
+      <div className="grid md:grid-cols-4 xl:grid-cols-8 gap-4">
         {statusCards.map(({ key, label, value, icon: Icon }) => (
           <Card
             key={key}
@@ -471,7 +550,13 @@ export default function RepairRefurbish() {
       <Card className="bg-[#102969]/90 border border-white/10 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div>
-            <h2 className="text-lg font-bold text-white">R/R Technician Jobs</h2>
+            <h2 className="text-lg font-bold text-white">
+              {activeFilter === 'history'
+                ? 'R/R Job History'
+                : activeFilter === 'completed'
+                  ? 'Completed R/R Jobs'
+                  : 'R/R Technician Jobs'}
+            </h2>
             <p className="text-xs text-slate-300">
               {filtered.length} job{filtered.length !== 1 ? 's' : ''}
             </p>
@@ -506,6 +591,7 @@ export default function RepairRefurbish() {
           <div className="grid gap-3">
             {filtered.map((job) => {
               const state = getRepairJobState(job);
+              const terminal = isCompletedJob(job);
 
               return (
                 <div
@@ -532,13 +618,19 @@ export default function RepairRefurbish() {
                     </div>
 
                     <div className="flex flex-wrap gap-2">
-                      <Badge className="bg-[#ff5a00]/15 text-[#ff5a00] border border-[#ff5a00]/30">
-                        {STATUS[job.status] || job.status || 'Assigned'}
+                      <Badge className={statusBadgeClass(job)}>
+                        {STATUS[job.status] || STATUS[state] || job.status || 'Assigned'}
                       </Badge>
 
                       <Badge className="bg-green-500/10 text-green-300 border border-green-500/20">
                         QA: {TEST_RESULT[job.test_result] || job.test_result || 'pending'}
                       </Badge>
+
+                      {terminal && (
+                        <Badge className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                          Completed
+                        </Badge>
+                      )}
                     </div>
                   </div>
 
@@ -564,6 +656,12 @@ export default function RepairRefurbish() {
                   {job.final_remark && (
                     <p className="text-xs text-slate-300 mt-2">
                       Remark: {job.final_remark}
+                    </p>
+                  )}
+
+                  {job.completed_at && (
+                    <p className="text-xs text-emerald-300 mt-2">
+                      Completed: {new Date(job.completed_at).toLocaleString()}
                     </p>
                   )}
 
@@ -625,8 +723,28 @@ export default function RepairRefurbish() {
                       !canDoRepairJobAction(job, 'request_consumable') &&
                       !canDoRepairJobAction(job, 'request_fund') &&
                       !canDoRepairJobAction(job, 'submit_rr_qa') && (
-                        <span className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">
-                          Waiting for RR HOD action
+                        <span
+                          className={[
+                            'inline-flex items-center rounded-md border px-3 py-2 text-xs',
+                            terminal
+                              ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                              : state === 'ready_for_inventory'
+                                ? 'border-green-400/30 bg-green-500/10 text-green-200'
+                                : state === 'scrap'
+                                  ? 'border-red-400/30 bg-red-500/10 text-red-200'
+                                  : 'border-white/10 bg-white/5 text-slate-300',
+                          ].join(' ')}
+                        >
+                          {terminal ? (
+                            <CheckCircle className="mr-2 h-4 w-4" />
+                          ) : state === 'scrap' ? (
+                            <XCircle className="mr-2 h-4 w-4" />
+                          ) : state === 'ready_for_inventory' ? (
+                            <Archive className="mr-2 h-4 w-4" />
+                          ) : (
+                            <ClipboardCheck className="mr-2 h-4 w-4" />
+                          )}
+                          {getTerminalMessage(job)}
                         </span>
                       )}
                   </div>

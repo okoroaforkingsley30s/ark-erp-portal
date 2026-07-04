@@ -1757,6 +1757,7 @@ function TicketDetailsModal({
   const [partReason, setPartReason] = useState('');
   const [partEvidence, setPartEvidence] = useState([]);
   const [redirectingPart, setRedirectingPart] = useState(false);
+  const [localPartReceived, setLocalPartReceived] = useState(false);
   const [selectedInventoryPart, setSelectedInventoryPart] = useState(null);
   const [inventoryParts, setInventoryParts] = useState([]);
   const [loadingInventoryParts, setLoadingInventoryParts] = useState(false);
@@ -1859,8 +1860,11 @@ const currentPartRequestStatus = String(
     ticket?.dispatch_status ||
     ticket?.finance_status ||
     ticket?.lifecycle_status ||
+    ticket?.completion_status ||
     ''
 ).toLowerCase();
+
+const ticketCompletionStatus = String(ticket?.completion_status || '').toLowerCase();
 
 const hasLinkedPartRequest = Boolean(
   ticket?.linked_part_request_id ||
@@ -1868,8 +1872,18 @@ const hasLinkedPartRequest = Boolean(
     ['pending_parts', 'pending_bank'].includes(ticketStatus)
 );
 
+const partAlreadyReceived =
+  hasLinkedPartRequest &&
+  (
+    localPartReceived ||
+    Boolean(ticket?.received_part_at) ||
+    ['received_by_engineer', 'received', 'part_received'].includes(currentPartRequestStatus) ||
+    ['received_by_engineer', 'received', 'part_received'].includes(ticketCompletionStatus)
+  );
+
 const partReadyToReceive =
   hasLinkedPartRequest &&
+  !partAlreadyReceived &&
   [
     'dispatched_to_engineer',
     'dispatched',
@@ -1879,12 +1893,6 @@ const partReadyToReceive =
     'disbursed',
   ].includes(currentPartRequestStatus);
 
-const partAlreadyReceived =
-  hasLinkedPartRequest &&
-  ['received_by_engineer', 'received', 'part_received'].includes(
-    currentPartRequestStatus
-  );
-
 const partLocked =
   hasLinkedPartRequest &&
   !partReadyToReceive &&
@@ -1892,6 +1900,7 @@ const partLocked =
   ![
     'closed',
     'completed',
+    'approved',
     'cancelled',
     'rejected',
     'ready_for_dispatch',
@@ -2211,8 +2220,8 @@ const partLocked =
         },
       });
 
+      setLocalPartReceived(true);
       alert('Part received. You can now continue the job and submit review when completed.');
-      onCompleted();
     } catch (err) {
       console.error('Receive part error:', err);
       alert(`Could not receive part: ${err.message || 'Unknown error'}`);
@@ -2865,39 +2874,6 @@ const partLocked =
         </SectionCard>
 
         <div className="grid grid-cols-2 gap-2">
-          <ActionButton
-            label="Start Trip"
-            icon={<PlayCircle size={16} />}
-            onClick={() => onUpdateStatus(ticket.id, 'traveling')}
-          />
-
-          <ActionButton
-            label="Arrived"
-            icon={<MapPin size={16} />}
-            onClick={() => onUpdateStatus(ticket.id, 'arrived_on_site')}
-          />
-
-          <ActionButton
-            label="Navigate"
-            icon={<Navigation size={16} />}
-            onClick={() => onNavigate(ticket)}
-          />
-
-          <ActionButton
-            label="Redirect Part Issue"
-            icon={<Package size={16} />}
-            onClick={() => setShowPartRequest(true)}
-          />
-
-          {partReadyToReceive && (
-            <ActionButton
-              label="Receive Part"
-              icon={<Package size={16} />}
-              onClick={receivePartFromInventory}
-              primary
-            />
-          )}
-
           <ActionButton
             label={
               partLocked
