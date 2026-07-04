@@ -1,15 +1,55 @@
 export const ROLE_ALIASES = {
-  super_admin: "admin",
+  super_admin: "system_admin",
+  developer_admin: "system_admin",
+  erp_admin: "system_admin",
+  system_administrator: "system_admin",
+
   administrator: "admin",
+  administrative_officer: "admin",
+
+  ceo_pa: "admin_head",
+  ceopa: "admin_head",
+  admin_hod: "admin_head",
+  head_admin: "admin_head",
+  head_of_admin: "admin_head",
+  head_of_administration: "admin_head",
+
   operation: "operations",
   ops: "operations",
+  operations_officer: "operations",
+  operations_manager: "manager",
+
   account: "finance",
   accounts: "finance",
+  accountant: "finance",
+  account_officer: "finance",
+  finance_officer: "finance",
+  accounts_head: "head_of_account",
+  head_account: "head_of_account",
+  head_accounts: "head_of_account",
+  head_of_accounts: "head_of_account",
+
+  it_officer: "it",
+  head_it: "head_of_it",
+  it_head: "head_of_it",
+
   rr_hod: "repair_head",
   repair_hod: "repair_head",
   rr_head: "repair_head",
+  head_of_repair: "repair_head",
+  head_of_rr: "repair_head",
+  repair_refurbishment_head: "repair_head",
+
   field_engineer: "engineer",
   fe: "engineer",
+
+  crm: "business_developer",
+  marketing: "business_developer",
+  business_development: "business_developer",
+  bd: "business_developer",
+  business_dev: "business_developer",
+  head_business_development: "head_of_business_development",
+  business_development_head: "head_of_business_development",
 };
 
 export function normalizeRole(role) {
@@ -18,35 +58,33 @@ export function normalizeRole(role) {
 }
 
 export const PERMISSIONS = {
-  // Core
   DASHBOARD: "dashboard",
   REPORTS: "reports",
   AUDIT_LOGS: "audit_logs",
   SETTINGS: "settings",
   USER_MANAGEMENT: "user_management",
+  USERS: "users",
   STAFF_DIRECTORY: "staff_directory",
+  DEPARTMENTS: "departments",
   NOTIFICATIONS: "notifications",
+  DATA_IMPORT: "data_import",
 
-  // Communication
   COMMUNICATION: "communication",
   OFFICIAL_MAIL: "official_mail",
   ARK_CONNECT: "ark_connect",
 
-  // Tickets / Helpdesk
   TICKETS: "tickets",
   CREATE_TICKET: "create_ticket",
   ASSIGN_TICKET: "assign_ticket",
   CLOSE_TICKET: "close_ticket",
   SLA_ANALYTICS: "sla_analytics",
 
-  // Field Engineering
   ENGINEERING: "engineering",
   FIELD_OPS: "field_ops",
   FIELD_ENGINEERS: "field_engineers",
   PARTS_REQUEST: "parts_request",
   ENGINEER_RECEIVE_PART: "engineer_receive_part",
 
-  // Operations
   OPERATIONS: "operations",
   OPS_DASHBOARD: "ops_dashboard",
   OPERATIONS_FEED: "operations_feed",
@@ -55,13 +93,11 @@ export const PERMISSIONS = {
   REJECT_PART_REQUEST: "reject_part_request",
   SEND_TO_INVENTORY: "send_to_inventory",
 
-  // Inventory
-INVENTORY: "inventory",
-INVENTORY_ANALYTICS: "inventory_analytics",
-INVENTORY_PART_REQUESTS: "inventory_part_requests",
-SPARE_PARTS: "spare_parts",
+  INVENTORY: "inventory",
+  INVENTORY_ANALYTICS: "inventory_analytics",
+  INVENTORY_PART_REQUESTS: "inventory_part_requests",
+  SPARE_PARTS: "spare_parts",
 
-  // RR
   RR_INTAKE: "rr_intake",
   REPAIR_JOBS: "repair_jobs",
   RR_CONSUMABLES: "rr_consumables",
@@ -76,7 +112,6 @@ SPARE_PARTS: "spare_parts",
   SCRAP_PART: "scrap_part",
   SELL_PART: "sell_part",
 
-  // Finance / Account
   FINANCE: "finance",
   ACCOUNT: "account",
   FUND_REQUESTS: "fund_requests",
@@ -84,21 +119,17 @@ SPARE_PARTS: "spare_parts",
   RELEASE_FUND: "release_fund",
   VENDOR_PAYMENT: "vendor_payment",
 
-  // Procurement
   PROCUREMENT: "procurement",
   PURCHASE_ORDERS: "purchase_orders",
   CREATE_PURCHASE_REQUEST: "create_purchase_request",
   APPROVE_PURCHASE_REQUEST: "approve_purchase_request",
 
-  // CRM / Business
   BUSINESS: "business",
   CRM: "crm",
   CLIENT_FOLLOW_UP: "client_follow_up",
 
-  // HR
   HR: "hr",
 
-  // Assets / Devices
   ASSETS_SECTION: "assets_section",
   ASSETS: "assets",
   BANKS: "banks",
@@ -110,7 +141,6 @@ SPARE_PARTS: "spare_parts",
   SITE_MONITOR: "site_monitor",
   REGIONAL_VIEW: "regional_view",
 
-  // Printing
   PRINT_OFFICIAL_REPORT: "print_official_report",
   PRINT_TICKET_REPORT: "print_ticket_report",
   PRINT_OPERATIONS_REPORT: "print_operations_report",
@@ -122,231 +152,540 @@ SPARE_PARTS: "spare_parts",
   PRINT_OWN_JOB_REPORT: "print_own_job_report",
 };
 
+const COMMON_STAFF_ACCESS = [
+  PERMISSIONS.DASHBOARD,
+  PERMISSIONS.FUND_REQUESTS,
+  PERMISSIONS.NOTIFICATIONS,
+  PERMISSIONS.COMMUNICATION,
+  PERMISSIONS.OFFICIAL_MAIL,
+  PERMISSIONS.ARK_CONNECT,
+];
+
+const EXECUTIVE_REPORT_ACCESS = [
+  PERMISSIONS.REPORTS,
+  PERMISSIONS.AUDIT_LOGS,
+  PERMISSIONS.PRINT_OFFICIAL_REPORT,
+  PERMISSIONS.PRINT_TICKET_REPORT,
+  PERMISSIONS.PRINT_OPERATIONS_REPORT,
+  PERMISSIONS.PRINT_INVENTORY_REPORT,
+  PERMISSIONS.PRINT_RR_REPORT,
+  PERMISSIONS.PRINT_FINANCE_REPORT,
+  PERMISSIONS.PRINT_HR_REPORT,
+  PERMISSIONS.PRINT_CRM_REPORT,
+];
+
 export const ROLE_ACCESS = {
-  admin: ["*"],
+  system_admin: ["*"],
 
- ceo: [
-  "dashboard", "fund_requests", "live_map", "business", "finance", "reports", "tickets",
-    "site_monitor", "assets_section", "assets", "notifications",
-    "communication", "official_mail", "ark_connect", "operations_feed",
-    "ops_dashboard", "inventory", "repair_jobs", "rr_intake",
-    "rr_consumables", "staff_directory", "audit_logs",
-    "print_official_report", "print_ticket_report", "print_operations_report",
-    "print_inventory_report", "print_rr_report", "print_finance_report",
-    "print_crm_report",
-  ],
-
-  ceo_pa: [
-    "dashboard", "fund_requests", "reports", "notifications", "communication",
-    "official_mail", "ark_connect", "print_official_report",
-  ],
+  ceo: ["*"],
 
   agm: [
-    "dashboard", "fund_requests", "live_map", "tickets", "site_monitor", "engineering",
-    "field_ops", "operations", "ops_dashboard", "operations_feed",
-    "operations_part_requests", "approve_part_request", "reject_part_request",
-    "send_to_inventory", "banks", "branches", "devices", "device_status",
-    "assignments", "regional_view", "field_engineers", "assets_section",
-    "assets", "inventory", "inventory_part_requests", "purchase_orders", "business",
-    "hr", "reports", "notifications", "communication", "official_mail",
-    "ark_connect", "repair_jobs", "rr_intake", "rr_consumables",
-    "staff_directory", "audit_logs", "print_official_report",
-    "print_ticket_report", "print_operations_report", "print_inventory_report",
-    "print_rr_report", "print_finance_report", "print_hr_report",
+    ...COMMON_STAFF_ACCESS,
+    ...EXECUTIVE_REPORT_ACCESS,
+
+    PERMISSIONS.LIVE_MAP,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.SLA_ANALYTICS,
+    PERMISSIONS.SITE_MONITOR,
+
+    PERMISSIONS.ENGINEERING,
+    PERMISSIONS.FIELD_OPS,
+    PERMISSIONS.FIELD_ENGINEERS,
+
+    PERMISSIONS.OPERATIONS,
+    PERMISSIONS.OPS_DASHBOARD,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.OPERATIONS_PART_REQUESTS,
+    PERMISSIONS.APPROVE_PART_REQUEST,
+    PERMISSIONS.REJECT_PART_REQUEST,
+    PERMISSIONS.SEND_TO_INVENTORY,
+
+    PERMISSIONS.BANKS,
+    PERMISSIONS.BRANCHES,
+    PERMISSIONS.DEVICES,
+    PERMISSIONS.DEVICE_STATUS,
+    PERMISSIONS.ASSIGNMENTS,
+    PERMISSIONS.REGIONAL_VIEW,
+
+    PERMISSIONS.ASSETS_SECTION,
+    PERMISSIONS.ASSETS,
+
+    PERMISSIONS.INVENTORY,
+    PERMISSIONS.INVENTORY_ANALYTICS,
+    PERMISSIONS.INVENTORY_PART_REQUESTS,
+    PERMISSIONS.SPARE_PARTS,
+
+    PERMISSIONS.PURCHASE_ORDERS,
+    PERMISSIONS.BUSINESS,
+    PERMISSIONS.CRM,
+    PERMISSIONS.HR,
+
+    PERMISSIONS.REPAIR_JOBS,
+    PERMISSIONS.RR_INTAKE,
+    PERMISSIONS.RR_CONSUMABLES,
+
+    PERMISSIONS.STAFF_DIRECTORY,
+  ],
+
+  admin_head: [
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.REPORTS,
+    PERMISSIONS.USERS,
+    PERMISSIONS.USER_MANAGEMENT,
+    PERMISSIONS.STAFF_DIRECTORY,
+    PERMISSIONS.DEPARTMENTS,
+    PERMISSIONS.AUDIT_LOGS,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.PRINT_OFFICIAL_REPORT,
+  ],
+
+  admin: [
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.STAFF_DIRECTORY,
+    PERMISSIONS.DEPARTMENTS,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.REPORTS,
+    PERMISSIONS.PRINT_OFFICIAL_REPORT,
+  ],
+
+  head_of_it: [
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.USERS,
+    PERMISSIONS.USER_MANAGEMENT,
+    PERMISSIONS.STAFF_DIRECTORY,
+    PERMISSIONS.DEPARTMENTS,
+    PERMISSIONS.SETTINGS,
+    PERMISSIONS.DATA_IMPORT,
+    PERMISSIONS.AUDIT_LOGS,
+    PERMISSIONS.REPORTS,
+
+    PERMISSIONS.SITE_MONITOR,
+    PERMISSIONS.LIVE_MAP,
+    PERMISSIONS.DEVICES,
+    PERMISSIONS.DEVICE_STATUS,
+    PERMISSIONS.ASSIGNMENTS,
+    PERMISSIONS.BANKS,
+    PERMISSIONS.BRANCHES,
+    PERMISSIONS.ASSETS_SECTION,
+    PERMISSIONS.ASSETS,
+
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.PRINT_OFFICIAL_REPORT,
+  ],
+
+  it: [
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.STAFF_DIRECTORY,
+    PERMISSIONS.SITE_MONITOR,
+    PERMISSIONS.LIVE_MAP,
+    PERMISSIONS.DEVICES,
+    PERMISSIONS.DEVICE_STATUS,
+    PERMISSIONS.ASSIGNMENTS,
+    PERMISSIONS.BANKS,
+    PERMISSIONS.BRANCHES,
+    PERMISSIONS.ASSETS_SECTION,
+    PERMISSIONS.ASSETS,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.REPORTS,
   ],
 
   manager: [
-    "dashboard", "fund_requests", "live_map", "tickets", "site_monitor", "engineering",
-    "field_ops", "operations", "ops_dashboard", "operations_feed",
-    "operations_part_requests", "approve_part_request", "reject_part_request",
-    "send_to_inventory", "banks", "branches", "devices", "device_status",
-    "assignments", "regional_view", "field_engineers", "assets_section",
-    "assets", "inventory", "inventory_part_requests", "purchase_orders", "business",
-    "hr", "reports", "data_import", "notifications", "communication",
-    "official_mail", "ark_connect", "repair_jobs", "rr_intake",
-    "rr_consumables", "print_official_report", "print_ticket_report",
-    "print_operations_report", "print_inventory_report", "print_rr_report",
-    "print_finance_report",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.LIVE_MAP,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.SITE_MONITOR,
+
+    PERMISSIONS.ENGINEERING,
+    PERMISSIONS.FIELD_OPS,
+    PERMISSIONS.FIELD_ENGINEERS,
+
+    PERMISSIONS.OPERATIONS,
+    PERMISSIONS.OPS_DASHBOARD,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.OPERATIONS_PART_REQUESTS,
+    PERMISSIONS.APPROVE_PART_REQUEST,
+    PERMISSIONS.REJECT_PART_REQUEST,
+    PERMISSIONS.SEND_TO_INVENTORY,
+
+    PERMISSIONS.BANKS,
+    PERMISSIONS.BRANCHES,
+    PERMISSIONS.DEVICES,
+    PERMISSIONS.DEVICE_STATUS,
+    PERMISSIONS.ASSIGNMENTS,
+    PERMISSIONS.REGIONAL_VIEW,
+
+    PERMISSIONS.ASSETS_SECTION,
+    PERMISSIONS.ASSETS,
+
+    PERMISSIONS.INVENTORY,
+    PERMISSIONS.INVENTORY_ANALYTICS,
+    PERMISSIONS.INVENTORY_PART_REQUESTS,
+    PERMISSIONS.PURCHASE_ORDERS,
+
+    PERMISSIONS.REPAIR_JOBS,
+    PERMISSIONS.RR_INTAKE,
+    PERMISSIONS.RR_CONSUMABLES,
+
+    PERMISSIONS.BUSINESS,
+    PERMISSIONS.HR,
+    PERMISSIONS.REPORTS,
+    PERMISSIONS.DATA_IMPORT,
+
+    PERMISSIONS.PRINT_OFFICIAL_REPORT,
+    PERMISSIONS.PRINT_TICKET_REPORT,
+    PERMISSIONS.PRINT_OPERATIONS_REPORT,
+    PERMISSIONS.PRINT_INVENTORY_REPORT,
+    PERMISSIONS.PRINT_RR_REPORT,
+    PERMISSIONS.PRINT_FINANCE_REPORT,
   ],
 
   operations: [
-    "dashboard", "fund_requests", "operations", "ops_dashboard", "operations_feed",
-    "operations_part_requests", "tickets", "field_ops", "purchase_orders", "reports",
-    "approve_part_request", "reject_part_request", "send_to_inventory",
-    "print_operations_report", "print_ticket_report", "notifications",
-    "communication", "official_mail", "ark_connect",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.OPERATIONS,
+    PERMISSIONS.OPS_DASHBOARD,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.OPERATIONS_PART_REQUESTS,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.FIELD_OPS,
+    PERMISSIONS.PURCHASE_ORDERS,
+    PERMISSIONS.REPORTS,
+    PERMISSIONS.APPROVE_PART_REQUEST,
+    PERMISSIONS.REJECT_PART_REQUEST,
+    PERMISSIONS.SEND_TO_INVENTORY,
+    PERMISSIONS.PRINT_OPERATIONS_REPORT,
+    PERMISSIONS.PRINT_TICKET_REPORT,
   ],
 
   helpdesk: [
-    "dashboard", "fund_requests", "sla_analytics", "live_map", "tickets", "create_ticket",
-    "assign_ticket", "close_ticket", "site_monitor", "engineering",
-    "field_ops", "operations", "ops_dashboard", "operations_feed",
-    "banks", "branches", "devices", "device_status", "assignments",
-    "regional_view", "field_engineers", "assets_section", "assets",
-    "reports", "print_ticket_report", "notifications", "communication",
-    "official_mail", "ark_connect",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.SLA_ANALYTICS,
+    PERMISSIONS.LIVE_MAP,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.CREATE_TICKET,
+    PERMISSIONS.ASSIGN_TICKET,
+    PERMISSIONS.CLOSE_TICKET,
+    PERMISSIONS.SITE_MONITOR,
+    PERMISSIONS.ENGINEERING,
+    PERMISSIONS.FIELD_OPS,
+    PERMISSIONS.OPERATIONS,
+    PERMISSIONS.OPS_DASHBOARD,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.BANKS,
+    PERMISSIONS.BRANCHES,
+    PERMISSIONS.DEVICES,
+    PERMISSIONS.DEVICE_STATUS,
+    PERMISSIONS.ASSIGNMENTS,
+    PERMISSIONS.REGIONAL_VIEW,
+    PERMISSIONS.FIELD_ENGINEERS,
+    PERMISSIONS.ASSETS_SECTION,
+    PERMISSIONS.ASSETS,
+    PERMISSIONS.REPORTS,
+    PERMISSIONS.PRINT_TICKET_REPORT,
   ],
 
   engineer: [
-    "dashboard", "fund_requests", "tickets", "field_ops", "engineering", "assets_section",
-    "assets", "parts_request", "engineer_receive_part", "print_own_job_report",
-    "notifications", "communication", "official_mail", "ark_connect",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.FIELD_OPS,
+    PERMISSIONS.ENGINEERING,
+    PERMISSIONS.ASSETS_SECTION,
+    PERMISSIONS.ASSETS,
+    PERMISSIONS.PARTS_REQUEST,
+    PERMISSIONS.ENGINEER_RECEIVE_PART,
+    PERMISSIONS.PRINT_OWN_JOB_REPORT,
   ],
 
   repair_head: [
-    "dashboard", "fund_requests", "tickets", "repair_jobs", "rr_intake", "rr_consumables",
-    "operations_feed", "receive_rr", "assign_rr_technician", "qa_pass",
-    "qa_fail", "return_to_inventory", "scrap_part", "sell_part",
-    "print_rr_report", "reports", "notifications", "communication",
-    "official_mail", "ark_connect",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.REPAIR_JOBS,
+    PERMISSIONS.RR_INTAKE,
+    PERMISSIONS.RR_CONSUMABLES,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.RECEIVE_RR,
+    PERMISSIONS.ASSIGN_RR_TECHNICIAN,
+    PERMISSIONS.QA_PASS,
+    PERMISSIONS.QA_FAIL,
+    PERMISSIONS.RETURN_TO_INVENTORY,
+    PERMISSIONS.SCRAP_PART,
+    PERMISSIONS.SELL_PART,
+    PERMISSIONS.REPORTS,
+    PERMISSIONS.PRINT_RR_REPORT,
   ],
 
   repair_technician: [
-    "dashboard", "fund_requests", "repair_jobs", "rr_consumables", "operations_feed",
-    "start_repair", "request_consumables", "submit_qa", "print_own_job_report",
-    "notifications", "communication", "official_mail", "ark_connect",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.REPAIR_JOBS,
+    PERMISSIONS.RR_CONSUMABLES,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.START_REPAIR,
+    PERMISSIONS.REQUEST_CONSUMABLES,
+    PERMISSIONS.SUBMIT_QA,
+    PERMISSIONS.PRINT_OWN_JOB_REPORT,
   ],
 
   inventory: [
-  "dashboard", "fund_requests",
-  "assets_section",
-  "assets",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.ASSETS_SECTION,
+    PERMISSIONS.ASSETS,
+    PERMISSIONS.INVENTORY,
+    PERMISSIONS.INVENTORY_ANALYTICS,
+    PERMISSIONS.SPARE_PARTS,
+    PERMISSIONS.INVENTORY_PART_REQUESTS,
+    PERMISSIONS.PURCHASE_ORDERS,
+    PERMISSIONS.PARTS_REQUEST,
+    PERMISSIONS.RR_CONSUMABLES,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.PRINT_INVENTORY_REPORT,
+  ],
 
-  "inventory",
-  "inventory_analytics",
-  "spare_parts",
-  "inventory_part_requests",
-
-  "purchase_orders",
-
-  "parts_request",
-  "send_to_rr",
-  "receive_from_rr",
-  "dispatch_to_engineer",
-  "stock_adjustment",
-
-  "rr_consumables",
-  "operations_feed",
-
-  "print_inventory_report",
-
-  "notifications",
-  "communication",
-  "official_mail",
-  "ark_connect",
-],
+  head_of_account: [
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.BUSINESS,
+    PERMISSIONS.FINANCE,
+    PERMISSIONS.ACCOUNT,
+    PERMISSIONS.FUND_REQUESTS,
+    PERMISSIONS.APPROVE_PAYMENT,
+    PERMISSIONS.RELEASE_FUND,
+    PERMISSIONS.VENDOR_PAYMENT,
+    PERMISSIONS.PURCHASE_ORDERS,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.REPORTS,
+    PERMISSIONS.AUDIT_LOGS,
+    PERMISSIONS.PRINT_FINANCE_REPORT,
+  ],
 
   finance: [
-    "dashboard", "business", "finance", "account", "fund_requests",
-    "approve_payment", "release_fund", "vendor_payment", "operations_feed",
-    "print_finance_report", "notifications", "communication",
-    "official_mail", "ark_connect",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.BUSINESS,
+    PERMISSIONS.FINANCE,
+    PERMISSIONS.ACCOUNT,
+    PERMISSIONS.FUND_REQUESTS,
+    PERMISSIONS.RELEASE_FUND,
+    PERMISSIONS.VENDOR_PAYMENT,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.PRINT_FINANCE_REPORT,
   ],
 
   procurement: [
-    "dashboard", "fund_requests", "business", "procurement", "purchase_orders",
-    "create_purchase_request", "operations_feed", "notifications",
-    "communication", "official_mail", "ark_connect",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.BUSINESS,
+    PERMISSIONS.PROCUREMENT,
+    PERMISSIONS.PURCHASE_ORDERS,
+    PERMISSIONS.CREATE_PURCHASE_REQUEST,
+    PERMISSIONS.OPERATIONS_FEED,
   ],
 
-  crm: [
-    "dashboard", "fund_requests", "business", "crm", "client_follow_up", "tickets",
-    "operations_feed", "print_crm_report", "notifications", "communication",
-    "official_mail", "ark_connect",
+  head_of_business_development: [
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.BUSINESS,
+    PERMISSIONS.CRM,
+    PERMISSIONS.CLIENT_FOLLOW_UP,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.REPORTS,
+    PERMISSIONS.PRINT_CRM_REPORT,
+  ],
+
+  business_developer: [
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.BUSINESS,
+    PERMISSIONS.CRM,
+    PERMISSIONS.CLIENT_FOLLOW_UP,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.PRINT_CRM_REPORT,
   ],
 
   hr: [
-    "dashboard", "fund_requests", "hr", "staff_directory", "purchase_orders", "print_hr_report",
-    "notifications", "communication", "official_mail", "ark_connect",
+    ...COMMON_STAFF_ACCESS,
+    PERMISSIONS.HR,
+    PERMISSIONS.STAFF_DIRECTORY,
+    PERMISSIONS.PURCHASE_ORDERS,
+    PERMISSIONS.PRINT_HR_REPORT,
   ],
 
   client: [
-    "dashboard", "tickets", "notifications", "ark_connect",
+    PERMISSIONS.DASHBOARD,
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.NOTIFICATIONS,
+    PERMISSIONS.ARK_CONNECT,
   ],
 };
 
 export const ROLE_HOME = {
-  admin: "/dashboard",
+  system_admin: "/dashboard",
   ceo: "/dashboard",
-  ceo_pa: "/dashboard",
   agm: "/dashboard",
+
+  admin_head: "/dashboard",
+  admin: "/dashboard",
+
+  head_of_it: "/dashboard",
+  it: "/sites",
+
   manager: "/dashboard",
   operations: "/operations/part-requests",
+
   helpdesk: "/tickets",
   engineer: "/tickets",
+
   repair_head: "/rr-part-requests",
   repair_technician: "/repair-jobs",
+
   inventory: "/inventory/part-requests",
+
+  head_of_account: "/finance",
   finance: "/finance",
+
   procurement: "/procurement",
-  crm: "/crm",
+
+  head_of_business_development: "/crm",
+  business_developer: "/crm",
+
   hr: "/hr",
   client: "/tickets",
 };
 
 export const ROLE_LABELS = {
-  admin: "Administrator",
+  system_admin: "System Administrator",
   ceo: "CEO",
-  ceo_pa: "CEO Personal Assistant",
-  agm: "Asst. General Manager",
-  manager: "Operational Manager",
-  operations: "Operations",
-  helpdesk: "Help Desk",
+  agm: "Assistant General Manager",
+
+  admin_head: "Head of Administration",
+  admin: "Administrative Officer",
+
+  head_of_it: "Head of IT",
+  it: "IT Officer",
+
+  manager: "Operations Manager",
+  operations: "Operations Officer",
+
+  helpdesk: "Helpdesk Officer",
   engineer: "Field Engineer",
-  repair_head: "Head of Repair & Refurbish",
+
+  repair_head: "Head of Repair & Refurbishment",
   repair_technician: "Repair Technician",
-  inventory: "Inventory",
-  finance: "Finance / Accounts",
-  procurement: "Procurement",
-  crm: "CRM / Marketing",
-  hr: "Human Resource",
+
+  inventory: "Inventory Officer",
+
+  head_of_account: "Head of Account",
+  finance: "Finance Officer",
+
+  procurement: "Procurement Officer",
+
+  head_of_business_development: "Head of Business Development",
+  business_developer: "Business Development Officer",
+
+  hr: "Human Resource Officer",
   client: "Client / Bank",
 };
 
+export const ROLE_DEPARTMENTS = {
+  system_admin: "Information Technology",
+  ceo: "Executive Management",
+  agm: "Executive Management",
+
+  admin_head: "Administration",
+  admin: "Administration",
+
+  head_of_it: "Information Technology",
+  it: "Information Technology",
+
+  manager: "Operations",
+  operations: "Operations",
+
+  helpdesk: "Helpdesk",
+  engineer: "Field Engineering",
+
+  repair_head: "Repair & Refurbishment",
+  repair_technician: "Repair & Refurbishment",
+
+  inventory: "Inventory",
+
+  head_of_account: "Finance & Accounts",
+  finance: "Finance & Accounts",
+
+  procurement: "Procurement",
+
+  head_of_business_development: "Business Development",
+  business_developer: "Business Development",
+
+  hr: "Human Resources",
+  client: "Client",
+};
+
 export const ROUTE_PERMISSIONS = {
-  "/dashboard": "dashboard",
-  "/fund-requests": "fund_requests",
-  "/tickets": "tickets",
-  "/ticket": "tickets",
-  "/operations": "operations",
-  "/operations-feed": "operations_feed",
-  "/operations/part-requests": "operations_part_requests",
-  "/inventory": "inventory",
-  "/inventory/part-requests": "inventory_part_requests",
-  "/spare-parts": "spare_parts",
-"/inventory-analytics": "inventory_analytics",
-"/procurement-lpo": "purchase_orders",
-"/parts": "parts_request",
-  "/rr-part-requests": "rr_intake",
-  "/repair-jobs": "repair_jobs",
-  "/rr-consumable-requests": "rr_consumables",
-  "/finance": "finance",
-  "/procurement": "procurement",
-  "/crm": "crm",
-  "/hr": "hr",
-  "/reports": "reports",
-  "/live-map": "live_map",
-  "/site-monitor": "site_monitor",
-  "/assets": "assets",
-  "/banks": "banks",
-  "/branches": "branches",
-  "/devices": "devices",
-  "/device-status": "device_status",
-  "/user-management": "user_management",
-  "/staff-directory": "staff_directory",
-  "/audit-logs": "audit_logs",
-  "/settings": "settings",
-  "/notifications": "notifications",
-  "/official-mail": "official_mail",
-  "/ark-connect": "ark_connect",
+  "/dashboard": PERMISSIONS.DASHBOARD,
+  "/fund-requests": PERMISSIONS.FUND_REQUESTS,
+
+  "/tickets": PERMISSIONS.TICKETS,
+  "/tickets/:id": PERMISSIONS.TICKETS,
+  "/ticket": PERMISSIONS.TICKETS,
+
+  "/operations": PERMISSIONS.OPERATIONS,
+  "/operations-feed": PERMISSIONS.OPERATIONS_FEED,
+  "/operations/part-requests": PERMISSIONS.OPERATIONS_PART_REQUESTS,
+
+  "/inventory": PERMISSIONS.INVENTORY,
+  "/inventory/part-requests": PERMISSIONS.INVENTORY_PART_REQUESTS,
+  "/spare-parts": PERMISSIONS.SPARE_PARTS,
+  "/inventory-analytics": PERMISSIONS.INVENTORY_ANALYTICS,
+  "/parts": PERMISSIONS.PARTS_REQUEST,
+
+  "/rr-part-requests": PERMISSIONS.RR_INTAKE,
+  "/repair-jobs": PERMISSIONS.REPAIR_JOBS,
+  "/repair-refurbish": PERMISSIONS.REPAIR_JOBS,
+  "/rr-consumable-requests": PERMISSIONS.RR_CONSUMABLES,
+
+  "/finance": PERMISSIONS.FINANCE,
+  "/procurement": PERMISSIONS.PROCUREMENT,
+  "/procurement-lpo": PERMISSIONS.PURCHASE_ORDERS,
+  "/crm": PERMISSIONS.CRM,
+  "/hr": PERMISSIONS.HR,
+
+  "/reports": PERMISSIONS.REPORTS,
+  "/live-map": PERMISSIONS.LIVE_MAP,
+  "/sites": PERMISSIONS.SITE_MONITOR,
+  "/site-monitor": PERMISSIONS.SITE_MONITOR,
+
+  "/assets": PERMISSIONS.ASSETS,
+  "/banks": PERMISSIONS.BANKS,
+  "/branches": PERMISSIONS.BRANCHES,
+  "/branches/:id/devices": PERMISSIONS.DEVICES,
+  "/devices": PERMISSIONS.DEVICES,
+  "/bank-devices": PERMISSIONS.DEVICES,
+  "/device-status": PERMISSIONS.DEVICE_STATUS,
+  "/device-assignment": PERMISSIONS.ASSIGNMENTS,
+  "/regional-coverage": PERMISSIONS.REGIONAL_VIEW,
+
+  "/engineers": PERMISSIONS.ENGINEERING,
+  "/engineers-ops": PERMISSIONS.FIELD_ENGINEERS,
+  "/field-ops": PERMISSIONS.FIELD_OPS,
+
+  "/users": PERMISSIONS.USERS,
+  "/user-management": PERMISSIONS.USER_MANAGEMENT,
+  "/staff": PERMISSIONS.STAFF_DIRECTORY,
+  "/staff-directory": PERMISSIONS.STAFF_DIRECTORY,
+  "/departments": PERMISSIONS.DEPARTMENTS,
+  "/audit-logs": PERMISSIONS.AUDIT_LOGS,
+  "/settings": PERMISSIONS.SETTINGS,
+  "/notifications": PERMISSIONS.NOTIFICATIONS,
+  "/data-import": PERMISSIONS.DATA_IMPORT,
+
+  "/official-mail": PERMISSIONS.OFFICIAL_MAIL,
+  "/ark-connect": PERMISSIONS.ARK_CONNECT,
 };
 
 export function canAccess(role, permission) {
   if (!role || !permission) return false;
+
   const normalizedRole = normalizeRole(role);
   const access = ROLE_ACCESS[normalizedRole];
+
   if (!access) return false;
   if (access.includes("*")) return true;
+
   return access.includes(permission);
 }
 
@@ -374,12 +713,20 @@ export function getRoleLabel(role) {
   return ROLE_LABELS[normalizeRole(role)] || normalizeRole(role) || "User";
 }
 
+export function getRoleDepartment(role) {
+  return ROLE_DEPARTMENTS[normalizeRole(role)] || "";
+}
+
+export function isSystemAdmin(role) {
+  return normalizeRole(role) === "system_admin";
+}
+
 export function isAdmin(role) {
-  return normalizeRole(role) === "admin";
+  return ["system_admin", "admin_head"].includes(normalizeRole(role));
 }
 
 export function isExecutive(role) {
-  return ["admin", "ceo", "agm", "manager"].includes(normalizeRole(role));
+  return ["system_admin", "ceo", "agm", "manager"].includes(normalizeRole(role));
 }
 
 export function isExecutiveRole(role) {
@@ -387,15 +734,34 @@ export function isExecutiveRole(role) {
 }
 
 export function isOperationsRole(role) {
-  return ["admin", "operations", "helpdesk", "agm", "manager"].includes(normalizeRole(role));
+  return [
+    "system_admin",
+    "ceo",
+    "agm",
+    "manager",
+    "operations",
+    "helpdesk",
+  ].includes(normalizeRole(role));
 }
 
 export function isInventoryRole(role) {
-  return ["admin", "inventory", "agm", "manager"].includes(normalizeRole(role));
+  return [
+    "system_admin",
+    "ceo",
+    "agm",
+    "manager",
+    "inventory",
+  ].includes(normalizeRole(role));
 }
 
 export function isRRHeadRole(role) {
-  return ["admin", "repair_head", "agm", "manager"].includes(normalizeRole(role));
+  return [
+    "system_admin",
+    "ceo",
+    "agm",
+    "manager",
+    "repair_head",
+  ].includes(normalizeRole(role));
 }
 
 export function isRRTechnicianRole(role) {
@@ -403,10 +769,31 @@ export function isRRTechnicianRole(role) {
 }
 
 export function isFinanceRole(role) {
-  return ["admin", "finance", "agm", "manager", "ceo"].includes(normalizeRole(role));
+  return [
+    "system_admin",
+    "ceo",
+    "agm",
+    "manager",
+    "head_of_account",
+    "finance",
+  ].includes(normalizeRole(role));
 }
 
-export function canPrint(role, printPermission = "print_official_report") {
+export function isITRole(role) {
+  return ["system_admin", "head_of_it", "it"].includes(normalizeRole(role));
+}
+
+export function isBusinessDevelopmentRole(role) {
+  return [
+    "system_admin",
+    "ceo",
+    "agm",
+    "head_of_business_development",
+    "business_developer",
+  ].includes(normalizeRole(role));
+}
+
+export function canPrint(role, printPermission = PERMISSIONS.PRINT_OFFICIAL_REPORT) {
   return canAccess(role, printPermission);
 }
 

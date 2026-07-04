@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
@@ -48,31 +48,225 @@ import {
   Trash2,
   KeyRound,
   RefreshCw,
+  MonitorCog,
+  BriefcaseBusiness,
 } from 'lucide-react';
 
 import { format } from 'date-fns';
 
+import {
+  ROLE_LABELS,
+  ROLE_DEPARTMENTS,
+  normalizeRole,
+  getRoleDepartment,
+  getRoleLabel,
+} from '@/lib/roleAccess';
+
 const MAIN_ADMIN_EMAIL = 'iamkizmith@gmail.com';
 
-const ALL_ROLES = [
-  { value: 'admin', label: 'Administrator', icon: Shield, color: 'bg-red-100 text-red-700 border-red-200' },
-  { value: 'ceo', label: 'CEO', icon: BadgeCheck, color: 'bg-yellow-100 text-yellow-700 border-yellow-200' },
-  { value: 'ceo_pa', label: 'CEO PA', icon: UserCog, color: 'bg-yellow-50 text-yellow-600 border-yellow-100' },
-  { value: 'agm', label: 'Asst. General Manager', icon: BarChart3, color: 'bg-purple-100 text-purple-700 border-purple-200' },
-  { value: 'manager', label: 'Operational Manager', icon: BarChart3, color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
- { value: 'repair_head', label: 'Head of Repair & Refurb.', icon: Wrench, color: 'bg-orange-100 text-orange-700 border-orange-200' },
-
-{ value: 'repair_technician', label: 'Repair Technician', icon: Wrench, color: 'bg-orange-50 text-orange-600 border-orange-100' },
-
-{ value: 'helpdesk', label: 'Help Desk', icon: Headphones, color: 'bg-blue-100 text-blue-700 border-blue-200' },
-  { value: 'engineer', label: 'Field Engineer', icon: Wrench, color: 'bg-amber-100 text-amber-700 border-amber-200' },
-  { value: 'hr', label: 'Human Resources', icon: UserCheck, color: 'bg-pink-100 text-pink-700 border-pink-200' },
-  { value: 'finance', label: 'Finance', icon: DollarSign, color: 'bg-green-100 text-green-700 border-green-200' },
-  { value: 'inventory', label: 'Inventory', icon: ShoppingCart, color: 'bg-teal-100 text-teal-700 border-teal-200' },
-  { value: 'procurement', label: 'Procurement', icon: ShoppingCart, color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
-  { value: 'crm', label: 'CRM / Marketing', icon: TrendingUp, color: 'bg-violet-100 text-violet-700 border-violet-200' },
-  { value: 'client', label: 'Client / Bank', icon: User, color: 'bg-slate-100 text-slate-600 border-slate-200' },
+const ROLE_GROUPS = [
+  {
+    department: 'Information Technology',
+    roles: [
+      {
+        value: 'system_admin',
+        label: 'System Administrator',
+        icon: Shield,
+        color: 'bg-red-100 text-red-700 border-red-200',
+        protected: true,
+      },
+      {
+        value: 'head_of_it',
+        label: 'Head of IT',
+        icon: MonitorCog,
+        color: 'bg-sky-100 text-sky-700 border-sky-200',
+      },
+      {
+        value: 'it',
+        label: 'IT Officer',
+        icon: MonitorCog,
+        color: 'bg-sky-50 text-sky-600 border-sky-100',
+      },
+    ],
+  },
+  {
+    department: 'Executive Management',
+    roles: [
+      {
+        value: 'ceo',
+        label: 'CEO',
+        icon: BadgeCheck,
+        color: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+      },
+      {
+        value: 'agm',
+        label: 'Assistant General Manager',
+        icon: BarChart3,
+        color: 'bg-purple-100 text-purple-700 border-purple-200',
+      },
+    ],
+  },
+  {
+    department: 'Administration',
+    roles: [
+      {
+        value: 'admin_head',
+        label: 'Head of Administration',
+        icon: UserCog,
+        color: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+      },
+      {
+        value: 'admin',
+        label: 'Administrative Officer',
+        icon: UserCog,
+        color: 'bg-indigo-50 text-indigo-600 border-indigo-100',
+      },
+    ],
+  },
+  {
+    department: 'Operations',
+    roles: [
+      {
+        value: 'manager',
+        label: 'Operations Manager',
+        icon: BarChart3,
+        color: 'bg-blue-100 text-blue-700 border-blue-200',
+      },
+      {
+        value: 'operations',
+        label: 'Operations Officer',
+        icon: BarChart3,
+        color: 'bg-blue-50 text-blue-600 border-blue-100',
+      },
+    ],
+  },
+  {
+    department: 'Helpdesk',
+    roles: [
+      {
+        value: 'helpdesk',
+        label: 'Helpdesk Officer',
+        icon: Headphones,
+        color: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+      },
+    ],
+  },
+  {
+    department: 'Field Engineering',
+    roles: [
+      {
+        value: 'engineer',
+        label: 'Field Engineer',
+        icon: Wrench,
+        color: 'bg-amber-100 text-amber-700 border-amber-200',
+      },
+    ],
+  },
+  {
+    department: 'Inventory',
+    roles: [
+      {
+        value: 'inventory',
+        label: 'Inventory Officer',
+        icon: ShoppingCart,
+        color: 'bg-teal-100 text-teal-700 border-teal-200',
+      },
+    ],
+  },
+  {
+    department: 'Repair & Refurbishment',
+    roles: [
+      {
+        value: 'repair_head',
+        label: 'Head of Repair & Refurbishment',
+        icon: Wrench,
+        color: 'bg-orange-100 text-orange-700 border-orange-200',
+      },
+      {
+        value: 'repair_technician',
+        label: 'Repair Technician',
+        icon: Wrench,
+        color: 'bg-orange-50 text-orange-600 border-orange-100',
+      },
+    ],
+  },
+  {
+    department: 'Finance & Accounts',
+    roles: [
+      {
+        value: 'head_of_account',
+        label: 'Head of Account',
+        icon: DollarSign,
+        color: 'bg-green-100 text-green-700 border-green-200',
+      },
+      {
+        value: 'finance',
+        label: 'Finance Officer',
+        icon: DollarSign,
+        color: 'bg-green-50 text-green-600 border-green-100',
+      },
+    ],
+  },
+  {
+    department: 'Procurement',
+    roles: [
+      {
+        value: 'procurement',
+        label: 'Procurement Officer',
+        icon: ShoppingCart,
+        color: 'bg-cyan-100 text-cyan-700 border-cyan-200',
+      },
+    ],
+  },
+  {
+    department: 'Human Resources',
+    roles: [
+      {
+        value: 'hr',
+        label: 'Human Resource Officer',
+        icon: UserCheck,
+        color: 'bg-pink-100 text-pink-700 border-pink-200',
+      },
+    ],
+  },
+  {
+    department: 'Business Development',
+    roles: [
+      {
+        value: 'head_of_business_development',
+        label: 'Head of Business Development',
+        icon: BriefcaseBusiness,
+        color: 'bg-violet-100 text-violet-700 border-violet-200',
+      },
+      {
+        value: 'business_developer',
+        label: 'Business Development Officer',
+        icon: TrendingUp,
+        color: 'bg-violet-50 text-violet-600 border-violet-100',
+      },
+    ],
+  },
+  {
+    department: 'Client',
+    roles: [
+      {
+        value: 'client',
+        label: 'Client / Bank',
+        icon: User,
+        color: 'bg-slate-100 text-slate-600 border-slate-200',
+      },
+    ],
+  },
 ];
+
+const ALL_ROLES = ROLE_GROUPS.flatMap((group) =>
+  group.roles.map((role) => ({
+    ...role,
+    department: group.department,
+  }))
+);
+
+const DEPARTMENTS = ROLE_GROUPS.map((group) => group.department);
 
 const EMPTY_PROFILE = {
   employee_id: '',
@@ -85,22 +279,36 @@ const EMPTY_PROFILE = {
   must_change_password: false,
 };
 
+const getAvailableRolesForDepartment = (department) => {
+  const group = ROLE_GROUPS.find((item) => item.department === department);
+  return group?.roles || [];
+};
+
 export default function UserManagement() {
   const { user } = useOutletContext();
   const qc = useQueryClient();
 
-  const isSuperAdmin = user?.email === MAIN_ADMIN_EMAIL;
-  const isAdmin = isSuperAdmin && ['admin', 'super_admin'].includes(user?.role);
+  const currentUserRole = normalizeRole(user?.role);
+  const isMainDeveloper = user?.email === MAIN_ADMIN_EMAIL;
+  const isAdmin = isMainDeveloper && ['system_admin', 'admin', 'super_admin'].includes(currentUserRole);
 
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [departmentFilter, setDepartmentFilter] = useState('all');
+
   const [inviteOpen, setInviteOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteDepartment, setInviteDepartment] = useState('Helpdesk');
   const [inviteRole, setInviteRole] = useState('helpdesk');
   const [inviting, setInviting] = useState(false);
+
   const [profile, setProfile] = useState(EMPTY_PROFILE);
+  const [profileRole, setProfileRole] = useState('');
+  const [profileDepartment, setProfileDepartment] = useState('');
+
   const [savingProfile, setSavingProfile] = useState(false);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -135,36 +343,74 @@ export default function UserManagement() {
         return baseUsers;
       }
 
-      const activityByEmail = (activityProfiles || []).reduce((acc, profile) => {
-        if (profile.user_email) {
-          acc[profile.user_email.toLowerCase()] = profile;
+      const activityByEmail = (activityProfiles || []).reduce((acc, profileItem) => {
+        if (profileItem.user_email) {
+          acc[profileItem.user_email.toLowerCase()] = profileItem;
         }
+
         return acc;
       }, {});
 
       return baseUsers.map((u) => ({
         ...u,
+        role: normalizeRole(u.role),
         activity: activityByEmail[u.email?.toLowerCase()] || null,
       }));
     },
   });
 
+  const roleCounts = useMemo(() => {
+    return ALL_ROLES.reduce((acc, r) => {
+      acc[r.value] = users.filter((u) => normalizeRole(u.role) === r.value).length;
+      return acc;
+    }, {});
+  }, [users]);
+
+  const departmentCounts = useMemo(() => {
+    return DEPARTMENTS.reduce((acc, department) => {
+      acc[department] = users.filter((u) => {
+        const roleDepartment = getRoleDepartment(u.role);
+        return (u.department || roleDepartment) === department;
+      }).length;
+
+      return acc;
+    }, {});
+  }, [users]);
+
   const filtered = users.filter((u) => {
-    if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+    const normalizedUserRole = normalizeRole(u.role);
+    const inferredDepartment = u.department || getRoleDepartment(normalizedUserRole);
+
+    if (roleFilter !== 'all' && normalizedUserRole !== roleFilter) return false;
+    if (departmentFilter !== 'all' && inferredDepartment !== departmentFilter) return false;
 
     if (search) {
       const s = search.toLowerCase();
+
       return (
         u.full_name?.toLowerCase().includes(s) ||
-        u.email?.toLowerCase().includes(s)
+        u.email?.toLowerCase().includes(s) ||
+        normalizedUserRole?.toLowerCase().includes(s) ||
+        inferredDepartment?.toLowerCase().includes(s)
       );
     }
 
     return true;
   });
 
-  const roleCfg = (role) =>
-    ALL_ROLES.find((r) => r.value === role) || ALL_ROLES[ALL_ROLES.length - 1];
+  const roleCfg = (role) => {
+    const normalized = normalizeRole(role);
+
+    return (
+      ALL_ROLES.find((r) => r.value === normalized) || {
+        value: normalized || 'unknown',
+        label: getRoleLabel(normalized) || 'Unknown Role',
+        department: getRoleDepartment(normalized) || 'Unknown Department',
+        icon: User,
+        color: 'bg-slate-100 text-slate-600 border-slate-200',
+      }
+    );
+  };
 
   const isUserCurrentlyOnline = (activity) =>
     !!activity?.last_seen &&
@@ -180,9 +426,77 @@ export default function UserManagement() {
     }
   };
 
+  const handleInviteDepartmentChange = (department) => {
+    setInviteDepartment(department);
+
+    const firstRole = getAvailableRolesForDepartment(department)[0];
+
+    if (firstRole) {
+      setInviteRole(firstRole.value);
+    }
+  };
+
+  const handleProfileDepartmentChange = (department) => {
+    setProfileDepartment(department);
+    setProfile((prev) => ({
+      ...prev,
+      department,
+    }));
+
+    const availableRoles = getAvailableRolesForDepartment(department);
+
+    if (!availableRoles.some((role) => role.value === profileRole)) {
+      const firstRole = availableRoles[0];
+
+      if (firstRole) {
+        setProfileRole(firstRole.value);
+      }
+    }
+  };
+
+  const syncUserProfileTable = async ({
+    email,
+    role,
+    department,
+    extraUpdates = {},
+  }) => {
+    if (!email) return;
+
+    const { error } = await supabase
+      .from('user_profiles')
+      .update({
+        role,
+        department,
+        updated_at: new Date().toISOString(),
+        ...extraUpdates,
+      })
+      .eq('user_email', email);
+
+    if (error) {
+      console.warn('User profile sync warning:', error.message);
+    }
+  };
+
+  const syncEmployeeRole = async ({ email, role, department }) => {
+    if (!email) return;
+
+    const { error } = await supabase
+      .from('employees')
+      .update({
+        access_role: role,
+        department,
+        updated_at: new Date().toISOString(),
+      })
+      .or(`user_account_email.eq.${email},email_address.eq.${email}`);
+
+    if (error) {
+      console.warn('Employee role sync warning:', error.message);
+    }
+  };
+
   const handleInvite = async () => {
     if (!isAdmin) {
-      alert('Unauthorized. Only the main administrator can invite users.');
+      alert('Unauthorized. Only the System Administrator can invite users.');
       return;
     }
 
@@ -193,6 +507,11 @@ export default function UserManagement() {
 
       if (!cleanEmail) {
         alert('Please enter an email address.');
+        return;
+      }
+
+      if (!inviteDepartment || !inviteRole) {
+        alert('Please select a department and role.');
         return;
       }
 
@@ -211,7 +530,7 @@ export default function UserManagement() {
             email: cleanEmail,
             full_name: cleanEmail.split('@')[0],
             role: inviteRole,
-            department: '',
+            department: inviteDepartment,
           }),
         }
       );
@@ -219,22 +538,36 @@ export default function UserManagement() {
       const result = await response.json();
 
       if (!response.ok) {
-  alert(result?.error || 'Invite failed');
-  return;
-}
+        alert(result?.error || 'Invite failed');
+        return;
+      }
 
-if (result?.action_link) {
-  await navigator.clipboard.writeText(result.action_link);
+      await syncUserProfileTable({
+        email: cleanEmail,
+        role: inviteRole,
+        department: inviteDepartment,
+      });
 
-  alert(
-    `User created successfully.\n\nCreate Password link copied to clipboard.\n\n${result.action_link}`
-  );
-} else {
-  alert('User created successfully but no password link was returned.');
-}
+      await syncEmployeeRole({
+        email: cleanEmail,
+        role: inviteRole,
+        department: inviteDepartment,
+      });
 
-setInviteEmail('');
-setInviteOpen(false);
+      if (result?.action_link) {
+        await navigator.clipboard.writeText(result.action_link);
+
+        alert(
+          `User created successfully.\n\nCreate Password link copied to clipboard.\n\n${result.action_link}`
+        );
+      } else {
+        alert('User created successfully but no password link was returned.');
+      }
+
+      setInviteEmail('');
+      setInviteDepartment('Helpdesk');
+      setInviteRole('helpdesk');
+      setInviteOpen(false);
 
       qc.invalidateQueries({
         queryKey: ['users'],
@@ -249,21 +582,24 @@ setInviteOpen(false);
 
   const handleRoleChange = async (userId, newRole) => {
     if (!isAdmin) {
-      alert('Unauthorized. Only the main administrator can change roles.');
+      alert('Unauthorized. Only the System Administrator can change roles.');
       return;
     }
 
     const targetUser = users.find((u) => u.id === userId);
+    const normalizedNewRole = normalizeRole(newRole);
+    const newDepartment = getRoleDepartment(normalizedNewRole);
 
-    if (targetUser?.email === MAIN_ADMIN_EMAIL && newRole !== 'admin') {
-      alert('Main administrator role cannot be changed.');
+    if (targetUser?.email === MAIN_ADMIN_EMAIL && normalizedNewRole !== 'system_admin') {
+      alert('System Administrator role cannot be changed from this screen.');
       return;
     }
 
     const { error } = await supabase
       .from('users')
       .update({
-        role: newRole,
+        role: normalizedNewRole,
+        department: newDepartment,
         status: 'active',
         approval_status: 'approved',
         is_approved: true,
@@ -276,43 +612,51 @@ setInviteOpen(false);
       return;
     }
 
+    await syncUserProfileTable({
+      email: targetUser?.email,
+      role: normalizedNewRole,
+      department: newDepartment,
+    });
+
+    await syncEmployeeRole({
+      email: targetUser?.email,
+      role: normalizedNewRole,
+      department: newDepartment,
+    });
+
     qc.invalidateQueries({ queryKey: ['users'] });
     alert('Role updated successfully');
   };
 
   const handleForcePasswordReset = async (u) => {
-  if (!isAdmin) {
-    alert('Unauthorized');
-    return;
-  }
-
-  const { error } = await supabase.auth.resetPasswordForEmail(
-    u.email,
-    {
-      redirectTo:
-        'https://portal.arktechnologiesgroup.com/#/create-password',
+    if (!isAdmin) {
+      alert('Unauthorized');
+      return;
     }
-  );
 
-  if (error) {
-    alert(error.message);
-    return;
-  }
+    const { error } = await supabase.auth.resetPasswordForEmail(u.email, {
+      redirectTo: 'https://portal.arktechnologiesgroup.com/#/create-password',
+    });
 
-  await supabase
-    .from('users')
-    .update({
-      must_change_password: true,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', u.id);
+    if (error) {
+      alert(error.message);
+      return;
+    }
 
-  alert('Password reset email sent successfully.');
+    await supabase
+      .from('users')
+      .update({
+        must_change_password: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', u.id);
 
-  qc.invalidateQueries({
-    queryKey: ['users'],
-  });
-};
+    alert('Password reset email sent successfully.');
+
+    qc.invalidateQueries({
+      queryKey: ['users'],
+    });
+  };
 
   const handleBulkForceReset = async () => {
     if (!isAdmin) {
@@ -344,12 +688,17 @@ setInviteOpen(false);
       return;
     }
 
+    const normalizedUserRole = normalizeRole(u.role);
+    const resolvedDepartment = u.department || getRoleDepartment(normalizedUserRole);
+
     setSelectedUser(u);
+    setProfileRole(normalizedUserRole);
+    setProfileDepartment(resolvedDepartment);
 
     setProfile({
       employee_id: u.employee_id || '',
       phone: u.phone || '',
-      department: u.department || '',
+      department: resolvedDepartment,
       branch: u.branch || '',
       region: u.region || '',
       account_status: u.account_status || 'active',
@@ -369,7 +718,7 @@ setInviteOpen(false);
     if (!deleteConfirmUser) return;
 
     if (deleteConfirmUser.email === MAIN_ADMIN_EMAIL) {
-      alert('Main administrator cannot be deleted.');
+      alert('System Administrator cannot be deleted.');
       return;
     }
 
@@ -422,8 +771,16 @@ setInviteOpen(false);
 
     if (!selectedUser?.id) return;
 
+    const normalizedProfileRole = normalizeRole(profileRole);
+    const resolvedDepartment = profileDepartment || getRoleDepartment(normalizedProfileRole);
+
+    if (selectedUser.email === MAIN_ADMIN_EMAIL && normalizedProfileRole !== 'system_admin') {
+      alert('System Administrator role cannot be changed from this screen.');
+      return;
+    }
+
     if (selectedUser.email === MAIN_ADMIN_EMAIL && profile.account_status !== 'active') {
-      alert('Main administrator account must remain active.');
+      alert('System Administrator account must remain active.');
       return;
     }
 
@@ -433,9 +790,10 @@ setInviteOpen(false);
       const { error } = await supabase
         .from('users')
         .update({
+          role: normalizedProfileRole,
           employee_id: profile.employee_id,
           phone: profile.phone,
-          department: profile.department,
+          department: resolvedDepartment,
           branch: profile.branch,
           region: profile.region,
           account_status: profile.account_status,
@@ -452,7 +810,25 @@ setInviteOpen(false);
         return;
       }
 
+      await syncUserProfileTable({
+        email: selectedUser.email,
+        role: normalizedProfileRole,
+        department: resolvedDepartment,
+        extraUpdates: {
+          account_status: profile.account_status,
+          is_approved: profile.is_approved,
+          must_change_password: profile.must_change_password,
+        },
+      });
+
+      await syncEmployeeRole({
+        email: selectedUser.email,
+        role: normalizedProfileRole,
+        department: resolvedDepartment,
+      });
+
       qc.invalidateQueries({ queryKey: ['users'] });
+      qc.invalidateQueries({ queryKey: ['hr-employees'] });
       setProfileOpen(false);
     } catch (err) {
       console.error(err);
@@ -461,11 +837,6 @@ setInviteOpen(false);
       setSavingProfile(false);
     }
   };
-
-  const roleCounts = ALL_ROLES.reduce((acc, r) => {
-    acc[r.value] = users.filter((u) => u.role === r.value).length;
-    return acc;
-  }, {});
 
   const pendingCount = users.filter(
     (u) =>
@@ -478,10 +849,12 @@ setInviteOpen(false);
 
   const onlineUsers = users.filter((u) => isUserCurrentlyOnline(u.activity));
 
-  const onlineEngineers = onlineUsers.filter((u) => u.role === 'engineer').length;
-  const onlineHelpdesk = onlineUsers.filter((u) => u.role === 'helpdesk').length;
-  const onlineOperations = onlineUsers.filter((u) =>
-    ['manager', 'agm', 'ceo', 'ceo_pa'].includes(u.role)
+  const onlineEngineers = onlineUsers.filter((u) => normalizeRole(u.role) === 'engineer').length;
+  const onlineHelpdesk = onlineUsers.filter((u) => normalizeRole(u.role) === 'helpdesk').length;
+  const onlineManagement = onlineUsers.filter((u) =>
+    ['system_admin', 'ceo', 'agm', 'manager', 'admin_head', 'head_of_it', 'head_of_account'].includes(
+      normalizeRole(u.role)
+    )
   ).length;
 
   if (!isAdmin) {
@@ -491,25 +864,29 @@ setInviteOpen(false);
           <Shield className="w-10 h-10 mx-auto mb-3 text-red-500" />
           <h1 className="text-xl font-bold">Access Denied</h1>
           <p className="text-sm text-muted-foreground mt-2">
-            Only the main administrator can manage users and roles.
+            Only the System Administrator can manage users and roles.
           </p>
         </Card>
       </div>
     );
   }
 
+  const inviteRoles = getAvailableRolesForDepartment(inviteDepartment);
+  const profileRoles = getAvailableRolesForDepartment(profileDepartment);
+
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">User Management</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             {users.length} registered users ·{' '}
-            {ALL_ROLES.filter((r) => roleCounts[r.value] > 0).length} roles active
+            {ALL_ROLES.filter((r) => roleCounts[r.value] > 0).length} roles active ·{' '}
+            {DEPARTMENTS.filter((d) => departmentCounts[d] > 0).length} departments active
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={handleBulkForceReset}>
             <RefreshCw className="w-4 h-4 mr-2" />
             Reset All Passwords
@@ -549,46 +926,89 @@ setInviteOpen(false);
 
         <Card className="p-4">
           <p className="text-xs text-muted-foreground font-medium">Online Management</p>
-          <p className="text-2xl font-bold mt-1">{onlineOperations}</p>
-          <p className="text-xs text-muted-foreground mt-1">CEO, AGM and managers online</p>
+          <p className="text-2xl font-bold mt-1">{onlineManagement}</p>
+          <p className="text-xs text-muted-foreground mt-1">System, executive and department heads</p>
         </Card>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setRoleFilter('all')}
-          className={
-            'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
-            (roleFilter === 'all'
-              ? 'bg-primary text-primary-foreground border-primary'
-              : 'bg-slate-900/50 border-border text-muted-foreground')
-          }
-        >
-          All ({users.length})
-        </button>
+      <div className="space-y-2">
+        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+          Filter by Department
+        </p>
 
-        {ALL_ROLES.filter((r) => roleCounts[r.value] > 0).map((r) => (
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            key={r.value}
-            onClick={() => setRoleFilter(r.value)}
+            onClick={() => setDepartmentFilter('all')}
             className={
               'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
-              (roleFilter === r.value
+              (departmentFilter === 'all'
                 ? 'bg-primary text-primary-foreground border-primary'
                 : 'bg-slate-900/50 border-border text-muted-foreground')
             }
           >
-            {r.label} ({roleCounts[r.value]})
+            All Departments ({users.length})
           </button>
-        ))}
+
+          {DEPARTMENTS.filter((d) => departmentCounts[d] > 0).map((department) => (
+            <button
+              type="button"
+              key={department}
+              onClick={() => setDepartmentFilter(department)}
+              className={
+                'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
+                (departmentFilter === department
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-slate-900/50 border-border text-muted-foreground')
+              }
+            >
+              {department} ({departmentCounts[department]})
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+          Filter by Role
+        </p>
+
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setRoleFilter('all')}
+            className={
+              'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
+              (roleFilter === 'all'
+                ? 'bg-primary text-primary-foreground border-primary'
+                : 'bg-slate-900/50 border-border text-muted-foreground')
+            }
+          >
+            All Roles ({users.length})
+          </button>
+
+          {ALL_ROLES.filter((r) => roleCounts[r.value] > 0).map((r) => (
+            <button
+              type="button"
+              key={r.value}
+              onClick={() => setRoleFilter(r.value)}
+              className={
+                'px-3 py-1.5 rounded-full text-xs font-medium border transition-all ' +
+                (roleFilter === r.value
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-slate-900/50 border-border text-muted-foreground')
+              }
+            >
+              {r.label} ({roleCounts[r.value]})
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Search by name or email..."
+          placeholder="Search by name, email, department or role..."
           className="pl-9"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -602,158 +1022,183 @@ setInviteOpen(false);
       ) : (
         <div className="grid gap-3">
           {filtered.map((u) => {
-            const rc = roleCfg(u.role);
+            const normalizedUserRole = normalizeRole(u.role);
+            const rc = roleCfg(normalizedUserRole);
             const Icon = rc.icon;
             const activity = u.activity;
             const isOnline = isUserCurrentlyOnline(activity);
+            const resolvedDepartment = u.department || ROLE_DEPARTMENTS[normalizedUserRole] || rc.department;
 
             return (
               <Card key={u.id} className="p-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20">
-                    <span className="text-sm font-bold text-primary">
-                      {u.full_name?.[0]?.toUpperCase() || '?'}
-                    </span>
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-sm truncate">
-                        {u.full_name || 'Unnamed'}
-                      </p>
-
-                      {u.account_status === 'inactive' && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] bg-red-50 text-red-600 border-red-200"
-                        >
-                          Inactive
-                        </Badge>
-                      )}
-
-                      {u.account_status === 'suspended' && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] bg-amber-50 text-amber-600 border-amber-200"
-                        >
-                          Suspended
-                        </Badge>
-                      )}
-
-                      {(u.status === 'pending' || u.approval_status === 'pending' || u.is_approved === false) && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] bg-yellow-50 text-yellow-700 border-yellow-200"
-                        >
-                          Pending
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                      <p className="text-xs text-muted-foreground">{u.email}</p>
-
-                      {u.department && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-                          <Building2 className="w-3 h-3" />
-                          {u.department}
-                        </span>
-                      )}
-
-                      {u.employee_id && (
-                        <span className="text-xs font-mono text-muted-foreground">
-                          {u.employee_id}
-                        </span>
-                      )}
-
-                      {u.phone && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-0.5">
-                          <Phone className="w-3 h-3" />
-                          {u.phone}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 mt-2">
-                      <Badge
-                        variant="outline"
-                        className={
-                          isOnline
-                            ? 'text-[10px] bg-green-50 text-green-700 border-green-200'
-                            : 'text-[10px] bg-slate-50 text-slate-600 border-slate-200'
-                        }
-                      >
-                        {isOnline ? '🟢 Online' : '⚫ Offline'}
-                      </Badge>
-
-                      <span className="text-xs text-muted-foreground">
-                        Last seen: {formatActivityDate(activity?.last_seen)}
-                      </span>
-
-                      <span className="text-xs text-muted-foreground">
-                        Last login: {formatActivityDate(activity?.last_login)}
+                <div className="flex flex-col xl:flex-row xl:items-center gap-4">
+                  <div className="flex items-start gap-4 flex-1 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 border border-primary/20">
+                      <span className="text-sm font-bold text-primary">
+                        {u.full_name?.[0]?.toUpperCase() || '?'}
                       </span>
                     </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-sm truncate">
+                          {u.full_name || 'Unnamed'}
+                        </p>
+
+                        {u.email === MAIN_ADMIN_EMAIL && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-red-50 text-red-700 border-red-200"
+                          >
+                            Protected System Admin
+                          </Badge>
+                        )}
+
+                        {u.account_status === 'inactive' && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-red-50 text-red-600 border-red-200"
+                          >
+                            Inactive
+                          </Badge>
+                        )}
+
+                        {u.account_status === 'suspended' && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-amber-50 text-amber-600 border-amber-200"
+                          >
+                            Suspended
+                          </Badge>
+                        )}
+
+                        {(u.status === 'pending' ||
+                          u.approval_status === 'pending' ||
+                          u.is_approved === false) && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] bg-yellow-50 text-yellow-700 border-yellow-200"
+                          >
+                            Pending
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                        <p className="text-xs text-muted-foreground">{u.email}</p>
+
+                        {resolvedDepartment && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                            <Building2 className="w-3 h-3" />
+                            {resolvedDepartment}
+                          </span>
+                        )}
+
+                        {u.employee_id && (
+                          <span className="text-xs font-mono text-muted-foreground">
+                            {u.employee_id}
+                          </span>
+                        )}
+
+                        {u.phone && (
+                          <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                            <Phone className="w-3 h-3" />
+                            {u.phone}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <Badge
+                          variant="outline"
+                          className={
+                            isOnline
+                              ? 'text-[10px] bg-green-50 text-green-700 border-green-200'
+                              : 'text-[10px] bg-slate-50 text-slate-600 border-slate-200'
+                          }
+                        >
+                          {isOnline ? '🟢 Online' : '⚫ Offline'}
+                        </Badge>
+
+                        <span className="text-xs text-muted-foreground">
+                          Last seen: {formatActivityDate(activity?.last_seen)}
+                        </span>
+
+                        <span className="text-xs text-muted-foreground">
+                          Last login: {formatActivityDate(activity?.last_login)}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  <Badge
-                    variant="outline"
-                    className={`${rc.color} text-[10px] hidden sm:flex items-center gap-1 flex-shrink-0`}
-                  >
-                    <Icon className="w-3 h-3" />
-                    {rc.label}
-                  </Badge>
-
-                  {u.email !== user.email && (
-                    <Select
-                      value={u.role || ''}
-                      onValueChange={(v) => handleRoleChange(u.id, v)}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      variant="outline"
+                      className={`${rc.color} text-[10px] flex items-center gap-1 flex-shrink-0`}
                     >
-                      <SelectTrigger className="w-[130px] h-8 text-xs hidden md:flex">
-                        <SelectValue placeholder="Set role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {ALL_ROLES.map((r) => (
-                          <SelectItem key={r.value} value={r.value}>
-                            {r.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
+                      <Icon className="w-3 h-3" />
+                      {rc.label}
+                    </Badge>
 
-                  <Button variant="outline" size="sm" onClick={() => openProfile(u)}>
-                    <UserCog className="w-3.5 h-3.5 mr-1" />
-                    Profile
-                  </Button>
+                    {u.email !== user.email && (
+                      <Select
+                        value={normalizedUserRole || ''}
+                        onValueChange={(v) => handleRoleChange(u.id, v)}
+                      >
+                        <SelectTrigger className="w-[220px] h-8 text-xs">
+                          <SelectValue placeholder="Set role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {ROLE_GROUPS.map((group) => (
+                            <div key={group.department}>
+                              <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                                {group.department}
+                              </div>
 
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className={
-                      u.must_change_password
-                        ? 'text-amber-600 border-amber-300 bg-amber-50'
-                        : ''
-                    }
-                    onClick={() => handleForcePasswordReset(u)}
-                  >
-                    <KeyRound className="w-3.5 h-3.5" />
-                  </Button>
+                              {group.roles.map((r) => (
+                                <SelectItem key={r.value} value={r.value}>
+                                  {r.label}
+                                </SelectItem>
+                              ))}
+                            </div>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
 
-                  {u.email !== user.email && u.email !== MAIN_ADMIN_EMAIL && (
+                    <Button variant="outline" size="sm" onClick={() => openProfile(u)}>
+                      <UserCog className="w-3.5 h-3.5 mr-1" />
+                      Profile
+                    </Button>
+
                     <Button
                       variant="outline"
                       size="sm"
-                      className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                      onClick={() => setDeleteConfirmUser(u)}
+                      className={
+                        u.must_change_password
+                          ? 'text-amber-600 border-amber-300 bg-amber-50'
+                          : ''
+                      }
+                      onClick={() => handleForcePasswordReset(u)}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <KeyRound className="w-3.5 h-3.5" />
                     </Button>
-                  )}
 
-                  <span className="text-xs text-muted-foreground hidden lg:block whitespace-nowrap">
-                    {u.created_at ? format(new Date(u.created_at), 'MMM d, yyyy') : ''}
-                  </span>
+                    {u.email !== user.email && u.email !== MAIN_ADMIN_EMAIL && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                        onClick={() => setDeleteConfirmUser(u)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+
+                    <span className="text-xs text-muted-foreground hidden lg:block whitespace-nowrap">
+                      {u.created_at ? format(new Date(u.created_at), 'MMM d, yyyy') : ''}
+                    </span>
+                  </div>
                 </div>
               </Card>
             );
@@ -779,20 +1224,36 @@ setInviteOpen(false);
               <Label>Email Address *</Label>
               <Input
                 type="email"
-                placeholder="user@bank.com"
+                placeholder="user@arktechnologiesgroup.com"
                 value={inviteEmail}
                 onChange={(e) => setInviteEmail(e.target.value)}
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Role / Department</Label>
-              <Select value={inviteRole} onValueChange={setInviteRole}>
+              <Label>Department</Label>
+              <Select value={inviteDepartment} onValueChange={handleInviteDepartmentChange}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select department" />
                 </SelectTrigger>
                 <SelectContent>
-                  {ALL_ROLES.map((r) => (
+                  {DEPARTMENTS.map((department) => (
+                    <SelectItem key={department} value={department}>
+                      {department}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Role / Position</Label>
+              <Select value={inviteRole} onValueChange={setInviteRole}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {inviteRoles.map((r) => (
                     <SelectItem key={r.value} value={r.value}>
                       {r.label}
                     </SelectItem>
@@ -802,7 +1263,7 @@ setInviteOpen(false);
             </div>
 
             <div className="p-3 bg-muted/50 rounded-lg text-xs text-muted-foreground">
-              Adds the user profile to the ERP system.
+              Department controls where the staff belongs. Role controls what the staff can do.
             </div>
 
             <Button className="w-full" onClick={handleInvite} disabled={!inviteEmail || inviting}>
@@ -866,10 +1327,44 @@ setInviteOpen(false);
       <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Edit Profile — {selectedUser?.full_name}</DialogTitle>
+            <DialogTitle>Edit Profile — {selectedUser?.full_name || selectedUser?.email}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Department</Label>
+                <Select value={profileDepartment} onValueChange={handleProfileDepartmentChange}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DEPARTMENTS.map((department) => (
+                      <SelectItem key={department} value={department}>
+                        {department}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label>Role / Position</Label>
+                <Select value={profileRole} onValueChange={setProfileRole}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profileRoles.map((r) => (
+                      <SelectItem key={r.value} value={r.value}>
+                        {r.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Employee ID</Label>
@@ -900,19 +1395,6 @@ setInviteOpen(false);
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label>Department</Label>
-                <Input
-                  value={profile.department}
-                  onChange={(e) =>
-                    setProfile((p) => ({
-                      ...p,
-                      department: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-
-              <div className="space-y-1.5">
                 <Label>Branch</Label>
                 <Input
                   value={profile.branch}
@@ -924,19 +1406,19 @@ setInviteOpen(false);
                   }
                 />
               </div>
-            </div>
 
-            <div className="space-y-1.5">
-              <Label>Region</Label>
-              <Input
-                value={profile.region}
-                onChange={(e) =>
-                  setProfile((p) => ({
-                    ...p,
-                    region: e.target.value,
-                  }))
-                }
-              />
+              <div className="space-y-1.5">
+                <Label>Region</Label>
+                <Input
+                  value={profile.region}
+                  onChange={(e) =>
+                    setProfile((p) => ({
+                      ...p,
+                      region: e.target.value,
+                    }))
+                  }
+                />
+              </div>
             </div>
 
             <div className="space-y-1.5">
