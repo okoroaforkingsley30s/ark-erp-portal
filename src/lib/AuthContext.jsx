@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { normalizeEmail } from "@/lib/identity";
 
 const AuthContext = createContext();
 
@@ -11,18 +12,29 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const [authError, setAuthError] = useState(null);
 
-  const signOutAndBlock = async (message, type = "user_not_registered") => {
-  console.warn(message);
+  const blockAccess = (message, type = "user_not_registered", authUser = null) => {
+    console.warn(message);
 
-  // Do not destroy the Supabase session automatically.
-  // This prevents FEMobi from logging out because of temporary profile/network errors.
-  setUser(null);
-  setIsAuthenticated(false);
-  setAuthError({ type, message });
-  setIsLoadingAuth(false);
-};
+    // Keep the Supabase session so temporary profile/state issues do not log users out.
+    setUser(
+      authUser
+        ? {
+            id: authUser.id,
+            auth_id: authUser.id,
+            email: normalizeEmail(authUser.email),
+            full_name:
+              authUser.user_metadata?.full_name ||
+              normalizeEmail(authUser.email) ||
+              "Signed-in user",
+          }
+        : null
+    );
+    setIsAuthenticated(false);
+    setAuthError({ type, message });
+    setIsLoadingAuth(false);
+  };
 
-  const loadUserProfile = async (authUser) => {
+  const loadUserProfile = useCallback(async (authUser, { showLoading = true } = {}) => {
     if (!authUser) {
       setUser(null);
       setIsAuthenticated(false);
@@ -31,9 +43,9 @@ export const AuthProvider = ({ children }) => {
     }
 
     try {
-      setIsLoadingAuth(true);
+      if (showLoading) setIsLoadingAuth(true);
 
-      const cleanEmail = authUser.email?.trim().toLowerCase();
+      const cleanEmail = normalizeEmail(authUser.email);
 
       const { data: profile, error } = await supabase
         .from("users")
@@ -42,44 +54,23 @@ export const AuthProvider = ({ children }) => {
         .maybeSingle();
 
       if (error) {
-  console.error("Profile load failed:", error.message);
-
-  setUser({
-    id: authUser.id,
-    auth_id: authUser.id,
-    email: cleanEmail,
-    full_name: authUser.user_metadata?.full_name || cleanEmail,
-    role: authUser.user_metadata?.role || "engineer",
-    department: authUser.user_metadata?.department || null,
-    status: "active",
-    approval_status: "approved",
-    is_approved: true,
-  });
-
-  setIsAuthenticated(true);
-  setAuthError(null);
-  setIsLoadingAuth(false);
-  return;
-}
+        console.error("Profile load failed:", error.message);
+        blockAccess(
+          "We could not verify your ARK ONE profile. Please try again or contact admin.",
+          "profile_load_failed",
+          authUser
+        );
+        return;
+      }
 
       if (!profile) {
-  setUser({
-    id: authUser.id,
-    auth_id: authUser.id,
-    email: cleanEmail,
-    full_name: authUser.user_metadata?.full_name || cleanEmail,
-    role: authUser.user_metadata?.role || "engineer",
-    department: authUser.user_metadata?.department || null,
-    status: "active",
-    approval_status: "approved",
-    is_approved: true,
-  });
-
-  setIsAuthenticated(true);
-  setAuthError(null);
-  setIsLoadingAuth(false);
-  return;
-}
+        blockAccess(
+          "Your login is valid, but no ARK ONE user profile exists yet. Please contact admin for access.",
+          "missing_profile",
+          authUser
+        );
+        return;
+      }
 
       const isMainAdmin = cleanEmail === ADMIN_EMAIL;
 
@@ -92,17 +83,32 @@ export const AuthProvider = ({ children }) => {
 
       const hasRole = Boolean(profile.role);
 
-      if (!isApproved || !hasRole) {
-        await signOutAndBlock("Your account is pending admin approval.");
-        return;
-      }
-
       if (
         profile.status === "rejected" ||
         profile.approval_status === "rejected"
       ) {
-        await signOutAndBlock(
-          "Your account approval was rejected. Please contact admin."
+        blockAccess(
+          "Your account approval was rejected. Please contact admin.",
+          "rejected",
+          authUser
+        );
+        return;
+      }
+
+      if (!isApproved) {
+        blockAccess(
+          "Your account is pending admin approval.",
+          "pending_approval",
+          authUser
+        );
+        return;
+      }
+
+      if (!hasRole) {
+        blockAccess(
+          "Your account has been created, but no role has been assigned yet. Please contact admin.",
+          "missing_role",
+          authUser
         );
         return;
       }
@@ -128,16 +134,18 @@ export const AuthProvider = ({ children }) => {
       setAuthError(null);
     } catch (error) {
       console.error("Profile load failed:", error);
-      await signOutAndBlock(
-        "Authentication failed. Please contact admin."
+      blockAccess(
+        "Authentication failed. Please contact admin.",
+        "profile_load_failed",
+        authUser
       );
     } finally {
       setIsLoadingAuth(false);
     }
-  };
+  }, []);
 
-  const checkUserAuth = async () => {
-    setIsLoadingAuth(true);
+  const checkUserAuth = useCallback(async ({ showLoading = true } = {}) => {
+    if (showLoading) setIsLoadingAuth(true);
     setAuthError(null);
 
     try {
@@ -149,7 +157,7 @@ export const AuthProvider = ({ children }) => {
       if (error) throw error;
 
       if (session?.user) {
-        await loadUserProfile(session.user);
+        await loadUserProfile(session.user, { showLoading });
       } else {
         setUser(null);
         setIsAuthenticated(false);
@@ -163,7 +171,7 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(false);
       setIsLoadingAuth(false);
     }
-  };
+  }, [loadUserProfile]);
 
   useEffect(() => {
     let mounted = true;
@@ -179,7 +187,7 @@ export const AuthProvider = ({ children }) => {
         if (error) throw error;
 
         if (session?.user) {
-          await loadUserProfile(session.user);
+          await loadUserProfile(session.user, { showLoading: true });
         } else {
           setUser(null);
           setIsAuthenticated(false);
@@ -213,11 +221,11 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (event === "SIGNED_IN" && session?.user) {
-        loadUserProfile(session.user);
+        loadUserProfile(session.user, { showLoading: true });
       }
 
-      if (event === "TOKEN_REFRESHED" && session?.user) {
-        loadUserProfile(session.user);
+      if ((event === "TOKEN_REFRESHED" || event === "USER_UPDATED") && session?.user) {
+        loadUserProfile(session.user, { showLoading: false });
       }
     });
 

@@ -82,8 +82,17 @@ const SecurePage = ({ path, children }) => (
   <ProtectedRoute permission={ROUTE_PERMISSIONS[path]}>{children}</ProtectedRoute>
 );
 
+const ACCESS_STATE_TYPES = new Set([
+  'user_not_registered',
+  'missing_profile',
+  'pending_approval',
+  'missing_role',
+  'rejected',
+  'profile_load_failed',
+]);
+
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  const { user, isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
 
   useEffect(() => {
     let interval;
@@ -119,7 +128,7 @@ const AuthenticatedApp = () => {
     };
   }, []);
 
-  if (isLoadingPublicSettings || isLoadingAuth) {
+  if (isLoadingPublicSettings || (isLoadingAuth && !user)) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969]">
         <div className="flex flex-col items-center gap-4">
@@ -131,7 +140,10 @@ const AuthenticatedApp = () => {
   }
 
   if (authError) {
-    if (authError.type === 'user_not_registered') return <UserNotRegisteredError />;
+    if (ACCESS_STATE_TYPES.has(authError.type)) {
+      return <UserNotRegisteredError error={authError} user={user} />;
+    }
+
     if (authError.type === 'auth_required') {
       navigateToLogin();
       return null;
@@ -168,6 +180,7 @@ const AuthenticatedApp = () => {
           <Route path="/assets" element={<SecurePage path="/assets"><Assets /></SecurePage>} />
           <Route path="/staff" element={<SecurePage path="/staff"><StaffDirectory /></SecurePage>} />
           <Route path="/sites" element={<SecurePage path="/sites"><SiteMonitor /></SecurePage>} />
+          <Route path="/site-monitor" element={<SecurePage path="/site-monitor"><Navigate to="/sites" replace /></SecurePage>} />
           <Route path="/engineers" element={<SecurePage path="/engineers"><EngineerBoard /></SecurePage>} />
           <Route path="/spare-parts" element={<SecurePage path="/spare-parts"><SparePartsInventory mode="inventory" /></SecurePage>} />
           <Route

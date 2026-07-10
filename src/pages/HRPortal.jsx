@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  findDuplicateIdentity,
+  isVisibleStaffRecord,
+  normalizeEmail,
+  syncRelatedIdentityRecords,
+} from '@/lib/identity';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Users, Clock, FileText, CreditCard, BookOpen, Star, Calendar, LayoutDashboard, Eye, Loader2 } from 'lucide-react';
@@ -61,6 +68,16 @@ export default function HRPortal() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [viewEmp, setViewEmp] = useState(null);
+  const employeeDraftKey = editingEmp?.id
+    ? `hr-employee-edit-${editingEmp.id}`
+    : 'hr-employee-new';
+  const { clearDraft: clearEmployeeDraft } = useFormDraft({
+    key: employeeDraftKey,
+    form: empForm,
+    setForm: setEmpForm,
+    userId: user?.email,
+    enabled: empFormOpen,
+  });
 
   const { data: employees = [] } = useQuery({
     queryKey: ['hr-employees'],
@@ -75,7 +92,7 @@ export default function HRPortal() {
         return [];
       }
 
-      return data || [];
+      return (data || []).filter(isVisibleStaffRecord);
     },
   });
 
@@ -168,8 +185,11 @@ export default function HRPortal() {
     setSaving(true);
 
     try {
+      const formEmail = normalizeEmail(empForm.email_address);
+      const loginEmail = normalizeEmail(empForm.login_email || formEmail);
       const cleanForm = {
         ...empForm,
+        email_address: formEmail,
         staff_id: empForm.staff_id?.trim() || `ARK-${Date.now().toString().slice(-6)}`,
         department: empForm.department?.trim() || 'General',
         current_pay: parseFloat(empForm.current_pay) || 0,
@@ -182,7 +202,7 @@ export default function HRPortal() {
         ...employeeData
       } = cleanForm;
 
-      const cleanLoginEmail = login_email?.trim().toLowerCase();
+      const cleanLoginEmail = normalizeEmail(login_email || loginEmail);
 
       employeeData.user_account_email = create_login && cleanLoginEmail
         ? cleanLoginEmail
@@ -193,11 +213,55 @@ export default function HRPortal() {
         : employeeData.access_role || null;
 
       employeeData.updated_at = new Date().toISOString();
+      let shouldSyncLoginRole = Boolean(employeeData.access_role);
+
+      const [employeeRows, engineerRows, userRows, profileRows] = await Promise.all([
+        supabase.from('employees').select('id, full_name, staff_id, email_address, user_account_email'),
+        supabase.from('engineers').select('id, engineer_name, email'),
+        supabase.from('users').select('id, full_name, email'),
+        supabase.from('user_profiles').select('id, user_email'),
+      ]);
+
+      const duplicate = findDuplicateIdentity({
+        employees: employeeRows.data || [],
+        engineers: engineerRows.data || [],
+        users: [],
+        profiles: [],
+        email: employeeData.email_address || cleanLoginEmail,
+        staffId: employeeData.staff_id,
+        ignore: {
+          employeeId: editingEmp?.id,
+        },
+      });
+
+      if (duplicate) {
+        alert(`${duplicate.message} Open that record and edit it instead of creating another staff profile.`);
+        return;
+      }
 
       if (create_login && cleanLoginEmail) {
-        const { error: pendingError } = await supabase
-          .from('users')
-          .upsert({
+        const existingUser = (userRows.data || []).find(
+          (item) => normalizeEmail(item.email) === cleanLoginEmail
+        );
+
+        if (existingUser) {
+          shouldSyncLoginRole = false;
+
+          const { error: userUpdateError } = await supabase
+            .from('users')
+            .update({
+              full_name: employeeData.full_name,
+              department: employeeData.department || 'General',
+              employee_id: employeeData.staff_id || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', existingUser.id);
+
+          if (userUpdateError) throw userUpdateError;
+        } else {
+          const { error: pendingError } = await supabase
+            .from('users')
+            .insert({
             email: cleanLoginEmail,
             full_name: employeeData.full_name,
             role: null,
@@ -208,18 +272,34 @@ export default function HRPortal() {
             department: employeeData.department || 'General',
             employee_id: employeeData.staff_id || null,
             updated_at: new Date().toISOString(),
-          }, {
-            onConflict: 'email',
           });
 
-        if (pendingError) {
-          console.error('Pending user creation failed:', pendingError);
-          throw pendingError;
+          if (pendingError) {
+            console.error('Pending user creation failed:', pendingError);
+            throw pendingError;
+          }
         }
 
-        await supabase
-          .from('notifications')
-          .insert({
+        const existingProfile = (profileRows.data || []).find(
+          (item) => normalizeEmail(item.user_email) === cleanLoginEmail
+        );
+
+        if (!existingProfile) {
+          await supabase.from('user_profiles').insert({
+            user_email: cleanLoginEmail,
+            employee_id: employeeData.staff_id || null,
+            department: employeeData.department || 'General',
+            account_status: 'active',
+            role: login_role || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          });
+        }
+
+        if (!existingUser) {
+          await supabase
+            .from('notifications')
+            .insert({
             title: 'New User Approval Request',
             message: `${employeeData.full_name} requires login access approval as ${login_role}.`,
             type: 'approval',
@@ -238,15 +318,29 @@ export default function HRPortal() {
             sound: 'bell',
             created_at: new Date().toISOString(),
           });
+        }
       }
 
       if (editingEmp) {
+        const previousEmail = editingEmp.email_address || editingEmp.user_account_email;
+
         const { error } = await supabase
           .from('employees')
           .update(employeeData)
           .eq('id', editingEmp.id);
 
         if (error) throw error;
+
+        await syncRelatedIdentityRecords(supabase, {
+          previousEmail,
+          email: employeeData.email_address || employeeData.user_account_email,
+          fullName: employeeData.full_name,
+          department: employeeData.department,
+          role: employeeData.access_role,
+          employeeId: employeeData.staff_id,
+          phone: employeeData.phone_number,
+          excludeEmployeeId: editingEmp.id,
+        });
       } else {
         const { error } = await supabase
           .from('employees')
@@ -256,11 +350,21 @@ export default function HRPortal() {
           }]);
 
         if (error) throw error;
+
+        await syncRelatedIdentityRecords(supabase, {
+          email: employeeData.email_address || employeeData.user_account_email,
+          fullName: employeeData.full_name,
+          department: employeeData.department,
+          role: shouldSyncLoginRole ? employeeData.access_role : undefined,
+          employeeId: employeeData.staff_id,
+          phone: employeeData.phone_number,
+        });
       }
 
       qc.invalidateQueries({ queryKey: ['hr-employees'] });
       qc.invalidateQueries({ queryKey: ['users'] });
 
+      clearEmployeeDraft();
       setEmpFormOpen(false);
       setEditingEmp(null);
       setEmpForm(EMPTY_EMP);
@@ -329,8 +433,8 @@ export default function HRPortal() {
 
       const employeesToSync = users.map((user) => ({
         full_name: user.full_name || user.name || user.email?.split('@')[0] || 'Unknown User',
-        email_address: user.email,
-        user_account_email: user.email,
+        email_address: normalizeEmail(user.email),
+        user_account_email: normalizeEmail(user.email),
         access_role: user.role || 'staff',
         department: user.department || 'General',
         job_title: user.job_title || user.role || 'Staff',
@@ -340,19 +444,51 @@ export default function HRPortal() {
 
       const uniqueEmployees = Array.from(
         new Map(employeesToSync.map((emp) => [emp.email_address, emp])).values()
-      );
+      ).filter((emp) => emp.email_address);
 
-      const { error: syncError } = await supabase
+      const { data: existingEmployees, error: employeesError } = await supabase
         .from('employees')
-        .upsert(uniqueEmployees, {
-          onConflict: 'email_address',
-        });
+        .select('id, email_address, user_account_email');
 
-      if (syncError) throw syncError;
+      if (employeesError) throw employeesError;
+
+      const employeesByEmail = new Map();
+
+      (existingEmployees || []).forEach((employee) => {
+        const email = normalizeEmail(employee.email_address || employee.user_account_email);
+        if (email && !employeesByEmail.has(email)) {
+          employeesByEmail.set(email, employee);
+        }
+      });
+
+      let createdCount = 0;
+      let updatedCount = 0;
+
+      for (const employee of uniqueEmployees) {
+        const existing = employeesByEmail.get(employee.email_address);
+
+        if (existing) {
+          const { error } = await supabase
+            .from('employees')
+            .update(employee)
+            .eq('id', existing.id);
+
+          if (error) throw error;
+          updatedCount += 1;
+        } else {
+          const { error } = await supabase.from('employees').insert({
+            ...employee,
+            created_at: new Date().toISOString(),
+          });
+
+          if (error) throw error;
+          createdCount += 1;
+        }
+      }
 
       qc.invalidateQueries({ queryKey: ['hr-employees'] });
 
-      alert(`Successfully synced ${uniqueEmployees.length} users to employees.`);
+      alert(`Sync complete. Created ${createdCount}, updated ${updatedCount}, skipped duplicates by email.`);
     } catch (err) {
       console.error('Sync Users & Staff → Employees failed:', err);
       alert('Sync failed: ' + (err?.message || 'Unknown error'));

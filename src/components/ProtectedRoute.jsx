@@ -4,9 +4,10 @@ import { useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import {
   canUserAccess,
+  getUserRole,
   getRoleHome,
   getRoleLabel,
-  normalizeRole,
+  isSystemAdmin,
 } from '@/lib/roleAccess';
 
 const DefaultFallback = () => (
@@ -45,11 +46,20 @@ const AccessDenied = ({ user, permission }) => (
   </div>
 );
 
+const ACCESS_STATE_TYPES = new Set([
+  'user_not_registered',
+  'missing_profile',
+  'pending_approval',
+  'missing_role',
+  'rejected',
+  'profile_load_failed',
+]);
+
 export default function ProtectedRoute({
   permission,
   children,
   fallback = <DefaultFallback />,
-  unauthenticatedElement = <Navigate to="/welcome" replace />,
+  unauthenticatedElement,
 }) {
   const {
     user,
@@ -68,21 +78,31 @@ export default function ProtectedRoute({
     }
   }, [authChecked, isLoadingAuth, checkUserAuth]);
 
-  if (isLoadingAuth || !authChecked) return fallback;
+  if ((isLoadingAuth || !authChecked) && !user) return fallback;
 
   if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
+    if (ACCESS_STATE_TYPES.has(authError.type)) {
+      return <UserNotRegisteredError error={authError} user={user} />;
     }
 
-    return unauthenticatedElement;
+    return (
+      unauthenticatedElement || (
+        <Navigate to="/welcome" replace state={{ from: location }} />
+      )
+    );
   }
 
-  if (!isAuthenticated) return unauthenticatedElement;
+  if (!isAuthenticated) {
+    return (
+      unauthenticatedElement || (
+        <Navigate to="/welcome" replace state={{ from: location }} />
+      )
+    );
+  }
 
-  const normalizedRole = normalizeRole(user?.role);
+  const normalizedRole = getUserRole(user);
 
-  if (normalizedRole === 'system_admin') {
+  if (isSystemAdmin(normalizedRole)) {
     return children || <Outlet />;
   }
 

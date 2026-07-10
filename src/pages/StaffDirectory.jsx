@@ -1,6 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  findDuplicateIdentity,
+  isVisibleStaffRecord,
+  normalizeEmail,
+  syncRelatedIdentityRecords,
+} from '@/lib/identity';
+import { useAuth } from '@/lib/AuthContext';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -67,7 +75,7 @@ async function fetchEmployees() {
     .limit(500);
 
   if (error) throw error;
-  return data || [];
+  return (data || []).filter(isVisibleStaffRecord);
 }
 
 async function fetchEngineers() {
@@ -78,11 +86,12 @@ async function fetchEngineers() {
     .limit(200);
 
   if (error) throw error;
-  return data || [];
+  return (data || []).filter(isVisibleStaffRecord);
 }
 
 export default function StaffDirectory() {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const [search, setSearch] = useState('');
   const [deptFilter, setDeptFilter] = useState('all');
@@ -90,6 +99,16 @@ export default function StaffDirectory() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const staffDraftKey = editing?.id
+    ? `staff-directory-edit-${editing.id}`
+    : 'staff-directory-new';
+  const { clearDraft: clearStaffDraft } = useFormDraft({
+    key: staffDraftKey,
+    form,
+    setForm,
+    userId: user?.email,
+    enabled: dialogOpen,
+  });
 
   const { data: employees = [], isLoading: loadingEmp } = useQuery({
     queryKey: ['hr-employees'],
@@ -170,6 +189,8 @@ export default function StaffDirectory() {
     }
 
     const staffId = form.staff_id?.trim() || `ARK-${Date.now().toString().slice(-6)}`;
+    const cleanEmail = normalizeEmail(form.email_address);
+    const cleanLoginEmail = normalizeEmail(form.login_email || cleanEmail);
 
     setSaving(true);
 
@@ -181,19 +202,62 @@ export default function StaffDirectory() {
         ...employeeData
       } = {
         ...form,
+        email_address: cleanEmail,
         staff_id: staffId,
         updated_at: new Date().toISOString(),
       };
+      let shouldSyncLoginRole = Boolean(create_login && login_role);
+
+      const [employeeRows, engineerRows, userRows, profileRows] = await Promise.all([
+        supabase.from('employees').select('id, full_name, staff_id, email_address, user_account_email'),
+        supabase.from('engineers').select('id, engineer_name, email'),
+        supabase.from('users').select('id, full_name, email'),
+        supabase.from('user_profiles').select('id, user_email'),
+      ]);
+
+      const duplicate = findDuplicateIdentity({
+        employees: employeeRows.data || [],
+        engineers: engineerRows.data || [],
+        users: [],
+        profiles: [],
+        email: employeeData.email_address || cleanLoginEmail,
+        staffId: employeeData.staff_id,
+        ignore: {
+          employeeId: editing?._source === 'employee' ? editing.id : null,
+          engineerId:
+            editing?._source === 'engineer'
+              ? String(editing.id).replace('eng_', '')
+              : null,
+        },
+      });
+
+      if (duplicate) {
+        alert(`${duplicate.message} Open that record and edit it instead of creating another staff profile.`);
+        return;
+      }
 
       if (editing && editing._source === 'employee') {
+        const previousEmail = editing.email_address || editing.user_account_email;
+
         const { error } = await supabase
           .from('employees')
           .update(employeeData)
           .eq('id', editing.id);
 
         if (error) throw error;
+
+        await syncRelatedIdentityRecords(supabase, {
+          previousEmail,
+          email: employeeData.email_address,
+          fullName: employeeData.full_name,
+          department: employeeData.department,
+          employeeId: employeeData.staff_id,
+          phone: employeeData.phone_number,
+          excludeEmployeeId: editing.id,
+        });
       } else if (editing && editing._source === 'engineer') {
         const engineerId = String(editing.id).replace('eng_', '');
+        const previousEmail = editing.email_address;
 
         const { error } = await supabase
           .from('engineers')
@@ -213,6 +277,15 @@ export default function StaffDirectory() {
           .eq('id', engineerId);
 
         if (error) throw error;
+
+        await syncRelatedIdentityRecords(supabase, {
+          previousEmail,
+          email: employeeData.email_address,
+          fullName: employeeData.full_name,
+          department: employeeData.department,
+          employeeId: employeeData.staff_id,
+          phone: employeeData.phone_number,
+        });
       } else {
         const { error } = await supabase.from('employees').insert({
           ...employeeData,
@@ -223,29 +296,81 @@ export default function StaffDirectory() {
 
         if (error) throw error;
 
-        if (create_login && login_email) {
-          const { error: userError } = await supabase.from('users').upsert(
-            {
-              email: login_email,
+        if (create_login && cleanLoginEmail) {
+          const existingUser = (userRows.data || []).find(
+            (item) => normalizeEmail(item.email) === cleanLoginEmail
+          );
+
+          if (existingUser) {
+            shouldSyncLoginRole = false;
+
+            const { error: userError } = await supabase
+              .from('users')
+              .update({
+                full_name: employeeData.full_name,
+                phone: employeeData.phone_number,
+                department: employeeData.department,
+                employee_id: employeeData.staff_id || null,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingUser.id);
+
+            if (userError) {
+              alert('Staff saved. However, linked user profile sync failed: ' + userError.message);
+            }
+          } else {
+            const { error: userError } = await supabase.from('users').insert(
+              {
+              email: cleanLoginEmail,
               full_name: employeeData.full_name,
               role: login_role,
               phone: employeeData.phone_number,
               department: employeeData.department,
               status: 'pending',
+              approval_status: 'pending',
+              is_approved: false,
               updated_at: new Date().toISOString(),
-            },
-            { onConflict: 'email' }
+            }
+            );
+
+            if (userError) {
+              alert('Staff saved. However, user profile creation failed: ' + userError.message);
+            }
+          }
+
+          const existingProfile = (profileRows.data || []).find(
+            (item) => normalizeEmail(item.user_email) === cleanLoginEmail
           );
 
-          if (userError) {
-            alert('Staff saved. However, user profile creation failed: ' + userError.message);
+          if (!existingProfile) {
+            await supabase.from('user_profiles').insert({
+              user_email: cleanLoginEmail,
+              employee_id: employeeData.staff_id || null,
+              phone: employeeData.phone_number || null,
+              department: employeeData.department || null,
+              account_status: 'active',
+              role: login_role || null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            });
           }
         }
+
+        await syncRelatedIdentityRecords(supabase, {
+          email: employeeData.email_address || cleanLoginEmail,
+          fullName: employeeData.full_name,
+          department: employeeData.department,
+          role: shouldSyncLoginRole ? login_role : undefined,
+          employeeId: employeeData.staff_id,
+          phone: employeeData.phone_number,
+        });
       }
 
       queryClient.invalidateQueries({ queryKey: ['hr-employees'] });
       queryClient.invalidateQueries({ queryKey: ['engineers-list'] });
+      queryClient.invalidateQueries({ queryKey: ['users'] });
 
+      clearStaffDraft();
       setForm(emptyForm);
       setEditing(null);
       setDialogOpen(false);

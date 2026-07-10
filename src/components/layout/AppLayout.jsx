@@ -13,6 +13,7 @@ import useDMNotifications from '@/hooks/useDMNotifications';
 import useInactivityLogout from '@/hooks/useInactivityLogout';
 
 import { supabase } from '@/lib/supabaseClient';
+import { getUserRole } from '@/lib/roleAccess';
 
 export default function AppLayout() {
   const { user, isLoadingAuth, isAuthenticated } = useAuth();
@@ -238,26 +239,6 @@ export default function AppLayout() {
     };
   }, [user?.email, triggerGlobalRefresh]);
 
-  useEffect(() => {
-    const refreshOnFocus = () => {
-      triggerGlobalRefresh();
-    };
-
-    const refreshOnVisible = () => {
-      if (document.visibilityState === 'visible') {
-        triggerGlobalRefresh();
-      }
-    };
-
-    window.addEventListener('focus', refreshOnFocus);
-    document.addEventListener('visibilitychange', refreshOnVisible);
-
-    return () => {
-      window.removeEventListener('focus', refreshOnFocus);
-      document.removeEventListener('visibilitychange', refreshOnVisible);
-    };
-  }, [triggerGlobalRefresh]);
-
   const notifCount = notifications?.length || 0;
 
   useEffect(() => {
@@ -296,14 +277,11 @@ export default function AppLayout() {
     return <PendingApproval user={user} />;
   }
 
-  const role = user?.role?.toLowerCase?.() || '';
+  const role = getUserRole(user);
 
   const isEngineerMobile =
     isMobile &&
-    (
-      role === 'engineer' ||
-      role === 'field engineer'
-    );
+    role === 'engineer';
 
   if (isEngineerMobile) {
     return (

@@ -14,6 +14,11 @@ import {
   ClipboardList,
   BarChart3,
 } from 'lucide-react';
+import {
+  canUserAccess,
+  getUserRole,
+  ROUTE_PERMISSIONS,
+} from '@/lib/roleAccess';
 
 const TABS_BY_ROLE = {
   engineer: [
@@ -57,23 +62,17 @@ export default function MobileBottomNav({
   dmCount = 0,
 }) {
   const location = useLocation();
-  const rawRole = user?.role || 'default';
-
-  const ADMIN_VARIANTS = [
-    'admin',
-    'super_admin',
-    'administrator',
-    'Administrator',
-    'ADMIN',
-    'Super Admin',
-    'SUPER_ADMIN',
-  ];
-
-  const role = ADMIN_VARIANTS.includes(rawRole)
+  const rawRole = getUserRole(user);
+  const role = ['system_admin', 'admin', 'admin_head', 'ceo', 'agm', 'manager'].includes(rawRole)
     ? 'default'
     : rawRole;
 
-  const tabs = TABS_BY_ROLE[role] || TABS_BY_ROLE.default;
+  const tabs = (TABS_BY_ROLE[role] || TABS_BY_ROLE.default).filter((tab) => {
+    const basePath = tab.path.split('?')[0];
+    const permission = ROUTE_PERMISSIONS[basePath];
+
+    return !permission || canUserAccess(user, permission);
+  });
 
   return (
     <nav

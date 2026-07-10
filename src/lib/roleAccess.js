@@ -18,12 +18,14 @@ export const ROLE_ALIASES = {
   ops: "operations",
   operations_officer: "operations",
   operations_manager: "manager",
+  operational_manager: "manager",
 
   account: "finance",
   accounts: "finance",
   accountant: "finance",
   account_officer: "finance",
   finance_officer: "finance",
+  finance_manager: "head_of_account",
   accounts_head: "head_of_account",
   head_account: "head_of_account",
   head_accounts: "head_of_account",
@@ -55,6 +57,16 @@ export const ROLE_ALIASES = {
 export function normalizeRole(role) {
   const clean = String(role || "").toLowerCase().trim();
   return ROLE_ALIASES[clean] || clean;
+}
+
+export function getUserRole(user) {
+  return normalizeRole(
+    user?.role ||
+      user?.user_role ||
+      user?.position ||
+      user?.profile?.role ||
+      ""
+  );
 }
 
 export const PERMISSIONS = {
@@ -152,6 +164,188 @@ export const PERMISSIONS = {
   PRINT_OWN_JOB_REPORT: "print_own_job_report",
 };
 
+export const MODULES = {
+  COMMAND_CENTER: "command_center",
+  HELP_DESK: "help_desk",
+  FIELD_OPERATIONS: "field_operations",
+  OPERATIONS: "operations",
+  INVENTORY: "inventory",
+  REPAIR_REFURBISHMENT: "repair_refurbishment",
+  FINANCE: "finance",
+  PROCUREMENT: "procurement",
+  BUSINESS_DEVELOPMENT: "business_development",
+  HUMAN_RESOURCES: "human_resources",
+  ASSETS: "assets",
+  ADMINISTRATION: "administration",
+  COMMUNICATION: "communication",
+};
+
+export const ACTIONS = {
+  VIEW: "view",
+  CREATE: "create",
+  EDIT: "edit",
+  DELETE: "delete",
+  ASSIGN: "assign",
+  APPROVE: "approve",
+  REJECT: "reject",
+  RELEASE: "release",
+  PRINT: "print",
+  EXPORT: "export",
+  MANAGE_USERS: "manage_users",
+};
+
+export const MODULE_ACCESS = {
+  [MODULES.COMMAND_CENTER]: [PERMISSIONS.DASHBOARD, PERMISSIONS.REPORTS],
+  [MODULES.HELP_DESK]: [
+    PERMISSIONS.TICKETS,
+    PERMISSIONS.CREATE_TICKET,
+    PERMISSIONS.ASSIGN_TICKET,
+    PERMISSIONS.CLOSE_TICKET,
+    PERMISSIONS.SLA_ANALYTICS,
+  ],
+  [MODULES.FIELD_OPERATIONS]: [
+    PERMISSIONS.ENGINEERING,
+    PERMISSIONS.FIELD_OPS,
+    PERMISSIONS.FIELD_ENGINEERS,
+    PERMISSIONS.PARTS_REQUEST,
+    PERMISSIONS.ENGINEER_RECEIVE_PART,
+  ],
+  [MODULES.OPERATIONS]: [
+    PERMISSIONS.OPERATIONS,
+    PERMISSIONS.OPS_DASHBOARD,
+    PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.OPERATIONS_PART_REQUESTS,
+    PERMISSIONS.APPROVE_PART_REQUEST,
+    PERMISSIONS.REJECT_PART_REQUEST,
+    PERMISSIONS.SEND_TO_INVENTORY,
+  ],
+  [MODULES.INVENTORY]: [
+    PERMISSIONS.INVENTORY,
+    PERMISSIONS.INVENTORY_ANALYTICS,
+    PERMISSIONS.INVENTORY_PART_REQUESTS,
+    PERMISSIONS.SPARE_PARTS,
+  ],
+  [MODULES.REPAIR_REFURBISHMENT]: [
+    PERMISSIONS.RR_INTAKE,
+    PERMISSIONS.REPAIR_JOBS,
+    PERMISSIONS.RR_CONSUMABLES,
+    PERMISSIONS.RECEIVE_RR,
+    PERMISSIONS.ASSIGN_RR_TECHNICIAN,
+    PERMISSIONS.START_REPAIR,
+    PERMISSIONS.REQUEST_CONSUMABLES,
+    PERMISSIONS.SUBMIT_QA,
+    PERMISSIONS.QA_PASS,
+    PERMISSIONS.QA_FAIL,
+    PERMISSIONS.RETURN_TO_INVENTORY,
+    PERMISSIONS.SCRAP_PART,
+    PERMISSIONS.SELL_PART,
+  ],
+  [MODULES.FINANCE]: [
+    PERMISSIONS.FINANCE,
+    PERMISSIONS.ACCOUNT,
+    PERMISSIONS.FUND_REQUESTS,
+    PERMISSIONS.APPROVE_PAYMENT,
+    PERMISSIONS.RELEASE_FUND,
+    PERMISSIONS.VENDOR_PAYMENT,
+  ],
+  [MODULES.PROCUREMENT]: [
+    PERMISSIONS.PROCUREMENT,
+    PERMISSIONS.PURCHASE_ORDERS,
+    PERMISSIONS.CREATE_PURCHASE_REQUEST,
+    PERMISSIONS.APPROVE_PURCHASE_REQUEST,
+  ],
+  [MODULES.BUSINESS_DEVELOPMENT]: [
+    PERMISSIONS.BUSINESS,
+    PERMISSIONS.CRM,
+    PERMISSIONS.CLIENT_FOLLOW_UP,
+  ],
+  [MODULES.HUMAN_RESOURCES]: [PERMISSIONS.HR, PERMISSIONS.STAFF_DIRECTORY],
+  [MODULES.ASSETS]: [
+    PERMISSIONS.ASSETS_SECTION,
+    PERMISSIONS.ASSETS,
+    PERMISSIONS.BANKS,
+    PERMISSIONS.BRANCHES,
+    PERMISSIONS.DEVICES,
+    PERMISSIONS.DEVICE_STATUS,
+    PERMISSIONS.ASSIGNMENTS,
+    PERMISSIONS.LIVE_MAP,
+    PERMISSIONS.SITE_MONITOR,
+    PERMISSIONS.REGIONAL_VIEW,
+  ],
+  [MODULES.ADMINISTRATION]: [
+    PERMISSIONS.USERS,
+    PERMISSIONS.USER_MANAGEMENT,
+    PERMISSIONS.STAFF_DIRECTORY,
+    PERMISSIONS.DEPARTMENTS,
+    PERMISSIONS.AUDIT_LOGS,
+    PERMISSIONS.SETTINGS,
+    PERMISSIONS.DATA_IMPORT,
+  ],
+  [MODULES.COMMUNICATION]: [
+    PERMISSIONS.COMMUNICATION,
+    PERMISSIONS.OFFICIAL_MAIL,
+    PERMISSIONS.ARK_CONNECT,
+    PERMISSIONS.NOTIFICATIONS,
+  ],
+};
+
+export const ACTION_PERMISSIONS = {
+  [ACTIONS.VIEW]: {
+    [MODULES.COMMAND_CENTER]: PERMISSIONS.DASHBOARD,
+    [MODULES.HELP_DESK]: PERMISSIONS.TICKETS,
+    [MODULES.FIELD_OPERATIONS]: PERMISSIONS.FIELD_OPS,
+    [MODULES.OPERATIONS]: PERMISSIONS.OPERATIONS,
+    [MODULES.INVENTORY]: PERMISSIONS.INVENTORY,
+    [MODULES.REPAIR_REFURBISHMENT]: PERMISSIONS.REPAIR_JOBS,
+    [MODULES.FINANCE]: PERMISSIONS.FINANCE,
+    [MODULES.PROCUREMENT]: PERMISSIONS.PROCUREMENT,
+    [MODULES.BUSINESS_DEVELOPMENT]: PERMISSIONS.CRM,
+    [MODULES.HUMAN_RESOURCES]: PERMISSIONS.HR,
+    [MODULES.ASSETS]: PERMISSIONS.ASSETS,
+    [MODULES.ADMINISTRATION]: PERMISSIONS.USERS,
+    [MODULES.COMMUNICATION]: PERMISSIONS.COMMUNICATION,
+  },
+  [ACTIONS.CREATE]: {
+    [MODULES.HELP_DESK]: PERMISSIONS.CREATE_TICKET,
+    [MODULES.FIELD_OPERATIONS]: PERMISSIONS.PARTS_REQUEST,
+    [MODULES.PROCUREMENT]: PERMISSIONS.CREATE_PURCHASE_REQUEST,
+    [MODULES.REPAIR_REFURBISHMENT]: PERMISSIONS.REQUEST_CONSUMABLES,
+  },
+  [ACTIONS.ASSIGN]: {
+    [MODULES.HELP_DESK]: PERMISSIONS.ASSIGN_TICKET,
+    [MODULES.REPAIR_REFURBISHMENT]: PERMISSIONS.ASSIGN_RR_TECHNICIAN,
+    [MODULES.ASSETS]: PERMISSIONS.ASSIGNMENTS,
+  },
+  [ACTIONS.APPROVE]: {
+    [MODULES.OPERATIONS]: PERMISSIONS.APPROVE_PART_REQUEST,
+    [MODULES.REPAIR_REFURBISHMENT]: PERMISSIONS.QA_PASS,
+    [MODULES.FINANCE]: PERMISSIONS.APPROVE_PAYMENT,
+    [MODULES.PROCUREMENT]: PERMISSIONS.APPROVE_PURCHASE_REQUEST,
+  },
+  [ACTIONS.REJECT]: {
+    [MODULES.OPERATIONS]: PERMISSIONS.REJECT_PART_REQUEST,
+    [MODULES.REPAIR_REFURBISHMENT]: PERMISSIONS.QA_FAIL,
+  },
+  [ACTIONS.RELEASE]: {
+    [MODULES.OPERATIONS]: PERMISSIONS.SEND_TO_INVENTORY,
+    [MODULES.REPAIR_REFURBISHMENT]: PERMISSIONS.RETURN_TO_INVENTORY,
+    [MODULES.FINANCE]: PERMISSIONS.RELEASE_FUND,
+  },
+  [ACTIONS.PRINT]: {
+    [MODULES.COMMAND_CENTER]: PERMISSIONS.PRINT_OFFICIAL_REPORT,
+    [MODULES.HELP_DESK]: PERMISSIONS.PRINT_TICKET_REPORT,
+    [MODULES.OPERATIONS]: PERMISSIONS.PRINT_OPERATIONS_REPORT,
+    [MODULES.INVENTORY]: PERMISSIONS.PRINT_INVENTORY_REPORT,
+    [MODULES.REPAIR_REFURBISHMENT]: PERMISSIONS.PRINT_RR_REPORT,
+    [MODULES.FINANCE]: PERMISSIONS.PRINT_FINANCE_REPORT,
+    [MODULES.HUMAN_RESOURCES]: PERMISSIONS.PRINT_HR_REPORT,
+    [MODULES.BUSINESS_DEVELOPMENT]: PERMISSIONS.PRINT_CRM_REPORT,
+  },
+  [ACTIONS.MANAGE_USERS]: {
+    [MODULES.ADMINISTRATION]: PERMISSIONS.USER_MANAGEMENT,
+  },
+};
+
 const COMMON_STAFF_ACCESS = [
   PERMISSIONS.DASHBOARD,
   PERMISSIONS.FUND_REQUESTS,
@@ -243,6 +437,7 @@ export const ROLE_ACCESS = {
     ...COMMON_STAFF_ACCESS,
     PERMISSIONS.STAFF_DIRECTORY,
     PERMISSIONS.DEPARTMENTS,
+    PERMISSIONS.SITE_MONITOR,
     PERMISSIONS.OPERATIONS_FEED,
     PERMISSIONS.REPORTS,
     PERMISSIONS.PRINT_OFFICIAL_REPORT,
@@ -345,6 +540,7 @@ export const ROLE_ACCESS = {
     PERMISSIONS.OPS_DASHBOARD,
     PERMISSIONS.OPERATIONS_FEED,
     PERMISSIONS.OPERATIONS_PART_REQUESTS,
+    PERMISSIONS.SITE_MONITOR,
     PERMISSIONS.TICKETS,
     PERMISSIONS.FIELD_OPS,
     PERMISSIONS.PURCHASE_ORDERS,
@@ -402,6 +598,7 @@ export const ROLE_ACCESS = {
     PERMISSIONS.RR_INTAKE,
     PERMISSIONS.RR_CONSUMABLES,
     PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.SITE_MONITOR,
     PERMISSIONS.RECEIVE_RR,
     PERMISSIONS.ASSIGN_RR_TECHNICIAN,
     PERMISSIONS.QA_PASS,
@@ -436,6 +633,7 @@ export const ROLE_ACCESS = {
     PERMISSIONS.PARTS_REQUEST,
     PERMISSIONS.RR_CONSUMABLES,
     PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.SITE_MONITOR,
     PERMISSIONS.PRINT_INVENTORY_REPORT,
   ],
 
@@ -450,6 +648,7 @@ export const ROLE_ACCESS = {
     PERMISSIONS.VENDOR_PAYMENT,
     PERMISSIONS.PURCHASE_ORDERS,
     PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.SITE_MONITOR,
     PERMISSIONS.REPORTS,
     PERMISSIONS.AUDIT_LOGS,
     PERMISSIONS.PRINT_FINANCE_REPORT,
@@ -464,6 +663,7 @@ export const ROLE_ACCESS = {
     PERMISSIONS.RELEASE_FUND,
     PERMISSIONS.VENDOR_PAYMENT,
     PERMISSIONS.OPERATIONS_FEED,
+    PERMISSIONS.SITE_MONITOR,
     PERMISSIONS.PRINT_FINANCE_REPORT,
   ],
 
@@ -615,6 +815,60 @@ export const ROLE_DEPARTMENTS = {
   client: "Client",
 };
 
+export const ROLE_DEFINITIONS = Object.freeze(
+  Object.fromEntries(
+    Object.keys(ROLE_ACCESS).map((role) => [
+      role,
+      {
+        key: role,
+        label: ROLE_LABELS[role] || role,
+        department: ROLE_DEPARTMENTS[role] || "",
+        home: ROLE_HOME[role] || "/dashboard",
+        isExecutive: ["system_admin", "ceo", "agm", "manager"].includes(role),
+        isHod: [
+          "admin_head",
+          "head_of_it",
+          "manager",
+          "repair_head",
+          "head_of_account",
+          "head_of_business_development",
+          "hr",
+        ].includes(role),
+        permissions: ROLE_ACCESS[role] || [],
+      },
+    ])
+  )
+);
+
+export const DEPARTMENT_HODS = {
+  "Executive Management": ["ceo", "agm"],
+  Administration: ["admin_head"],
+  "Information Technology": ["head_of_it"],
+  Operations: ["manager"],
+  Helpdesk: ["manager", "helpdesk"],
+  "Field Engineering": ["manager"],
+  Inventory: ["manager"],
+  "Repair & Refurbishment": ["repair_head"],
+  "Finance & Accounts": ["head_of_account"],
+  Procurement: ["manager"],
+  "Business Development": ["head_of_business_development"],
+  "Human Resources": ["hr"],
+  Client: ["manager"],
+};
+
+export const APPROVAL_HIERARCHY = {
+  default: ["department_hod", "agm", "ceo"],
+  operations: ["manager", "agm", "ceo"],
+  inventory: ["manager", "agm", "ceo"],
+  repair_refurbishment: ["repair_head", "manager", "agm", "ceo"],
+  finance: ["head_of_account", "agm", "ceo"],
+  procurement: ["manager", "agm", "ceo"],
+  human_resources: ["hr", "agm", "ceo"],
+  business_development: ["head_of_business_development", "agm", "ceo"],
+  administration: ["admin_head", "agm", "ceo"],
+  information_technology: ["head_of_it", "agm", "ceo"],
+};
+
 export const ROUTE_PERMISSIONS = {
   "/dashboard": PERMISSIONS.DASHBOARD,
   "/fund-requests": PERMISSIONS.FUND_REQUESTS,
@@ -690,19 +944,37 @@ export function canAccess(role, permission) {
 }
 
 export function canUserAccess(user, permission) {
-  const role =
-    user?.role ||
-    user?.user_role ||
-    user?.position ||
-    user?.profile?.role ||
-    "";
-
-  return canAccess(role, permission);
+  return canAccess(getUserRole(user), permission);
 }
 
 export function hasAnyAccess(role, permissions = []) {
   if (!permissions.length) return true;
   return permissions.some((permission) => canAccess(role, permission));
+}
+
+export function canAccessAny(userOrRole, permissions = []) {
+  if (!permissions.length) return true;
+
+  const role =
+    typeof userOrRole === "string" ? normalizeRole(userOrRole) : getUserRole(userOrRole);
+
+  return permissions.some((permission) => canAccess(role, permission));
+}
+
+export function canAccessModule(userOrRole, module) {
+  const permissions = MODULE_ACCESS[module] || [];
+  return canAccessAny(userOrRole, permissions);
+}
+
+export function canPerformAction(userOrRole, module, action) {
+  const permission = ACTION_PERMISSIONS[action]?.[module];
+
+  if (!permission) return false;
+
+  const role =
+    typeof userOrRole === "string" ? normalizeRole(userOrRole) : getUserRole(userOrRole);
+
+  return canAccess(role, permission);
 }
 
 export function getRoleHome(role) {
@@ -717,12 +989,62 @@ export function getRoleDepartment(role) {
   return ROLE_DEPARTMENTS[normalizeRole(role)] || "";
 }
 
+export function getUserDepartment(user) {
+  return (
+    user?.department ||
+    user?.profile?.department ||
+    user?.employee?.department ||
+    getRoleDepartment(getUserRole(user))
+  );
+}
+
+export function getDepartmentHodRoles(department) {
+  return DEPARTMENT_HODS[String(department || "").trim()] || [];
+}
+
+export function isDepartmentHod(userOrRole, department) {
+  const role =
+    typeof userOrRole === "string" ? normalizeRole(userOrRole) : getUserRole(userOrRole);
+
+  if (["system_admin", "admin", "ceo", "agm"].includes(role)) return true;
+
+  return getDepartmentHodRoles(department).includes(role);
+}
+
+export function getApprovalHierarchy(departmentOrModule) {
+  const key = String(departmentOrModule || "default")
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return APPROVAL_HIERARCHY[key] || APPROVAL_HIERARCHY.default;
+}
+
+export function getApprovalOwners({ department, module } = {}) {
+  const hodRoles = getDepartmentHodRoles(department);
+  const hierarchy = getApprovalHierarchy(module || department);
+
+  return hierarchy.flatMap((owner) =>
+    owner === "department_hod" ? hodRoles : [normalizeRole(owner)]
+  );
+}
+
+export function canApproveForDepartment(userOrRole, department) {
+  const role =
+    typeof userOrRole === "string" ? normalizeRole(userOrRole) : getUserRole(userOrRole);
+
+  if (["system_admin", "admin", "ceo", "agm"].includes(role)) return true;
+
+  return getApprovalOwners({ department }).includes(role);
+}
+
 export function isSystemAdmin(role) {
   return normalizeRole(role) === "system_admin";
 }
 
 export function isAdmin(role) {
-  return ["system_admin", "admin_head"].includes(normalizeRole(role));
+  return ["system_admin", "admin", "admin_head"].includes(normalizeRole(role));
 }
 
 export function isExecutive(role) {

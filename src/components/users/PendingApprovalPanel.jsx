@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  normalizeEmail,
+  syncRelatedIdentityRecords,
+} from '@/lib/identity';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -116,8 +120,10 @@ export default function PendingApprovalPanel() {
       )
   );
 
-  const getProfile = (email) =>
-    profiles.find((p) => p.user_email === email);
+  const getProfile = (email) => {
+    const cleanEmail = normalizeEmail(email);
+    return profiles.find((p) => normalizeEmail(p.user_email) === cleanEmail);
+  };
 
   const openApprove = (u) => {
     setSelectedUser(u);
@@ -142,6 +148,7 @@ const handleApprove = async () => {
     setSaving(true);
 
     const now = new Date().toISOString();
+    const cleanEmail = normalizeEmail(selectedUser.email);
 
     const { error: approveError } = await supabase.rpc('approve_ark_user', {
   target_user_id: selectedUser.id,
@@ -168,7 +175,7 @@ const createAuthResponse = await fetch(
       Authorization: `Bearer ${accessToken}`,
     },
     body: JSON.stringify({
-      email: selectedUser.email,
+      email: cleanEmail,
       full_name: selectedUser.full_name || selectedUser.email,
       role: assignRole,
       department: assignDept || 'General',
@@ -184,16 +191,16 @@ if (!createAuthResponse.ok) {
 }
 
 const { error: resetEmailError } =
-  await supabase.auth.resetPasswordForEmail(selectedUser.email, {
+  await supabase.auth.resetPasswordForEmail(cleanEmail, {
     redirectTo: 'https://portal.arktechnologiesgroup.com/create-password',
   });
 
 if (resetEmailError) throw resetEmailError;
 
-    const existing = getProfile(selectedUser.email);
+    const existing = getProfile(cleanEmail);
 
     const profileData = {
-      user_email: selectedUser.email,
+      user_email: cleanEmail,
       department: assignDept,
       employee_id: assignEmpId,
       account_status: 'active',
@@ -220,7 +227,7 @@ if (resetEmailError) throw resetEmailError;
     }
 
     await supabase.from('notifications').insert({
-      user_email: selectedUser.email,
+      user_email: cleanEmail,
       title: 'Account Approved',
       message:
         'Your ARK ONE Portal account has been approved. A password setup email has been sent to your email address.',
@@ -230,11 +237,19 @@ if (resetEmailError) throw resetEmailError;
         role: assignRole,
         department: assignDept,
         employee_id: assignEmpId,
-        email: selectedUser.email,
+        email: cleanEmail,
       },
       link: '/dashboard',
       sound: 'bell',
       created_at: now,
+    });
+
+    await syncRelatedIdentityRecords(supabase, {
+      email: cleanEmail,
+      fullName: selectedUser.full_name || selectedUser.email,
+      department: assignDept || 'General',
+      role: assignRole,
+      employeeId: assignEmpId || null,
     });
 
     qc.invalidateQueries({ queryKey: ['pending-users'] });

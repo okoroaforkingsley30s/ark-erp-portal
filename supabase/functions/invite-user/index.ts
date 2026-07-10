@@ -8,6 +8,10 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
+function normalizeEmail(email: unknown) {
+  return String(email || '').trim().toLowerCase()
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', {
@@ -31,7 +35,7 @@ serve(async (req) => {
       )
     }
 
-    const cleanEmail = email.trim().toLowerCase()
+    const cleanEmail = normalizeEmail(email)
 
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL')!,
@@ -114,9 +118,7 @@ serve(async (req) => {
       authUserId = createdUser.user.id
     }
 
-    await supabaseAdmin.from('users').upsert(
-      {
-        id: authUserId,
+    const userPayload = {
         email: cleanEmail,
         full_name,
         role,
@@ -128,11 +130,127 @@ serve(async (req) => {
         is_approved: true,
         must_change_password: true,
         updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: 'email',
       }
-    )
+
+    const { data: existingPublicUser, error: existingPublicUserError } =
+      await supabaseAdmin
+        .from('users')
+        .select('id, email')
+        .ilike('email', cleanEmail)
+        .limit(1)
+        .maybeSingle()
+
+    if (existingPublicUserError) {
+      return new Response(
+        JSON.stringify({ error: existingPublicUserError.message }),
+        {
+          status: 400,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'application/json',
+          },
+        }
+      )
+    }
+
+    if (existingPublicUser) {
+      const { error: updatePublicUserError } = await supabaseAdmin
+        .from('users')
+        .update(userPayload)
+        .eq('id', existingPublicUser.id)
+
+      if (updatePublicUserError) {
+        return new Response(
+          JSON.stringify({ error: updatePublicUserError.message }),
+          {
+            status: 400,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      }
+    } else {
+      const { error: insertPublicUserError } = await supabaseAdmin
+        .from('users')
+        .insert({
+          id: authUserId,
+          ...userPayload,
+        })
+
+      if (insertPublicUserError) {
+        return new Response(
+          JSON.stringify({ error: insertPublicUserError.message }),
+          {
+            status: 400,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+          }
+        )
+      }
+    }
+
+    const profilePayload: Record<string, unknown> = {
+      user_email: cleanEmail,
+      account_status: 'active',
+      updated_at: new Date().toISOString(),
+    }
+
+    if (employee_id !== undefined) profilePayload.employee_id = employee_id || null
+    if (department !== undefined) profilePayload.department = department || null
+    if (role !== undefined) profilePayload.role = role || null
+
+    const { data: existingProfile, error: existingProfileError } =
+      await supabaseAdmin
+        .from('user_profiles')
+        .select('id')
+        .ilike('user_email', cleanEmail)
+        .limit(1)
+        .maybeSingle()
+
+    if (existingProfileError) {
+      console.warn('user_profiles lookup warning:', existingProfileError.message)
+    } else if (existingProfile) {
+      const { error: profileUpdateError } = await supabaseAdmin
+        .from('user_profiles')
+        .update(profilePayload)
+        .eq('id', existingProfile.id)
+
+      if (profileUpdateError) {
+        console.warn('user_profiles update warning:', profileUpdateError.message)
+      }
+    } else {
+      const { error: profileInsertError } = await supabaseAdmin
+        .from('user_profiles')
+        .insert({
+          ...profilePayload,
+          created_at: new Date().toISOString(),
+        })
+
+      if (profileInsertError) {
+        console.warn('user_profiles insert warning:', profileInsertError.message)
+      }
+    }
+
+    const employeePayload: Record<string, unknown> = {
+      user_account_email: cleanEmail,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (role !== undefined) employeePayload.access_role = role || null
+    if (department !== undefined) employeePayload.department = department || null
+
+    const { error: employeeSyncError } = await supabaseAdmin
+      .from('employees')
+      .update(employeePayload)
+      .or(`email_address.ilike.${cleanEmail},user_account_email.ilike.${cleanEmail}`)
+
+    if (employeeSyncError) {
+      console.warn('employees sync warning:', employeeSyncError.message)
+    }
 
     // SEND CREATE PASSWORD EMAIL
     const { data: linkData, error: linkError } =

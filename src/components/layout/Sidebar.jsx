@@ -46,8 +46,9 @@ import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabaseClient';
 
 import {
-  canAccess,
-  ROLE_LABELS,
+  canUserAccess,
+  getRoleLabel,
+  getUserRole,
 } from '@/lib/roleAccess';
 
 const ALL_MENUS = [
@@ -326,14 +327,10 @@ function Sidebar({
 
   const location = useLocation();
   const navRef = useRef(null);
-  const role = user?.role || '';
-
-  console.log('SIDEBAR USER:', user);
-console.log('SIDEBAR ROLE:', role);
-console.log('CAN SEE FUND:', canAccess(role, 'fund_requests'));
+  const role = getUserRole(user);
 
   const filteredMenu = ALL_MENUS.filter((item) => {
-    return canAccess(role, item.permission);
+    return canUserAccess(user, item.permission);
   });
 
   const handleLogout = async () => {
@@ -459,7 +456,7 @@ console.log('CAN SEE FUND:', canAccess(role, 'fund_requests'));
               </p>
 
               <p className="text-[10px] text-slate-300 truncate">
-                {ROLE_LABELS[role] || role}
+                {getRoleLabel(role)}
               </p>
             </div>
           )}

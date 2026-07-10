@@ -6,6 +6,11 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
 import { supabase } from '@/lib/supabaseClient';
+import {
+  buildSiteHealthSites,
+  getSiteHealthLabel,
+  getSiteHealthStyle,
+} from '@/lib/siteHealth';
 
 import {
   Card,
@@ -80,42 +85,22 @@ const ENGINEER_STATUS = {
   },
 };
 
+const mapSiteStatusStyle = (status, bg, text, border) => ({
+  ...getSiteHealthStyle(status),
+  bg,
+  text,
+  border,
+});
+
 const SITE_STATUS = {
-  active: {
-    label: 'Active',
-    color: '#22c55e',
-    bg: 'bg-green-500/15',
-    text: 'text-green-300',
-    border: 'border-green-400',
-  },
-  faulty: {
-    label: 'Down',
-    color: '#ef4444',
-    bg: 'bg-red-500/15',
-    text: 'text-red-300',
-    border: 'border-red-400',
-  },
-  maintenance: {
-    label: 'WIP',
-    color: '#f59e0b',
-    bg: 'bg-amber-500/15',
-    text: 'text-amber-300',
-    border: 'border-amber-400',
-  },
-  offline: {
-    label: 'Offline',
-    color: '#94a3b8',
-    bg: 'bg-slate-500/15',
-    text: 'text-slate-300',
-    border: 'border-slate-400',
-  },
-  unknown: {
-    label: 'Unknown',
-    color: '#64748b',
-    bg: 'bg-slate-500/15',
-    text: 'text-slate-300',
-    border: 'border-slate-400',
-  },
+  healthy: mapSiteStatusStyle('healthy', 'bg-green-500/15', 'text-green-300', 'border-green-400'),
+  warning: mapSiteStatusStyle('warning', 'bg-amber-500/15', 'text-amber-300', 'border-amber-400'),
+  critical: mapSiteStatusStyle('critical', 'bg-red-500/15', 'text-red-300', 'border-red-400'),
+  offline: mapSiteStatusStyle('offline', 'bg-slate-500/15', 'text-slate-300', 'border-slate-400'),
+  maintenance: mapSiteStatusStyle('maintenance', 'bg-blue-500/15', 'text-blue-300', 'border-blue-400'),
+  inactive: mapSiteStatusStyle('inactive', 'bg-slate-600/15', 'text-slate-300', 'border-slate-500'),
+  decommissioned: mapSiteStatusStyle('decommissioned', 'bg-zinc-500/15', 'text-zinc-300', 'border-zinc-400'),
+  unknown: mapSiteStatusStyle('unknown', 'bg-slate-500/15', 'text-slate-200', 'border-slate-400'),
 };
 
 const ACTIVE_TICKET_STATUSES = [
@@ -436,10 +421,15 @@ async function safeFetch(table, select = '*', options = {}) {
     if (options.limit) query = query.limit(options.limit);
 
     const { data, error } = await query;
-    if (error) return [];
-    return data || [];
-  } catch {
-    return [];
+    if (error) {
+      console.error(`Live Map ${table} query failed:`, error);
+      return { rows: [], warning: table };
+    }
+
+    return { rows: data || [], warning: null };
+  } catch (error) {
+    console.error(`Live Map ${table} query failed:`, error);
+    return { rows: [], warning: table };
   }
 }
 
@@ -472,12 +462,42 @@ async function fetchCurrentMapData() {
     safeFetch('tickets', '*', { orderBy: 'updated_at', limit: 2000 }),
   ]);
 
-  return {
-    staffEngineers: [...engineers, ...employees, ...staff, ...staffDirectory, ...profiles, ...users].filter(isEngineerRole),
+  if (devices.warning && bankDevices.warning) {
+    throw new Error('Site Health device sources could not be loaded.');
+  }
+
+  const warnings = [
+    engineers,
+    employees,
+    staff,
+    staffDirectory,
+    profiles,
+    users,
     engineerStatuses,
-    devices: [...devices, ...bankDevices],
-    branches: [...branches, ...sites],
+    devices,
+    bankDevices,
+    branches,
+    sites,
     tickets,
+  ]
+    .map((result) => result.warning)
+    .filter(Boolean);
+
+  return {
+    staffEngineers: [
+      ...engineers.rows,
+      ...employees.rows,
+      ...staff.rows,
+      ...staffDirectory.rows,
+      ...profiles.rows,
+      ...users.rows,
+    ].filter(isEngineerRole),
+    engineerStatuses: engineerStatuses.rows,
+    devices: [...devices.rows, ...bankDevices.rows],
+    branches: branches.rows,
+    sourceSites: sites.rows,
+    tickets: tickets.rows,
+    warnings,
   };
 }
 
@@ -574,80 +594,13 @@ function buildEngineers(staffEngineers, engineerStatuses, tickets) {
 }
 
 function buildSiteGroups(devices, branches, tickets) {
-  const branchMap = new Map();
-
-  branches.forEach((branch) => {
-    const bank = getFirst(branch.bank_name, branch.client_name, branch.bank, 'Unknown Bank');
-    const branchName = getFirst(branch.branch_name, branch.name, branch.location, branch.device_location, 'Unknown Branch');
-    branchMap.set(getBranchKey(bank, branchName), branch);
-  });
-
-  const map = new Map();
-
-  devices.forEach((device) => {
-    const bank = getFirst(device.bank_name, device.client_name, device.bank, 'Unknown Bank');
-    const branchName = getFirst(device.branch_name, device.branch, device.location, device.device_location, 'Unknown Branch');
-    const key = getBranchKey(bank, branchName);
-    const branch = branchMap.get(key);
-    const lat = getDeviceLat(device, branch);
-    const lng = getDeviceLng(device, branch);
-
-    if (lat === null || lng === null) return;
-
-    if (!map.has(key)) {
-      map.set(key, {
-        key,
-        bank_name: bank,
-        branch_name: branchName,
-        region: getFirst(branch?.region, device.region),
-        latitude: lat,
-        longitude: lng,
-        devices: [],
-        openTickets: 0,
-      });
-    }
-
-    map.get(key).devices.push(device);
-  });
-
-  tickets.forEach((ticket) => {
-    const key = getBranchKey(
-      getFirst(ticket.bank_name, ticket.client_name, ticket.bank),
-      getFirst(ticket.branch_name, ticket.branch, ticket.device_location, ticket.location)
-    );
-    const site = map.get(key);
-    if (!site) return;
-
-    if (ACTIVE_TICKET_STATUSES.includes(normalize(ticket.status || ticket.completion_status))) {
-      site.openTickets += 1;
-    }
-  });
-
-  return Array.from(map.values()).map((site) => {
-    const counts = {
-      active: 0,
-      faulty: 0,
-      maintenance: 0,
-      offline: 0,
-      unknown: 0,
-    };
-
-    site.devices.forEach((device) => {
-      counts[getDeviceStatus(device)] += 1;
-    });
-
-    let status = 'active';
-    if (counts.faulty > 0) status = 'faulty';
-    else if (counts.maintenance > 0) status = 'maintenance';
-    else if (counts.active === 0 && (counts.offline > 0 || counts.unknown > 0)) status = 'offline';
-
-    return {
+  return buildSiteHealthSites({ devices, branches, tickets })
+    .map((site) => ({
       ...site,
-      status,
-      counts,
-      total: site.devices.length,
-    };
-  });
+      latitude: toNumber(site.latitude),
+      longitude: toNumber(site.longitude),
+    }))
+    .filter((site) => site.latitude !== null && site.longitude !== null);
 }
 
 export default function LiveMapPanel({ compact = false }) {
@@ -656,7 +609,7 @@ export default function LiveMapPanel({ compact = false }) {
   const [layerFilter, setLayerFilter] = useState('all');
   const [detailPanel, setDetailPanel] = useState(null);
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
+  const { data, isLoading, error, refetch, isFetching } = useQuery({
     queryKey: ['live-operations-map-command-center'],
     queryFn: fetchCurrentMapData,
     refetchInterval: 15000,
@@ -668,7 +621,7 @@ export default function LiveMapPanel({ compact = false }) {
   );
 
   const siteGroups = useMemo(
-    () => buildSiteGroups(data?.devices || [], data?.branches || [], data?.tickets || []),
+    () => buildSiteGroups(data?.devices || [], [...(data?.branches || []), ...(data?.sourceSites || [])], data?.tickets || []),
     [data]
   );
 
@@ -690,10 +643,13 @@ export default function LiveMapPanel({ compact = false }) {
   const siteStatusGroups = useMemo(
     () => ({
       all: siteGroups,
-      active: siteGroups.filter((s) => s.status === 'active'),
-      faulty: siteGroups.filter((s) => s.status === 'faulty'),
-      maintenance: siteGroups.filter((s) => s.status === 'maintenance'),
-      offline: siteGroups.filter((s) => s.status === 'offline'),
+      healthy: siteGroups.filter((s) => s.health === 'healthy'),
+      warning: siteGroups.filter((s) => s.health === 'warning'),
+      critical: siteGroups.filter((s) => s.health === 'critical'),
+      maintenance: siteGroups.filter((s) => s.health === 'maintenance'),
+      offline: siteGroups.filter((s) => s.health === 'offline'),
+      inactive: siteGroups.filter((s) => s.health === 'inactive'),
+      unknown: siteGroups.filter((s) => s.health === 'unknown'),
     }),
     [siteGroups]
   );
@@ -708,8 +664,8 @@ export default function LiveMapPanel({ compact = false }) {
   }, [layerFilter, mappedEngineers]);
 
   const visibleSites = useMemo(() => {
-    if (layerFilter === 'sites_active') return siteStatusGroups.active;
-    if (layerFilter === 'sites_down') return siteStatusGroups.faulty;
+    if (layerFilter === 'sites_active') return siteStatusGroups.healthy;
+    if (layerFilter === 'sites_down') return siteStatusGroups.critical;
     if (layerFilter === 'sites_wip') return siteStatusGroups.maintenance;
     if (layerFilter === 'sites_offline') return siteStatusGroups.offline;
     if (layerFilter.startsWith('engineers_')) return [];
@@ -724,8 +680,8 @@ export default function LiveMapPanel({ compact = false }) {
       engineersOffline: engineerGroups.offline.length,
       engineersTotal: engineers.length,
       engineersMapped: mappedEngineers.length,
-      activeSites: siteStatusGroups.active.length,
-      downSites: siteStatusGroups.faulty.length,
+      activeSites: siteStatusGroups.healthy.length,
+      downSites: siteStatusGroups.critical.length,
       maintenanceSites: siteStatusGroups.maintenance.length,
       offlineSites: siteStatusGroups.offline.length,
       totalSites: siteGroups.length,
@@ -747,7 +703,7 @@ export default function LiveMapPanel({ compact = false }) {
       <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
 
       {visibleSites.map((site) => {
-        const cfg = SITE_STATUS[site.status] || SITE_STATUS.unknown;
+        const cfg = SITE_STATUS[site.health] || SITE_STATUS.unknown;
 
         return (
           <Marker key={`site-${site.key}`} position={[site.latitude, site.longitude]} icon={atmIcon(cfg.color, site.total)}>
@@ -759,15 +715,15 @@ export default function LiveMapPanel({ compact = false }) {
                 </div>
 
                 <div className="text-xs">
-                  <span style={{ color: cfg.color, fontWeight: 800 }}>● Machine/Site: {cfg.label}</span>
+                  <span style={{ color: cfg.color, fontWeight: 800 }}>● Machine/Site: {getSiteHealthLabel(site.health)}</span>
                   {site.region && <span className="text-gray-500"> · {site.region}</span>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-1 text-xs">
                   <div>Machines: <b>{site.total}</b></div>
                   <div>Open tickets: <b>{site.openTickets}</b></div>
-                  <div>Active: <b>{site.counts.active}</b></div>
-                  <div>Down: <b>{site.counts.faulty}</b></div>
+                  <div>Healthy: <b>{site.counts.healthy}</b></div>
+                  <div>Critical: <b>{site.counts.critical}</b></div>
                   <div>WIP: <b>{site.counts.maintenance}</b></div>
                   <div>Offline: <b>{site.counts.offline}</b></div>
                 </div>
@@ -927,24 +883,30 @@ export default function LiveMapPanel({ compact = false }) {
           </button>
         </div>
 
+        {(error || data?.warnings?.length > 0) && (
+          <p className="mt-3 rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+            Some Site Health data could not be loaded.
+          </p>
+        )}
+
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-2 text-xs">
           <StatButton
-            label="Active Sites"
+            label="Healthy Sites"
             value={stats.activeSites}
             icon={CheckCircle2}
             filter="sites_active"
             panel="active_sites"
             active={layerFilter === 'sites_active'}
-            colorClass={SITE_STATUS.active}
+            colorClass={SITE_STATUS.healthy}
           />
           <StatButton
-            label="Down Sites"
+            label="Critical Sites"
             value={stats.downSites}
             icon={AlertTriangle}
             filter="sites_down"
             panel="down_sites"
             active={layerFilter === 'sites_down'}
-            colorClass={SITE_STATUS.faulty}
+            colorClass={SITE_STATUS.critical}
           />
           <StatButton
             label="WIP Sites"
@@ -1062,16 +1024,16 @@ function LiveMapDetailPanel({ type, onClose, engineers, sites }) {
       rows: engineers.inTransit,
     },
     active_sites: {
-      title: 'Active Sites',
-      empty: 'No active sites found.',
+      title: 'Healthy Sites',
+      empty: 'No healthy sites found.',
       kind: 'site',
-      rows: sites.active,
+      rows: sites.healthy,
     },
     down_sites: {
-      title: 'Down / Faulty Sites',
-      empty: 'No down sites found.',
+      title: 'Critical Sites',
+      empty: 'No critical sites found.',
       kind: 'site',
-      rows: sites.faulty,
+      rows: sites.critical,
     },
     maintenance_sites: {
       title: 'Maintenance / WIP Sites',
@@ -1163,7 +1125,7 @@ function EngineerListItem({ engineer }) {
 }
 
 function SiteListItem({ site }) {
-  const cfg = SITE_STATUS[site.status] || SITE_STATUS.unknown;
+  const cfg = SITE_STATUS[site.health] || SITE_STATUS.unknown;
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -1171,7 +1133,7 @@ function SiteListItem({ site }) {
         <div>
           <p className="font-semibold">🏧 {site.branch_name}</p>
           <p className="text-xs text-slate-300">{site.bank_name}</p>
-          <p className="text-xs mt-1" style={{ color: cfg.color }}>● {cfg.label}</p>
+          <p className="text-xs mt-1" style={{ color: cfg.color }}>● {getSiteHealthLabel(site.health)}</p>
           {site.region && <p className="text-xs text-slate-400">{site.region}</p>}
         </div>
 
@@ -1183,12 +1145,12 @@ function SiteListItem({ site }) {
 
       <div className="mt-2 grid grid-cols-4 gap-2 text-center text-xs">
         <div className="rounded-lg bg-green-500/15 p-2">
-          <p className="font-bold text-green-300">{site.counts.active}</p>
-          <p className="text-slate-300">Active</p>
+          <p className="font-bold text-green-300">{site.counts.healthy}</p>
+          <p className="text-slate-300">Healthy</p>
         </div>
         <div className="rounded-lg bg-red-500/15 p-2">
-          <p className="font-bold text-red-300">{site.counts.faulty}</p>
-          <p className="text-slate-300">Down</p>
+          <p className="font-bold text-red-300">{site.counts.critical}</p>
+          <p className="text-slate-300">Critical</p>
         </div>
         <div className="rounded-lg bg-amber-500/15 p-2">
           <p className="font-bold text-amber-300">{site.counts.maintenance}</p>

@@ -2,6 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  normalizeEmail,
+  normalizeStaffId,
+  syncRelatedIdentityRecords,
+} from '@/lib/identity';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -460,7 +465,8 @@ export default function UserManagement() {
     department,
     extraUpdates = {},
   }) => {
-    if (!email) return;
+    const cleanEmail = normalizeEmail(email);
+    if (!cleanEmail) return;
 
     const { error } = await supabase
       .from('user_profiles')
@@ -470,7 +476,7 @@ export default function UserManagement() {
         updated_at: new Date().toISOString(),
         ...extraUpdates,
       })
-      .eq('user_email', email);
+      .ilike('user_email', cleanEmail);
 
     if (error) {
       console.warn('User profile sync warning:', error.message);
@@ -478,7 +484,8 @@ export default function UserManagement() {
   };
 
   const syncEmployeeRole = async ({ email, role, department }) => {
-    if (!email) return;
+    const cleanEmail = normalizeEmail(email);
+    if (!cleanEmail) return;
 
     const { error } = await supabase
       .from('employees')
@@ -487,7 +494,7 @@ export default function UserManagement() {
         department,
         updated_at: new Date().toISOString(),
       })
-      .or(`user_account_email.eq.${email},email_address.eq.${email}`);
+      .or(`user_account_email.ilike.${cleanEmail},email_address.ilike.${cleanEmail}`);
 
     if (error) {
       console.warn('Employee role sync warning:', error.message);
@@ -503,7 +510,7 @@ export default function UserManagement() {
     setInviting(true);
 
     try {
-      const cleanEmail = inviteEmail.trim().toLowerCase();
+      const cleanEmail = normalizeEmail(inviteEmail);
 
       if (!cleanEmail) {
         alert('Please enter an email address.');
@@ -549,6 +556,12 @@ export default function UserManagement() {
       });
 
       await syncEmployeeRole({
+        email: cleanEmail,
+        role: inviteRole,
+        department: inviteDepartment,
+      });
+
+      await syncRelatedIdentityRecords(supabase, {
         email: cleanEmail,
         role: inviteRole,
         department: inviteDepartment,
@@ -622,6 +635,15 @@ export default function UserManagement() {
       email: targetUser?.email,
       role: normalizedNewRole,
       department: newDepartment,
+    });
+
+    await syncRelatedIdentityRecords(supabase, {
+      email: targetUser?.email,
+      fullName: targetUser?.full_name,
+      department: newDepartment,
+      role: normalizedNewRole,
+      employeeId: targetUser?.employee_id,
+      phone: targetUser?.phone,
     });
 
     qc.invalidateQueries({ queryKey: ['users'] });
@@ -725,22 +747,69 @@ export default function UserManagement() {
     setDeleting(true);
 
     try {
-      const { data: employees } = await supabase.from('employees').select('*');
+      const cleanDeleteEmail = normalizeEmail(deleteConfirmUser.email);
+      const cleanEmployeeId = normalizeStaffId(deleteConfirmUser.employee_id);
+      const { data: employees, error: employeesFetchError } = await supabase
+        .from('employees')
+        .select('*');
 
-      const linked = employees?.find(
+      if (employeesFetchError) throw employeesFetchError;
+
+      const linkedEmployees = (employees || []).filter(
         (e) =>
-          e.user_account_email === deleteConfirmUser.email ||
-          e.email_address === deleteConfirmUser.email
+          normalizeEmail(e.user_account_email) === cleanDeleteEmail ||
+          normalizeEmail(e.email_address) === cleanDeleteEmail ||
+          (cleanEmployeeId && normalizeStaffId(e.staff_id) === cleanEmployeeId) ||
+          (cleanEmployeeId && String(e.id) === String(deleteConfirmUser.employee_id))
       );
 
-      if (linked) {
-        await supabase
+      for (const linked of linkedEmployees) {
+        const { error: employeeUpdateError } = await supabase
           .from('employees')
           .update({
             employment_status: 'Terminated',
+            user_account_email: null,
+            access_role: null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', linked.id);
+
+        if (employeeUpdateError) throw employeeUpdateError;
+      }
+
+      const { data: engineers, error: engineersFetchError } = await supabase
+        .from('engineers')
+        .select('*');
+
+      if (engineersFetchError) throw engineersFetchError;
+
+      const linkedEngineers = (engineers || []).filter(
+        (engineer) => normalizeEmail(engineer.email) === cleanDeleteEmail
+      );
+
+      for (const engineer of linkedEngineers) {
+        const { error: engineerUpdateError } = await supabase
+          .from('engineers')
+          .update({
+            status: 'inactive',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', engineer.id);
+
+        if (engineerUpdateError) throw engineerUpdateError;
+      }
+
+      const { error: profileUpdateError } = await supabase
+        .from('user_profiles')
+        .update({
+          account_status: 'deleted',
+          role: null,
+          updated_at: new Date().toISOString(),
+        })
+        .ilike('user_email', cleanDeleteEmail);
+
+      if (profileUpdateError) {
+        console.warn('User profile delete sync warning:', profileUpdateError.message);
       }
 
       const { error } = await supabase
@@ -755,6 +824,21 @@ export default function UserManagement() {
 
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['hr-employees'] });
+      qc.invalidateQueries({ queryKey: ['engineers-list'] });
+      qc.setQueryData(['hr-employees'], (current = []) =>
+        current.filter((employee) => {
+          const employeeEmail = normalizeEmail(employee.email_address || employee.user_account_email);
+          const staffId = normalizeStaffId(employee.staff_id);
+
+          return (
+            employeeEmail !== cleanDeleteEmail &&
+            (!cleanEmployeeId || staffId !== cleanEmployeeId)
+          );
+        })
+      );
+      qc.setQueryData(['engineers-list'], (current = []) =>
+        current.filter((engineer) => normalizeEmail(engineer.email) !== cleanDeleteEmail)
+      );
     } catch (err) {
       alert('Delete failed: ' + (err?.message || 'Unknown error'));
     } finally {
@@ -825,6 +909,15 @@ export default function UserManagement() {
         email: selectedUser.email,
         role: normalizedProfileRole,
         department: resolvedDepartment,
+      });
+
+      await syncRelatedIdentityRecords(supabase, {
+        email: selectedUser.email,
+        fullName: selectedUser.full_name,
+        department: resolvedDepartment,
+        role: normalizedProfileRole,
+        employeeId: profile.employee_id,
+        phone: profile.phone,
       });
 
       qc.invalidateQueries({ queryKey: ['users'] });

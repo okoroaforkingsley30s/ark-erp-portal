@@ -1,56 +1,76 @@
-import React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "../../integrations/supabase/client";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { MapPin, Radio } from "lucide-react";
+import React, { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { supabase } from '@/lib/supabaseClient';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { MapPin, Radio } from 'lucide-react';
+import {
+  buildSiteHealthSites,
+  getSiteHealthLabel,
+  getSiteHealthStyle,
+  summarizeSiteHealth,
+} from '@/lib/siteHealth';
 
-const siteStatusConfig = {
-  active: {
-    label: "Active",
-    dot: "bg-emerald-400",
-    badge: "success",
-    pulse: true,
-  },
-  down: {
-    label: "Down",
-    dot: "bg-red-400",
-    badge: "destructive",
-    pulse: true,
-  },
-  maintenance: {
-    label: "Maintenance",
-    dot: "bg-amber-400",
-    badge: "warning",
-    pulse: false,
-  },
-  offline: {
-    label: "Offline",
-    dot: "bg-slate-400",
-    badge: "secondary",
-    pulse: false,
-  },
-};
+async function fetchOptionalTable(table, options = {}) {
+  let query = supabase.from(table).select('*');
+
+  if (options.orderBy) {
+    query = query.order(options.orderBy, { ascending: options.ascending ?? false });
+  }
+
+  if (options.limit) query = query.limit(options.limit);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error(`Dashboard Site Health ${table} query failed:`, error);
+    return { rows: [], warning: table };
+  }
+
+  return { rows: data || [], warning: null };
+}
+
+async function fetchSiteHealthPanelData() {
+  const [devices, bankDevices, branches, sites, tickets] = await Promise.all([
+    fetchOptionalTable('devices', { orderBy: 'created_at', limit: 3000 }),
+    fetchOptionalTable('bank_devices', { orderBy: 'created_at', limit: 3000 }),
+    fetchOptionalTable('branches', { limit: 3000 }),
+    fetchOptionalTable('sites', { limit: 3000 }),
+    fetchOptionalTable('tickets', { orderBy: 'updated_at', limit: 1000 }),
+  ]);
+
+  if (devices.warning && bankDevices.warning) {
+    throw new Error('Site Health device sources could not be loaded.');
+  }
+
+  return {
+    devices: [...devices.rows, ...bankDevices.rows],
+    branches: branches.rows,
+    sites: sites.rows,
+    tickets: tickets.rows,
+    warnings: [devices, bankDevices, branches, sites, tickets].map((result) => result.warning).filter(Boolean),
+  };
+}
 
 export default function SiteStatusPanel() {
-  const { data: sites = [] } = useQuery({
-    queryKey: ["sites"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("sites")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (error) throw error;
-      return data || [];
-    },
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['dashboard-site-health'],
+    queryFn: fetchSiteHealthPanelData,
     refetchInterval: 30000,
   });
 
-  const downSites = sites.filter((s) => s.status === "down");
-  const activeSites = sites.filter((s) => s.status === "active");
-  const maintSites = sites.filter((s) => s.status === "maintenance");
+  const siteRows = useMemo(
+    () =>
+      buildSiteHealthSites({
+        devices: data?.devices || [],
+        branches: data?.branches || [],
+        sites: data?.sites || [],
+        tickets: data?.tickets || [],
+      }),
+    [data]
+  );
+
+  const summary = useMemo(() => summarizeSiteHealth(siteRows), [siteRows]);
+  const warningSites = siteRows.filter((site) => ['warning', 'critical', 'offline'].includes(site.health));
 
   return (
     <Card className="border-white/10 bg-[#102969]/90">
@@ -63,99 +83,101 @@ export default function SiteStatusPanel() {
         </CardTitle>
 
         <CardDescription>
-          Live operational status across monitored sites · {sites.length} sites
+          Live operational status across monitored sites · {summary.total} sites
         </CardDescription>
       </CardHeader>
 
       <CardContent className="space-y-5">
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <div className="rounded-2xl bg-emerald-500/10 border border-emerald-400/20 p-3">
-            <p className="text-2xl font-black text-emerald-300">
-              {activeSites.length}
-            </p>
-            <p className="text-[10px] text-emerald-200 uppercase tracking-widest">
-              Active
-            </p>
+        {isLoading ? (
+          <div className="py-8 flex justify-center">
+            <div className="w-7 h-7 border-4 border-[#ff5a00]/20 border-t-[#ff5a00] rounded-full animate-spin" />
           </div>
+        ) : error ? (
+          <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+            Some Site Health data could not be loaded.
+          </p>
+        ) : (
+          <>
+            {data?.warnings?.length > 0 && (
+              <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                Some Site Health data could not be loaded.
+              </p>
+            )}
 
-          <div className="rounded-2xl bg-red-500/10 border border-red-400/20 p-3">
-            <p className="text-2xl font-black text-red-300">
-              {downSites.length}
-            </p>
-            <p className="text-[10px] text-red-200 uppercase tracking-widest">
-              Down
-            </p>
-          </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {[
+                { key: 'healthy', label: 'Healthy' },
+                { key: 'critical', label: 'Critical' },
+                { key: 'maintenance', label: 'Maint.' },
+              ].map(({ key, label }) => {
+                const style = getSiteHealthStyle(key);
 
-          <div className="rounded-2xl bg-amber-500/10 border border-amber-400/20 p-3">
-            <p className="text-2xl font-black text-amber-300">
-              {maintSites.length}
-            </p>
-            <p className="text-[10px] text-amber-200 uppercase tracking-widest">
-              Maint.
-            </p>
-          </div>
-        </div>
+                return (
+                  <div key={key} className={`rounded-2xl border p-3 ${style.badge}`}>
+                    <p className="text-2xl font-black">{summary[key]}</p>
+                    <p className="text-[10px] uppercase tracking-widest">{label}</p>
+                  </div>
+                );
+              })}
+            </div>
 
-        {downSites.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs font-bold text-red-300 flex items-center gap-2 uppercase tracking-widest">
-              <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse" />
-              Down Sites
-            </p>
+            {warningSites.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-red-300 flex items-center gap-2 uppercase tracking-widest">
+                  <span className="w-2 h-2 bg-red-400 rounded-full animate-pulse" />
+                  Attention Needed
+                </p>
 
-            {downSites.map((s) => (
-              <div
-                key={s.id}
-                className="flex items-center gap-3 p-3 bg-red-500/10 rounded-2xl border border-red-400/20"
-              >
-                <MapPin className="w-4 h-4 text-red-300 flex-shrink-0" />
+                {warningSites.slice(0, 5).map((site) => {
+                  const style = getSiteHealthStyle(site.health);
 
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">
-                    {s.name}
-                  </p>
-                  <p className="text-xs text-red-200 truncate">
-                    {s.client_name}
-                  </p>
-                </div>
+                  return (
+                    <div
+                      key={site.key}
+                      className="flex items-center gap-3 p-3 bg-red-500/10 rounded-2xl border border-red-400/20"
+                    >
+                      <MapPin className="w-4 h-4 text-red-300 flex-shrink-0" />
+
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{site.branch_name}</p>
+                        <p className="text-xs text-red-200 truncate">{site.bank_name}</p>
+                      </div>
+
+                      <Badge variant="outline" className={style.badge}>
+                        {getSiteHealthLabel(site.health)}
+                      </Badge>
+                    </div>
+                  );
+                })}
               </div>
-            ))}
-          </div>
+            )}
+
+            <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+              {siteRows.slice(0, 10).map((site) => {
+                const style = getSiteHealthStyle(site.health);
+
+                return (
+                  <div
+                    key={site.key}
+                    className="flex items-center gap-3 rounded-2xl border border-white/5 bg-[#0b1f5e]/70 px-3 py-2"
+                  >
+                    <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${style.dot}`} />
+
+                    <span className="text-sm text-slate-100 flex-1 truncate">{site.branch_name}</span>
+
+                    <Badge variant="outline" className={style.badge}>
+                      {getSiteHealthLabel(site.health)}
+                    </Badge>
+                  </div>
+                );
+              })}
+
+              {siteRows.length === 0 && (
+                <p className="text-sm text-slate-300 text-center py-4">No sites configured</p>
+              )}
+            </div>
+          </>
         )}
-
-        <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
-          {sites.slice(0, 10).map((s) => {
-            const sc = siteStatusConfig[s.status] || siteStatusConfig.offline;
-
-            return (
-              <div
-                key={s.id}
-                className="flex items-center gap-3 rounded-2xl border border-white/5 bg-[#0b1f5e]/70 px-3 py-2"
-              >
-                <span
-                  className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${sc.dot} ${
-                    sc.pulse ? "animate-pulse" : ""
-                  }`}
-                />
-
-                <span className="text-sm text-slate-100 flex-1 truncate">
-                  {s.name}
-                </span>
-
-                <Badge variant={sc.badge}>
-                  {sc.label}
-                </Badge>
-              </div>
-            );
-          })}
-
-          {sites.length === 0 && (
-            <p className="text-sm text-slate-300 text-center py-4">
-              No sites configured
-            </p>
-          )}
-        </div>
       </CardContent>
     </Card>
   );

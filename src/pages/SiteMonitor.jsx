@@ -2,6 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  SITE_HEALTH_STATES,
+  buildSiteHealthSites,
+  getSiteHealthLabel,
+  getSiteHealthStyle,
+  normalizeOperationalStatus,
+  summarizeSiteHealth,
+} from '@/lib/siteHealth';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,95 +35,6 @@ import {
   Radio,
   Activity,
 } from 'lucide-react';
-
-const STATUS_CFG = {
-  Active: {
-    label: 'Active',
-    dot: 'bg-green-500',
-    border: 'border-green-200',
-    light: 'bg-green-500/15 text-green-300',
-    borderLeft: '#22c55e',
-  },
-  Faulty: {
-    label: 'Faulty',
-    dot: 'bg-red-500',
-    border: 'border-red-200',
-    light: 'bg-red-500/15 text-red-300',
-    borderLeft: '#ef4444',
-  },
-  'Under Maintenance': {
-    label: 'Maintenance',
-    dot: 'bg-amber-400',
-    border: 'border-amber-200',
-    light: 'bg-amber-500/15 text-amber-300',
-    borderLeft: '#f59e0b',
-  },
-  Inactive: {
-    label: 'Inactive',
-    dot: 'bg-slate-400',
-    border: 'border-slate-200',
-    light: 'bg-slate-500/15 text-slate-300',
-    borderLeft: '#94a3b8',
-  },
-  Decommissioned: {
-    label: 'Decomm.',
-    dot: 'bg-gray-300',
-    border: 'border-gray-200',
-    light: 'bg-gray-50 text-gray-500',
-    borderLeft: '#d1d5db',
-  },
-};
-
-const normalize = (value) =>
-  String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, '_');
-
-const getDeviceStatus = (device) => {
-  const raw = normalize(device.device_status || device.status || device.state || device.current_status);
-
-  if (['active', 'operational', 'online', 'working', 'available'].includes(raw)) {
-    return 'Active';
-  }
-
-  if (['faulty', 'fault', 'failed', 'down', 'not_working', 'offline', 'out_of_service'].includes(raw)) {
-    return 'Faulty';
-  }
-
-  if (['under_maintenance', 'maintenance', 'in_maintenance', 'repair', 'under_repair'].includes(raw)) {
-    return 'Under Maintenance';
-  }
-
-  if (['decommissioned', 'retired', 'scrapped'].includes(raw)) {
-    return 'Decommissioned';
-  }
-
-  if (['inactive', 'disabled', 'unknown', ''].includes(raw)) {
-    return 'Inactive';
-  }
-
-  return 'Inactive';
-};
-
-const hasSlaAlert = (device) => {
-  const raw = normalize(device.sla_status || device.sla_state || device.sla || device.health_status);
-  return ['warning', 'breached', 'critical', 'at_risk', 'sla_breached'].includes(raw);
-};
-
-const isOpenTicket = (ticket) => {
-  const status = normalize(ticket.status);
-  const completionStatus = normalize(ticket.completion_status);
-
-  return ![
-    'closed',
-    'resolved',
-    'completed',
-    'approved',
-    'cancelled',
-    'canceled',
-  ].includes(status) && !['approved', 'completed', 'closed'].includes(completionStatus);
-};
 
 const getDeviceBank = (device) =>
   device.bank_name || device.bank || device.client_name || device.bankName || 'Unknown Bank';
@@ -151,20 +70,34 @@ async function fetchDevices() {
       .limit(3000),
   ]);
 
-  const bankDevices =
-    bankDevicesResult.status === 'fulfilled' && !bankDevicesResult.value.error
-      ? bankDevicesResult.value.data || []
-      : [];
+  const warnings = [];
+  const getRows = (result, tableName) => {
+    if (result.status !== 'fulfilled') {
+      console.error(`Site Monitor ${tableName} query failed:`, result.reason);
+      warnings.push(tableName);
+      return [];
+    }
 
-  const devices =
-    devicesResult.status === 'fulfilled' && !devicesResult.value.error
-      ? devicesResult.value.data || []
-      : [];
+    if (result.value.error) {
+      console.error(`Site Monitor ${tableName} query failed:`, result.value.error);
+      warnings.push(tableName);
+      return [];
+    }
+
+    return result.value.data || [];
+  };
+
+  const bankDevices = getRows(bankDevicesResult, 'bank_devices');
+  const devices = getRows(devicesResult, 'devices');
+
+  if (warnings.length === 2) {
+    throw new Error('Site Health device sources could not be loaded.');
+  }
 
   const merged = [...devices, ...bankDevices];
   const seen = new Set();
 
-  return merged.filter((device) => {
+  const rows = merged.filter((device) => {
     const key =
       device.id ||
       device.terminal_id ||
@@ -175,6 +108,8 @@ async function fetchDevices() {
     seen.add(key);
     return true;
   });
+
+  return { rows, warnings };
 }
 
 async function fetchBranches() {
@@ -227,8 +162,9 @@ export default function SiteMonitor() {
   const [filterEngineer, setFilterEngineer] = useState('all');
 
   const {
-    data: devices = [],
+    data: deviceResult = { rows: [], warnings: [] },
     isLoading,
+    error: devicesError,
     refetch,
   } = useQuery({
     queryKey: ['site-monitor-devices'],
@@ -236,96 +172,33 @@ export default function SiteMonitor() {
     refetchInterval: 60000,
   });
 
-  const { data: branches = [] } = useQuery({
-    queryKey: ['branches'],
-    queryFn: fetchBranches,
-  });
-
-  const { data: engineers = [] } = useQuery({
+  const { data: engineers = [], error: engineersError } = useQuery({
     queryKey: ['engineers-site-monitor'],
     queryFn: fetchEngineers,
   });
 
-  const { data: banks = [] } = useQuery({
+  const { data: banks = [], error: banksError } = useQuery({
     queryKey: ['banks'],
     queryFn: fetchBanks,
   });
 
-  const { data: tickets = [] } = useQuery({
+  const { data: tickets = [], error: ticketsError } = useQuery({
     queryKey: ['tickets-monitor'],
     queryFn: fetchTickets,
     refetchInterval: 60000,
   });
 
+  const { data: branches = [], error: branchesError } = useQuery({
+    queryKey: ['branches'],
+    queryFn: fetchBranches,
+  });
+
+  const devices = deviceResult.rows || [];
+  const dataWarnings = deviceResult.warnings || [];
+  const queryError = devicesError || branchesError || engineersError || banksError || ticketsError;
+
   const sites = useMemo(() => {
-    const map = {};
-
-    devices.forEach((device) => {
-      const bankName = getDeviceBank(device);
-      const branchName = getDeviceBranch(device);
-      const key = `${bankName}__${branchName}`;
-
-      if (!map[key]) {
-        const branch = branches.find(
-          (b) =>
-            normalize(b.branch_name || b.name) === normalize(branchName) &&
-            normalize(b.bank_name || b.bank) === normalize(bankName)
-        );
-
-        map[key] = {
-          key,
-          bank_name: bankName,
-          branch_name: branchName,
-          region: branch?.region || device.region || device.state || '',
-          assigned_engineer: getDeviceEngineer(device, branch),
-          devices: [],
-        };
-      }
-
-      map[key].devices.push(device);
-    });
-
-    return Object.values(map).map((site) => {
-      const total = site.devices.length;
-      const active = site.devices.filter((device) => getDeviceStatus(device) === 'Active').length;
-      const faulty = site.devices.filter((device) => getDeviceStatus(device) === 'Faulty').length;
-      const maintenance = site.devices.filter((device) => getDeviceStatus(device) === 'Under Maintenance').length;
-      const inactive = site.devices.filter((device) => getDeviceStatus(device) === 'Inactive').length;
-      const decommissioned = site.devices.filter((device) => getDeviceStatus(device) === 'Decommissioned').length;
-      const slaAlerts = site.devices.filter(hasSlaAlert).length;
-
-      const openTickets = tickets.filter((ticket) => {
-        const sameBank = normalize(ticket.bank_name || ticket.bank) === normalize(site.bank_name);
-        const ticketBranch = ticket.branch_name || ticket.device_location || ticket.location || ticket.site_name;
-        const sameBranch = normalize(ticketBranch) === normalize(site.branch_name);
-        return sameBank && sameBranch && isOpenTicket(ticket);
-      }).length;
-
-      let status = 'Active';
-
-      if (total === 0) {
-        status = 'Inactive';
-      } else if (faulty > 0 && faulty + maintenance >= total) {
-        status = 'Faulty';
-      } else if (faulty > 0 || maintenance > 0 || slaAlerts > 0 || openTickets > 0) {
-        status = 'Under Maintenance';
-      } else if (active === 0 && inactive + decommissioned >= total) {
-        status = 'Inactive';
-      }
-
-      return {
-        ...site,
-        total,
-        active,
-        faulty,
-        maintenance,
-        inactive,
-        decommissioned,
-        slaAlerts,
-        openTickets,
-        status,
-      };
-    });
+    return buildSiteHealthSites({ devices, branches, tickets });
   }, [devices, branches, tickets]);
 
   const filtered = useMemo(
@@ -341,7 +214,7 @@ export default function SiteMonitor() {
           site.assigned_engineer?.toLowerCase().includes(q);
 
         const matchBank = filterBank === 'all' || site.bank_name === filterBank;
-        const matchStatus = filterStatus === 'all' || site.status === filterStatus;
+        const matchStatus = filterStatus === 'all' || site.health === filterStatus;
         const matchEngineer = filterEngineer === 'all' || site.assigned_engineer === filterEngineer;
 
         return matchSearch && matchBank && matchStatus && matchEngineer;
@@ -349,15 +222,7 @@ export default function SiteMonitor() {
     [sites, search, filterBank, filterStatus, filterEngineer]
   );
 
-  const counts = useMemo(
-    () => ({
-      Active: sites.filter((site) => site.status === 'Active').length,
-      Faulty: sites.filter((site) => site.status === 'Faulty').length,
-      Maintenance: sites.filter((site) => site.status === 'Under Maintenance').length,
-      Inactive: sites.filter((site) => site.status === 'Inactive').length,
-    }),
-    [sites]
-  );
+  const summary = useMemo(() => summarizeSiteHealth(sites), [sites]);
 
   const bankOptions = useMemo(() => {
     const fromSites = sites.map((site) => site.bank_name).filter(Boolean);
@@ -404,50 +269,76 @@ export default function SiteMonitor() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {(queryError || dataWarnings.length > 0) && (
+        <div className="rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Some Site Health data could not be loaded. Refresh the page or contact IT if the issue persists.
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 gap-3">
         {[
           {
-            key: 'Active',
-            label: 'Active Sites',
+            key: 'healthy',
+            label: 'Healthy',
             icon: CheckCircle2,
-            cls: 'border-green-500/30 bg-green-500/15 text-white',
           },
           {
-            key: 'Faulty',
-            label: 'Faulty',
+            key: 'warning',
+            label: 'Warning',
             icon: AlertTriangle,
-            cls: 'border-red-500/30 bg-red-500/15 text-white',
           },
           {
-            key: 'Maintenance',
+            key: 'critical',
+            label: 'Critical',
+            icon: AlertTriangle,
+          },
+          {
+            key: 'offline',
+            label: 'Offline',
+            icon: Activity,
+          },
+          {
+            key: 'maintenance',
             label: 'Maintenance',
             icon: Wrench,
-            cls: 'border-amber-500/30 bg-amber-500/15 text-white',
           },
           {
-            key: 'Inactive',
+            key: 'inactive',
             label: 'Inactive',
             icon: Activity,
-            cls: 'border-slate-500/30 bg-slate-500/15 text-white',
           },
-        ].map(({ key, label, icon: Icon, cls }) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setFilterStatus(filterStatus === key ? 'all' : key)}
-            className={`rounded-xl border p-4 text-left transition-all hover:shadow-md ${cls}${
-              filterStatus === key ? ' ring-2 ring-offset-1 ring-primary' : ''
-            }`}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <Icon className="w-4 h-4 text-muted-foreground" />
-              <span className={`w-2.5 h-2.5 rounded-full ${STATUS_CFG[key]?.dot || STATUS_CFG.Active.dot}`} />
-            </div>
+          {
+            key: 'decommissioned',
+            label: 'Decomm.',
+            icon: Radio,
+          },
+          {
+            key: 'unknown',
+            label: 'Unknown',
+            icon: Activity,
+          },
+        ].map(({ key, label, icon: Icon }) => {
+          const style = getSiteHealthStyle(key);
 
-            <p className="text-2xl font-bold">{counts[key] || 0}</p>
-            <p className="text-xs text-muted-foreground">{label}</p>
-          </button>
-        ))}
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilterStatus(filterStatus === key ? 'all' : key)}
+              className={`rounded-xl border p-4 text-left transition-all hover:shadow-md ${style.badge}${
+                filterStatus === key ? ' ring-2 ring-offset-1 ring-primary' : ''
+              }`}
+            >
+              <div className="flex items-center justify-between mb-1">
+                <Icon className="w-4 h-4 text-muted-foreground" />
+                <span className={`w-2.5 h-2.5 rounded-full ${style.dot}`} />
+              </div>
+
+              <p className="text-2xl font-bold">{summary[key] || 0}</p>
+              <p className="text-xs text-muted-foreground">{label}</p>
+            </button>
+          );
+        })}
       </div>
 
       <div className="flex flex-wrap gap-3">
@@ -481,10 +372,11 @@ export default function SiteMonitor() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="Active">Active</SelectItem>
-            <SelectItem value="Faulty">Faulty</SelectItem>
-            <SelectItem value="Under Maintenance">Maintenance</SelectItem>
-            <SelectItem value="Inactive">Inactive</SelectItem>
+            {SITE_HEALTH_STATES.map((status) => (
+              <SelectItem key={status} value={status}>
+                {getSiteHealthLabel(status)}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -510,20 +402,20 @@ export default function SiteMonitor() {
       ) : (
         <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {filtered.map((site) => {
-            const sc = STATUS_CFG[site.status] || STATUS_CFG.Active;
+            const sc = getSiteHealthStyle(site.health);
 
             return (
               <Card
                 key={site.key}
                 className="p-4 hover:shadow-lg transition-all border-l-4"
-                style={{ borderLeftColor: sc.borderLeft }}
+                style={{ borderLeftColor: sc.color }}
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span
                         className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${sc.dot} ${
-                          site.status === 'Active' ? 'animate-pulse' : ''
+                          site.health === 'healthy' ? 'animate-pulse' : ''
                         }`}
                       />
                       <h3 className="font-semibold text-sm truncate">{site.branch_name}</h3>
@@ -532,8 +424,8 @@ export default function SiteMonitor() {
                     <p className="text-xs text-muted-foreground mt-0.5 ml-4">{site.bank_name}</p>
                   </div>
 
-                  <Badge variant="outline" className={`${sc.light} ${sc.border} text-[10px] ml-2 flex-shrink-0`}>
-                    {sc.label}
+                  <Badge variant="outline" className={`${sc.badge} text-[10px] ml-2 flex-shrink-0`}>
+                    {getSiteHealthLabel(site.health)}
                   </Badge>
                 </div>
 
@@ -582,7 +474,7 @@ export default function SiteMonitor() {
                     title="View active devices for this site"
                   >
                     <p className="font-bold text-green-700">{site.active}</p>
-                    <p className="text-green-600">Active</p>
+                    <p className="text-green-600">Healthy</p>
                   </button>
 
                   <button

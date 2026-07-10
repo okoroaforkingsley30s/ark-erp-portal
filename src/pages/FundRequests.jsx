@@ -512,23 +512,38 @@ export default function FundRequests() {
       return;
     }
 
-    const { error } = await supabase
-      .from('fund_requests')
-      .update({
-        finance_status: 'disbursed',
-        status: 'disbursed',
-        disbursed_by: user?.email || '',
-        disbursed_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', request.id);
+    const requestedAmount = Number(request.amount || 0);
+    const amountText = window.prompt(
+      'Payment amount to record',
+      requestedAmount > 0 ? String(requestedAmount) : ''
+    );
+
+    if (amountText === null) return;
+
+    const paymentAmount = Number(amountText);
+
+    if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
+      alert('Payment amount must be greater than zero.');
+      return;
+    }
+
+    const { data: result, error } = await supabase.rpc('finance_record_general_request_payment', {
+      p_fund_request_id: request.id,
+      p_amount: paymentAmount,
+      p_payment_date: new Date().toISOString().slice(0, 10),
+      p_payment_method: 'Account Release',
+      p_payment_reference: request.purpose || request.request_type || null,
+      p_actor_id: user?.id || null,
+      p_actor_name: user?.full_name || user?.name || user?.email || null,
+      p_actor_email: user?.email || user?.user_email || null,
+    });
 
     if (error) {
       alert(error.message);
       return;
     }
 
-    if (getRequestCategory(request) === 'loan') {
+    if (getRequestCategory(request) === 'loan' && result?.finance_status === 'disbursed') {
       await supabase.from('hr_loans').insert({
         employee_name: request.requested_by_name || request.requested_by_email || 'Staff',
         staff_id: request.staff_id || null,
@@ -549,7 +564,7 @@ export default function FundRequests() {
     }
 
     qc.invalidateQueries({ queryKey: ['fund_requests'] });
-    alert('Request marked as disbursed.');
+    alert(result?.finance_status === 'partially_paid' ? 'Partial payment recorded.' : 'Request marked as disbursed.');
   };
 
   return (
