@@ -1,45 +1,94 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ARK ONE | Maintenance</title>
 
-    <link rel="icon" type="image/png" href="/logo.png" />
-    <link rel="apple-touch-icon" href="/logo.png" />
+  <style>
+    * {
+      box-sizing: border-box;
+    }
 
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover"
-    />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="ARK ONE" />
-    <meta name="application-name" content="ARK ONE" />
-    <meta name="theme-color" content="#d4a017" />
-    <meta name="msapplication-TileColor" content="#d4a017" />
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      font-family: Arial, Helvetica, sans-serif;
+      background: linear-gradient(135deg, #071426, #0d2f55);
+      color: #ffffff;
+    }
 
-    <title>ARK ONE Portal - ARK Technologies Group</title>
-    <meta
-      name="description"
-      content="Enterprise operations and service management platform by ARK Technologies Group"
-    />
+    .maintenance-card {
+      width: 100%;
+      max-width: 620px;
+      padding: 48px 32px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    }
 
-    <style>
-      html,
-      body {
-        height: 100%;
-        overflow: hidden;
-      }
+    .brand {
+      margin-bottom: 20px;
+      font-size: 30px;
+      font-weight: 800;
+      letter-spacing: 2px;
+    }
 
-      #root {
-        height: 100%;
-        overflow: hidden;
-      }
-    </style>
-  </head>
+    .status {
+      display: inline-block;
+      margin-bottom: 22px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      background: rgba(255, 193, 7, 0.15);
+      color: #ffd45c;
+      font-size: 14px;
+      font-weight: 700;
+    }
 
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+    h1 {
+      margin: 0 0 18px;
+      font-size: clamp(30px, 5vw, 46px);
+      line-height: 1.1;
+    }
+
+    p {
+      margin: 0 auto;
+      max-width: 480px;
+      color: #d9e6f2;
+      font-size: 17px;
+      line-height: 1.7;
+    }
+
+    .footer {
+      margin-top: 34px;
+      color: #9fb4c8;
+      font-size: 13px;
+    }
+  </style>
+</head>
+
+<body>
+  <main class="maintenance-card">
+    <div class="brand">ARK ONE</div>
+
+    <div class="status">TEMPORARILY OFFLINE</div>
+
+    <h1>Scheduled Maintenance</h1>
+
+    <p>
+      ARK ONE Portal is temporarily unavailable due to scheduled maintenance.
+      Please check back later.
+    </p>
+
+    <div class="footer">
+      Ark Technologies Group
+    </div>
+  </main>
+</body>
 </html>
