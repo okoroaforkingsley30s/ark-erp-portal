@@ -216,6 +216,49 @@ function getAllowedHODActions(item, user) {
   return actions;
 }
 
+
+function isDirectRepairJob(item) {
+  return item?._record_type === "repair_job";
+}
+
+function mapRepairJobState(statusValue) {
+  const status = normalize(statusValue);
+
+  if (status === "sent_to_inventory") return "returned_inventory";
+  if (status === "scrap" || status === "scrapped") return "scrapped";
+  if (status === "ready_for_inventory" || status === "qa_passed") return "qa_passed";
+  if (status === "qa_failed") return "qa_failed";
+  if (status === "testing" || status === "waiting_qa") return "waiting_qa";
+  if (status === "refurbishing" || status === "under_repair") return "under_repair";
+  if (status === "assigned") return "assigned";
+  if (status === "received") return "received";
+  return "pending_rr";
+}
+
+function normalizeRepairJob(job) {
+  const rrStatus = mapRepairJobState(job.status);
+
+  return {
+    ...job,
+    _record_type: "repair_job",
+    _source_id: job.id,
+    ticket_number: job.job_number || job.ticket_id || "-",
+    part_name: job.item_name || job.device_name || "R/R Item",
+    quantity: job.quantity_received || 1,
+    engineer_name: job.received_from || "Inventory",
+    rr_status: rrStatus,
+    qa_status: job.test_result || "pending",
+    lifecycle_status: rrStatus,
+    inventory_status:
+      job.inventory_transfer_status === "transferred"
+        ? "rr_verified"
+        : job.inventory_transfer_status || "transferred_rr",
+    dispatch_status:
+      rrStatus === "returned_inventory" ? "ready_for_dispatch" : "waiting_rr",
+    finance_status: job.finance_status || "waiting",
+  };
+}
+
 function filterPayloadByExistingColumns(row, payload) {
   const safePayload = {};
 
@@ -294,53 +337,68 @@ export default function RRPartRequests() {
   const fetchRequests = async () => {
     setLoading(true);
 
-    /*
-      Important:
-      Do not use a long .or(...) query here.
-      Waiting HOD QA was missing because the server-side filter could exclude rows
-      even when part_requests.rr_status = "waiting_qa".
-      We load recent part_requests, then this page filters RR workflow rows locally.
-    */
-    const { data, error } = await supabase
-      .from("part_requests")
-      .select("*")
-      .order("updated_at", { ascending: false })
-      .limit(500);
+    const [partResult, jobResult] = await Promise.all([
+      supabase
+        .from("part_requests")
+        .select("*")
+        .order("updated_at", { ascending: false })
+        .limit(500),
+      supabase
+        .from("repair_jobs")
+        .select("*")
+        .order("updated_at", { ascending: false })
+        .limit(500),
+    ]);
 
-    if (error) {
-      console.error("RR part request fetch error:", JSON.stringify(error, null, 2));
-      toast.error(error.message || "Failed to load RR part requests");
+    if (partResult.error || jobResult.error) {
+      const error = partResult.error || jobResult.error;
+      console.error("RR intake fetch error:", JSON.stringify(error, null, 2));
+      toast.error(error.message || "Failed to load RR intake records");
       setRequests([]);
-    } else {
-      const rrRows = (data || []).filter((item) => {
-  const rr = normalize(item.rr_status);
-  const lifecycle = normalize(item.lifecycle_status);
-  const inventory = normalize(item.inventory_status);
-  const status = normalize(item.status);
-
-  return (
-    RR_STATUSES.includes(rr) ||
-    lifecycle === "issued_to_rr" ||
-    lifecycle === "received_by_rr" ||
-    lifecycle === "assigned_to_rr_technician" ||
-    lifecycle === "under_repair" ||
-    lifecycle === "waiting_qa" ||
-    lifecycle === "qa_passed" ||
-    lifecycle === "qa_failed" ||
-    lifecycle === "ready_for_dispatch" ||
-    lifecycle === "scrapped" ||
-    inventory === "transferred_rr" ||
-    inventory === "rr_verified" ||
-    status === "pending_rr" ||
-    status === "rr_received" ||
-    status === "rr_assigned" ||
-    status === "under_repair" ||
-    status === "waiting_qa"
-  );
-});
-      setRequests(rrRows);
+      setLoading(false);
+      return;
     }
 
+    const partRows = (partResult.data || [])
+      .filter((item) => {
+        const rr = normalize(item.rr_status);
+        const lifecycle = normalize(item.lifecycle_status);
+        const inventory = normalize(item.inventory_status);
+        const status = normalize(item.status);
+
+        return (
+          RR_STATUSES.includes(rr) ||
+          lifecycle === "issued_to_rr" ||
+          lifecycle === "received_by_rr" ||
+          lifecycle === "assigned_to_rr_technician" ||
+          lifecycle === "under_repair" ||
+          lifecycle === "waiting_qa" ||
+          lifecycle === "qa_passed" ||
+          lifecycle === "qa_failed" ||
+          lifecycle === "ready_for_dispatch" ||
+          lifecycle === "scrapped" ||
+          inventory === "transferred_rr" ||
+          inventory === "rr_verified" ||
+          status === "pending_rr" ||
+          status === "rr_received" ||
+          status === "rr_assigned" ||
+          status === "under_repair" ||
+          status === "waiting_qa"
+        );
+      })
+      .map((item) => ({ ...item, _record_type: "part_request", _source_id: item.id }));
+
+    const directJobRows = (jobResult.data || [])
+      .filter((job) => !job.part_request_id)
+      .map(normalizeRepairJob);
+
+    const merged = [...partRows, ...directJobRows].sort(
+      (a, b) =>
+        new Date(b.updated_at || b.created_at || 0).getTime() -
+        new Date(a.updated_at || a.created_at || 0).getTime()
+    );
+
+    setRequests(merged);
     setLoading(false);
   };
 
@@ -349,10 +407,15 @@ export default function RRPartRequests() {
     fetchRequests();
 
     const channel = supabase
-      .channel("rr-part-requests")
+      .channel("rr-intake-unified")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "part_requests" },
+        () => fetchRequests()
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "repair_jobs" },
         () => fetchRequests()
       )
       .subscribe();
@@ -367,11 +430,12 @@ export default function RRPartRequests() {
         title: `RR HOD ${action}`,
         description: `${action} completed by RR HOD`,
         source_module: "Repair & Refurbishment",
-        entity_type: "part_request",
-        entity_id: item.id,
+        entity_type: isDirectRepairJob(item) ? "repair_job" : "part_request",
+        entity_id: item._source_id || item.id,
         severity,
         metadata: {
-          part_request_id: item.id,
+          part_request_id: isDirectRepairJob(item) ? null : item._source_id || item.id,
+          repair_job_id: isDirectRepairJob(item) ? item._source_id || item.id : null,
           ticket_id: item.ticket_id,
           ticket_number: item.ticket_number,
           engineer: getEngineerName(item),
@@ -557,10 +621,97 @@ export default function RRPartRequests() {
 
   const updateRequest = async (item, payload, actionLabel, severity = "info") => {
     setUpdatingId(item.id);
+    const now = new Date().toISOString();
+
+    if (isDirectRepairJob(item)) {
+      const rrStatus = normalize(payload.rr_status || item.rr_status);
+      const statusMap = {
+        received: "received",
+        assigned: "assigned",
+        under_repair: "under_repair",
+        waiting_qa: "waiting_qa",
+        qa_passed: "ready_for_inventory",
+        qa_failed: "qa_failed",
+        returned_inventory: "sent_to_inventory",
+        scrapped: "scrap",
+      };
+
+      const jobPayload = {
+        status: statusMap[rrStatus] || rrStatus,
+        updated_at: now,
+        final_remark: actionLabel,
+      };
+
+      if (rrStatus === "received") {
+        jobPayload.received_by = user?.full_name || user?.name || user?.email || "RR HOD";
+        jobPayload.condition_on_arrival = item.condition_on_arrival || "received_from_inventory";
+        jobPayload.action_required = item.action_required || "repair_required";
+        jobPayload.test_result = "pending";
+        jobPayload.inventory_transfer_status = "not_ready";
+      }
+
+      if (rrStatus === "assigned") {
+        const techId = payload.assigned_rr_technician || payload.assigned_to || null;
+        jobPayload.assigned_rr_technician = techId;
+        jobPayload.assigned_to = techId;
+        jobPayload.assigned_by = user?.id || user?.auth_id || null;
+        jobPayload.assigned_at = payload.assigned_at || now;
+        jobPayload.test_result = "pending";
+        jobPayload.inventory_transfer_status = "not_ready";
+      }
+
+      if (rrStatus === "qa_passed") {
+        jobPayload.test_result = "passed";
+        jobPayload.inventory_transfer_status = "ready_to_transfer";
+        jobPayload.good_quantity = item.quantity_received || item.quantity || 1;
+        jobPayload.bad_quantity = 0;
+      }
+
+      if (rrStatus === "qa_failed") {
+        jobPayload.test_result = "failed";
+        jobPayload.inventory_transfer_status = "not_ready";
+        jobPayload.good_quantity = 0;
+        jobPayload.bad_quantity = item.quantity_received || item.quantity || 1;
+      }
+
+      if (rrStatus === "returned_inventory") {
+        jobPayload.test_result = "passed";
+        jobPayload.inventory_transfer_status = "transferred";
+        jobPayload.completed_at = now;
+      }
+
+      if (rrStatus === "scrapped") {
+        jobPayload.test_result = "failed";
+        jobPayload.inventory_transfer_status = "not_ready";
+        jobPayload.completed_at = now;
+        jobPayload.good_quantity = 0;
+        jobPayload.bad_quantity = item.quantity_received || item.quantity || 1;
+        jobPayload.action_required = "scrapped";
+      }
+
+      const safeJobPayload = filterPayloadByExistingColumns(item, jobPayload);
+      const { error } = await supabase
+        .from("repair_jobs")
+        .update(safeJobPayload)
+        .eq("id", item._source_id || item.id);
+
+      if (error) {
+        console.error("Direct repair job update failed:", error);
+        toast.error(error.message || "Update failed");
+        setUpdatingId(null);
+        return;
+      }
+
+      await logOIN(item, actionLabel, safeJobPayload, severity);
+      toast.success(`${actionLabel} successful`);
+      setUpdatingId(null);
+      fetchRequests();
+      return;
+    }
 
     const safePayload = filterPayloadByExistingColumns(item, {
       ...payload,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     });
 
     if (Object.keys(safePayload).length === 0) {
@@ -572,7 +723,7 @@ export default function RRPartRequests() {
     const { error } = await supabase
       .from("part_requests")
       .update(safePayload)
-      .eq("id", item.id);
+      .eq("id", item._source_id || item.id);
 
     if (error) {
       console.error("RR update failed:", JSON.stringify(error, null, 2));
@@ -729,6 +880,9 @@ export default function RRPartRequests() {
         [
           item.ticket_number,
           item.ticket_id,
+          item.job_number,
+          item.source_type,
+          item.received_from,
           item.part_name,
           item.spare_part_name,
           item.item_name,
@@ -1152,7 +1306,10 @@ export default function RRPartRequests() {
                               {getPartName(item)}
                             </div>
                             <div className="text-xs text-blue-100/70 print:text-slate-500">
-                              {item.reason_category || item.reason || "No reason captured"}
+                              {item.reason_category || item.reason || item.fault_description || "No reason captured"}
+                            </div>
+                            <div className="mt-1 text-[11px] font-semibold text-orange-200 print:text-slate-600">
+                              Source: {isDirectRepairJob(item) ? (item.source_type === "new_purchase" ? "Inventory Direct" : item.source_type || "Inventory") : "Field Engineer Request"}
                             </div>
                           </td>
 
