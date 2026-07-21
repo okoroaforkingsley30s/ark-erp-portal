@@ -12,7 +12,7 @@ test.beforeEach(async ({ page }) => {
   }))
 })
 
-test('public sign-in and registration controls remain available', async ({ page }, testInfo) => {
+test('public sign-in remains available while self-registration stays disabled', async ({ page }, testInfo) => {
   await page.goto('/#/welcome', { waitUntil: 'domcontentloaded' })
 
   if (testInfo.project.name.startsWith('mobile')) {
@@ -22,9 +22,9 @@ test('public sign-in and registration controls remain available', async ({ page 
 
   await expect(page.locator('h2:visible', { hasText: 'Welcome Back' })).toBeVisible()
   await expect(page.locator('button:visible', { hasText: /^\s*Sign In\s*$/ })).toBeVisible()
-  await page.locator('button:visible', { hasText: 'Register / Sign Up' }).click()
-  await expect(page.locator('h2:visible', { hasText: 'Create Account' })).toBeVisible()
-  await expect(page.locator('input[placeholder="Your full name"]:visible')).toBeVisible()
+  await expect(
+    page.locator('button:visible', { hasText: 'Register / Sign Up' })
+  ).toHaveCount(0)
 })
 
 test('forgot-password validation does not submit an empty email', async ({ page }, testInfo) => {

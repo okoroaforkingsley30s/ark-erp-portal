@@ -1,7 +1,10 @@
+import groovy.json.JsonSlurper
+
 apply plugin: 'com.android.application'
 
 def arkVersionCode = (System.getenv('ARK_ANDROID_VERSION_CODE') ?: '10016') as Integer
-def arkVersionName = System.getenv('ARK_ANDROID_VERSION_NAME') ?: '1.0.16'
+def packageVersion = new JsonSlurper().parseText(file('../../package.json').text).version
+def arkVersionName = System.getenv('ARK_ANDROID_VERSION_NAME') ?: packageVersion
 def releaseStoreFile = System.getenv('ARK_ANDROID_KEYSTORE_FILE')
 def releaseStorePassword = System.getenv('ARK_ANDROID_KEYSTORE_PASSWORD')
 def releaseKeyAlias = System.getenv('ARK_ANDROID_KEY_ALIAS')
