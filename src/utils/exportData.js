@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import { exportWorkbook } from '@/lib/safeWorkbook';
 
 /**
  * Export data as CSV file
@@ -33,18 +33,6 @@ export function exportCSV(rows, filename = 'export') {
  * @param {Array|Object} sheets - single array or { sheetName: rows[] } map
  * @param {string} filename - filename without extension
  */
-export function exportExcel(sheets, filename = 'export') {
-  const wb = XLSX.utils.book_new();
-
-  if (Array.isArray(sheets)) {
-    const ws = XLSX.utils.json_to_sheet(sheets);
-    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-  } else {
-    Object.entries(sheets).forEach(([name, rows]) => {
-      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{}]);
-      XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
-    });
-  }
-
-  XLSX.writeFile(wb, `${filename}.xlsx`);
+export async function exportExcel(sheets, filename = 'export') {
+  await exportWorkbook(sheets, filename);
 }

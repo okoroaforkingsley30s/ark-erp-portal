@@ -266,23 +266,9 @@ function HelpdeskHome() {
     },
   });
 
-  const { data: engStatuses = [] } = useQuery({
-    queryKey: ['eng-statuses-hd'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('engineer_statuses')
-        .select('*');
-
-      if (error) throw error;
-      return data || [];
-    },
-  });
-
   const open = tickets.filter(t => t.status === 'open' || t.status === 'new').length;
   const inProgress = tickets.filter(t => t.status === 'in_progress').length;
   const breached = tickets.filter(t => t.sla_status === 'Breached').length;
-  const onlineEngs = engStatuses.filter(e => e.status === 'online' || e.status === 'on_site').length;
-
   return (
     <>
       <div className="flex gap-2.5 mb-5">

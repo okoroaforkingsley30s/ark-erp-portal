@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabaseClient";
+import { reportError } from '@/lib/errorReporting';
 
 export async function sendNotificationEmail({ to, name, title, message, link }) {
   if (!to || !title || !message) return;
@@ -9,11 +10,11 @@ export async function sendNotificationEmail({ to, name, title, message, link }) 
       name,
       title,
       message,
-      link: link || "https://portal.arktechnologiesgroup.com",
+      link: link || window.location.origin,
     },
   });
 
   if (error) {
-    console.error("Email notification failed:", error);
+    reportError(error, { context: 'notification.email.send_legacy', notify: false });
   }
 }

@@ -1,7 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useOutletContext } from 'react-router-dom';
+import { useOutletContext, useSearchParams } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import PrivateDocumentUpload, { PrivateDocumentLink } from '@/components/files/PrivateDocumentUpload';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,6 +42,10 @@ const isCEORole = (user) => getRole(user) === 'ceo';
 const isAdminRole = (user) => getRole(user) === 'admin';
 const isFinanceRole = (user) =>
   ['finance', 'account', 'accounts', 'accountant'].includes(getRole(user));
+const isRRHodRole = (user) =>
+  ['system_admin', 'repair_head', 'rr_hod', 'repair_hod', 'head_of_rr'].includes(getRole(user));
+const isRRFundRequest = (request) =>
+  Boolean(request?.repair_job_id) || normalize(request?.source_module).includes('repair');
 
 const canApproveHR = (user) => isHRRole(user);
 const canApproveAGM = (user) => isAGMRole(user);
@@ -61,6 +67,11 @@ const approvalRoles = [
   'accounts',
   'accountant',
   'admin',
+  'system_admin',
+  'repair_head',
+  'rr_hod',
+  'repair_hod',
+  'head_of_rr',
 ];
 
 const REQUEST_CATEGORIES = {
@@ -174,17 +185,23 @@ const requestNeedsFinance = (request) => {
 };
 
 const isFullyApproved = (request) =>
-  request.ceo_override ||
-  (
-    isApproved(request.hr_status) &&
-    isApproved(request.agm_status) &&
-    isApproved(request.operations_status)
-  );
+  isRRFundRequest(request)
+    ? normalize(request.rr_hod_status) === 'approved' &&
+      isApproved(request.hr_status) &&
+      isApproved(request.agm_status) &&
+      isApproved(request.operations_status)
+    : request.ceo_override || (
+      isApproved(request.hr_status) &&
+      isApproved(request.agm_status) &&
+      isApproved(request.operations_status)
+    );
 
 const isCompletedWithoutFinance = (request) =>
   isFullyApproved(request) && !requestNeedsFinance(request);
 
-const canHRAct = (request) => !isApproved(request.hr_status) && !request.ceo_override;
+const canHRAct = (request) =>
+  (!isRRFundRequest(request) || normalize(request.rr_hod_status) === 'approved') &&
+  !isApproved(request.hr_status) && !request.ceo_override;
 const canAGMAct = (request) =>
   isApproved(request.hr_status) && !isApproved(request.agm_status) && !request.ceo_override;
 const canOpsAct = (request) =>
@@ -218,6 +235,16 @@ function calculateDays(start, end) {
 function getRequestStage(request) {
   const financeStatus = normalize(request.finance_status);
   const status = normalize(request.status);
+
+  if (isRRFundRequest(request)) {
+    if (financeStatus === 'disbursed' || status === 'disbursed') return 'Disbursed';
+    if (normalize(request.rr_hod_status) === 'rejected' || status === 'rejected') return 'Rejected by RR HOD';
+    if (normalize(request.rr_hod_status) !== 'approved') return 'Pending RR HOD Approval';
+    if (!isApproved(request.hr_status)) return 'Pending HR Approval';
+    if (!isApproved(request.agm_status)) return 'Pending AGM Approval';
+    if (!isApproved(request.operations_status)) return 'Pending Operations Approval';
+    return 'Ready for Account Release';
+  }
 
   if (financeStatus === 'disbursed' || status === 'disbursed') return 'Disbursed';
   if (status === 'completed') return 'Completed';
@@ -256,10 +283,37 @@ export default function FundRequests() {
   const outlet = useOutletContext() || {};
   const user = outlet.user || outlet.profile || outlet.currentUser || {};
   const qc = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const repairJobId = searchParams.get('job_id');
 
   const [form, setForm] = useState(emptyForm);
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+
+  const draftForm = useMemo(() => ({
+    ...form,
+    // Browsers must not persist private attachment URLs or file selections.
+    attachment_url: '',
+  }), [form]);
+
+  useFormDraft({
+    key: repairJobId ? `general-request:${repairJobId}` : 'general-request',
+    form: draftForm,
+    setForm,
+    userId: user?.id || user?.email,
+    storage: 'local',
+    maxAgeMs: 24 * 60 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    if (!repairJobId) return;
+    setForm((current) => ({
+      ...current,
+      request_category: 'fund',
+      request_type: 'Other Fund Request',
+      purpose: current.purpose || `Repair fund for RR job ${repairJobId}`,
+    }));
+  }, [repairJobId]);
 
   const activeCategory = REQUEST_CATEGORIES[form.request_category] || REQUEST_CATEGORIES.fund;
   const ActiveIcon = activeCategory.icon;
@@ -371,6 +425,23 @@ export default function FundRequests() {
       return;
     }
 
+    if (repairJobId) {
+      const { data, error } = await supabase.rpc('rr_create_fund_request_v2', {
+        p_repair_job_id: repairJobId,
+        p_amount: Number(form.amount || 0),
+        p_purpose: form.purpose.trim(),
+        p_notes: form.notes || null,
+      });
+      if (error) {
+        alert(error.message || 'Repair-fund request could not be submitted.');
+        return;
+      }
+      setForm(emptyForm);
+      qc.invalidateQueries({ queryKey: ['fund_requests'] });
+      alert(data?.created === false ? 'The active repair-fund request already exists.' : 'Repair-fund request submitted.');
+      return;
+    }
+
     if (form.request_category === 'leave' && (!form.start_date || !form.end_date)) {
       alert('Leave start date and end date are required.');
       return;
@@ -430,6 +501,16 @@ export default function FundRequests() {
   };
 
   const approve = async (request, type) => {
+    if (type === 'rr_hod') {
+      const { error } = await supabase.rpc('rr_transition_fund_request', {
+        p_request_id: request.id,
+        p_action: 'hod_approve',
+        p_note: null,
+      });
+      if (error) return alert(error.message);
+      qc.invalidateQueries({ queryKey: ['fund_requests'] });
+      return;
+    }
     const needsFinance = requestNeedsFinance(request);
 
     const payload = {
@@ -508,7 +589,9 @@ export default function FundRequests() {
     }
 
     if (!isFullyApproved(request)) {
-      alert('This request is not fully approved yet. HR, AGM and Operations must approve before Account can release funds.');
+      alert(isRRFundRequest(request)
+        ? 'This repair fund must be approved by RR HOD before Account can release it.'
+        : 'This request is not fully approved yet. HR, AGM and Operations must approve before Account can release funds.');
       return;
     }
 
@@ -527,15 +610,12 @@ export default function FundRequests() {
       return;
     }
 
-    const { data: result, error } = await supabase.rpc('finance_record_general_request_payment', {
+    const { data: result, error } = await supabase.rpc('finance_record_general_request_payment_secure', {
       p_fund_request_id: request.id,
       p_amount: paymentAmount,
       p_payment_date: new Date().toISOString().slice(0, 10),
       p_payment_method: 'Account Release',
       p_payment_reference: request.purpose || request.request_type || null,
-      p_actor_id: user?.id || null,
-      p_actor_name: user?.full_name || user?.name || user?.email || null,
-      p_actor_email: user?.email || user?.user_email || null,
     });
 
     if (error) {
@@ -736,12 +816,12 @@ export default function FundRequests() {
         </div>
 
         <div>
-          <Label>Attachment URL / Supporting Document</Label>
-          <Input
-            className="mt-1"
+          <Label>Attachment / Supporting Document</Label>
+          <PrivateDocumentUpload
             value={form.attachment_url}
-            onChange={(e) => updateForm('attachment_url', e.target.value)}
-            placeholder="Optional document link"
+            onChange={(value) => updateForm('attachment_url', value)}
+            category="fund-request"
+            retentionYears={7}
           />
         </div>
 
@@ -839,16 +919,9 @@ export default function FundRequests() {
                       </p>
                     )}
 
-                    {request.attachment_url && (
-                      <a
-                        href={request.attachment_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-blue-300 underline mt-1 block"
-                      >
-                        View attachment
-                      </a>
-                    )}
+                    <PrivateDocumentLink value={request.attachment_url} className="text-xs text-blue-300 underline mt-1 block">
+                      View attachment
+                    </PrivateDocumentLink>
 
                     {request.notes && (
                       <p className="text-xs text-muted-foreground mt-1">
@@ -872,15 +945,36 @@ export default function FundRequests() {
                   </div>
                 </div>
 
-                <div className="grid md:grid-cols-4 gap-2 text-xs">
+                {isRRFundRequest(request) ? (
+                  <div className="grid md:grid-cols-5 gap-2 text-xs">
+                    <Badge variant="outline">RR HOD: {request.rr_hod_status || 'pending'}</Badge>
+                    <Badge variant="outline">HR: {request.hr_status || 'pending'}</Badge>
+                    <Badge variant="outline">AGM: {request.agm_status || 'pending'}</Badge>
+                    <Badge variant="outline">Operations: {request.operations_status || 'pending'}</Badge>
+                    <Badge variant="outline">Account: {request.finance_status || 'not_ready'}</Badge>
+                  </div>
+                ) : <div className="grid md:grid-cols-4 gap-2 text-xs">
                   <Badge variant="outline">HR: {request.hr_status || 'pending'}</Badge>
                   <Badge variant="outline">AGM: {request.agm_status || 'pending'}</Badge>
                   <Badge variant="outline">Operations: {request.operations_status || 'pending'}</Badge>
                   <Badge variant="outline">Finance: {request.finance_status || (needsFinance ? 'pending_approval' : 'not_required')}</Badge>
                   {request.ceo_override && <Badge>CEO Override</Badge>}
-                </div>
+                </div>}
 
                 <div className="flex flex-wrap gap-2">
+                  {isRRFundRequest(request) && isRRHodRole(user) && normalize(request.rr_hod_status) === 'pending' && (
+                    <>
+                      <Button size="sm" onClick={() => approve(request, 'rr_hod')}>RR HOD Approve To Account</Button>
+                      <Button size="sm" variant="destructive" onClick={async () => {
+                        const { error } = await supabase.rpc('rr_transition_fund_request', {
+                          p_request_id: request.id, p_action: 'hod_reject', p_note: null,
+                        });
+                        if (error) alert(error.message);
+                        else qc.invalidateQueries({ queryKey: ['fund_requests'] });
+                      }}>RR HOD Reject</Button>
+                    </>
+                  )}
+
                   {canApproveHR(user) && canHRAct(request) && (
                     <Button size="sm" onClick={() => approve(request, 'hr')}>
                       HR Approve
@@ -899,7 +993,7 @@ export default function FundRequests() {
                     </Button>
                   )}
 
-                  {canCEOApprove(user) &&
+                  {!isRRFundRequest(request) && canCEOApprove(user) &&
                     !request.ceo_override &&
                     normalize(request.finance_status) !== 'disbursed' &&
                     normalize(request.status) !== 'completed' && (
@@ -919,7 +1013,9 @@ export default function FundRequests() {
 
                   {canDisburse(user) && needsFinance && !isFullyApproved(request) && (
                     <p className="text-xs text-amber-500 self-center">
-                      Waiting for HR, AGM and Operations approval before Account release.
+                      {isRRFundRequest(request)
+                        ? 'Waiting for RR HOD, HR, AGM and Operations approvals before Account release.'
+                        : 'Waiting for HR, AGM and Operations approval before Account release.'}
                     </p>
                   )}
 

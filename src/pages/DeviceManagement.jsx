@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -32,7 +33,6 @@ import {
   Loader2,
   Pencil,
   MapPin,
-  Calendar,
   Wifi,
   Banknote,
   CreditCard,
@@ -40,13 +40,11 @@ import {
   Radio,
   Fingerprint,
   ChevronRight,
-  ChevronDown,
   Building2,
   Wrench,
   ArrowLeft
 } from 'lucide-react';
 
-import { format } from 'date-fns';
 
 const CATEGORY_CONFIG = {
   atm: { label: 'ATM', icon: Banknote },
@@ -100,6 +98,8 @@ export default function DeviceManagement() {
   const [search, setSearch] = useState('');
 
   const [form, setForm] = useState(EMPTY);
+
+  useFormDraft({ key: editing?.id ? `it-device-edit:${editing.id}` : 'it-device-new', form, setForm, userId: user?.id || user?.email, enabled: open, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const f = (k, v) => {
     setForm(prev => ({

@@ -38,9 +38,13 @@ export default function ExportButton({
     setOpen(false);
   };
 
-  const handleExcel = () => {
-    exportExcel(data, filename);
-    setOpen(false);
+  const handleExcel = async () => {
+    try {
+      await exportExcel(data, filename);
+      setOpen(false);
+    } catch (error) {
+      alert(error.message || 'Unable to export the workbook.');
+    }
   };
 
   return (

@@ -26,13 +26,10 @@ import {
   RefreshCcw,
   Banknote,
   MapPin,
-  Activity,
-  Calculator,
   ShieldAlert,
-  BadgeDollarSign,
 } from 'lucide-react';
 
-import * as XLSX from 'xlsx';
+import { exportWorkbook } from '@/lib/safeWorkbook';
 
 const WAREHOUSES = ['Oshodi', 'Ipaja', 'Enugu'];
 
@@ -633,21 +630,13 @@ export default function InventoryAnalytics() {
     refetchTickets();
   };
 
-  const exportAnalytics = () => {
-    const wb = XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(engineerRows), 'Engineer Usage');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(partRows), 'Part Demand');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(warehouseRows), 'Warehouse Value');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(serialRows), 'Serial Status');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(engineerProfitRows), 'Engineer Profitability');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(terminalProfitRows), 'Terminal Profitability');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(riskRows), 'Loss Risk');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filteredDispatchFunds), 'Dispatch Funds');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filteredTickets), 'Tickets');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(filteredLogs), 'Raw Usage Logs');
-
-    XLSX.writeFile(wb, `ARK_Inventory_Profitability_Analytics_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  const exportAnalytics = async () => {
+    await exportWorkbook({
+      'Engineer Usage': engineerRows, 'Part Demand': partRows, 'Warehouse Value': warehouseRows,
+      'Serial Status': serialRows, 'Engineer Profitability': engineerProfitRows,
+      'Terminal Profitability': terminalProfitRows, 'Loss Risk': riskRows,
+      'Dispatch Funds': filteredDispatchFunds, Tickets: filteredTickets, 'Raw Usage Logs': filteredLogs,
+    }, `ARK_Inventory_Profitability_Analytics_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
   const loading = usageLoading || partsLoading || serialsLoading || dispatchLoading || ticketsLoading;

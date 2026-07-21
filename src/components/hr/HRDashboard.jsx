@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card } from '@/components/ui/card';
 import { Users, MapPin, Calendar, Clock, FileText, CreditCard, Gift, Award, BookOpen, Star } from 'lucide-react';
-import { format, isToday, addDays } from 'date-fns';
+import { format, addDays } from 'date-fns';
 
 export default function HRDashboard({ employees, attendance, leaveRequests, loans, trainings, reviews, holidays }) {
   const today = new Date();

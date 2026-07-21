@@ -60,21 +60,14 @@ export default function Settings() {
     try {
       setSaving(true);
 
-      if (typeof updateUser === 'function') {
-        await updateUser(form);
-      } else {
-        const { error } = await supabase
-          .from('users')
-          .update({
-            phone: form.phone,
-            department: form.department,
-            specialization: form.specialization,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('email', currentUser.email);
+      const { error } = await supabase.rpc('ark_update_own_profile', {
+        p_phone: form.phone || null,
+        p_department: form.department || null,
+        p_specialization: form.specialization || null,
+      });
+      if (error) throw error;
 
-        if (error) throw error;
-      }
+      if (typeof updateUser === 'function') await updateUser(form);
 
       alert('Profile updated successfully.');
     } catch (error) {

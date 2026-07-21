@@ -104,6 +104,7 @@ function matchesOpsCard(request, key) {
     return (
       opsStatus === "" ||
       opsStatus === "pending" ||
+      opsStatus === "pending_review" ||
       opsStatus === "waiting" ||
       status === "" ||
       status === "pending" ||
@@ -164,76 +165,16 @@ async function updateOperationsStatus({ id, action }) {
     throw new Error("This request is not at the correct Operations workflow stage for this action.");
   }
 
-  let updateData = {};
-  let actionText = "";
-
-  if (action === "approve") {
-    updateData = {
-      operations_status: "approved",
-      status: "approved_operations",
-      updated_at: new Date().toISOString(),
-    };
-    actionText = "approved";
-  }
-
-  if (action === "reject") {
-    updateData = {
-      operations_status: "rejected",
-      status: "rejected",
-      updated_at: new Date().toISOString(),
-    };
-    actionText = "rejected";
-  }
-
-  if (action === "send_inventory") {
-    updateData = {
-      operations_status: "sent_to_inventory",
-      inventory_status: "pending",
-      status: "pending_inventory",
-      updated_at: new Date().toISOString(),
-    };
-    actionText = "sent to inventory";
-  }
-
-  const { data, error } = await supabase
-    .from("part_requests")
-    .update(updateData)
-    .eq("id", id)
-    .select()
-    .single();
+  const rpcAction = action === "reject" ? "operations_reject" : "operations_approve";
+  const { data, error } = await supabase.rpc("inventory_transition_part_request", {
+    p_part_request_id: id,
+    p_action: rpcAction,
+    p_note: null,
+  });
 
   if (error) {
     console.error("Part request update failed:", error);
     throw error;
-  }
-
-  const { error: lifecycleError } = await supabase
-    .from("part_lifecycle_logs")
-    .insert({
-      part_request_id: id,
-      status: updateData.status,
-      department: "Operations",
-      note: `Operations ${actionText}`,
-    });
-
-  if (lifecycleError) {
-    console.warn("Lifecycle log failed:", lifecycleError);
-  }
-
-  const { error: eventError } = await supabase
-    .from("operations_events")
-    .insert({
-      event_type: "PART_REQUEST_OPERATIONS_UPDATE",
-      title: `Part request ${actionText}`,
-      description: `Operations ${actionText} part request`,
-      source_module: "Operations",
-      entity_type: "part_request",
-      entity_id: id,
-      severity: action === "reject" ? "warning" : "info",
-    });
-
-  if (eventError) {
-    console.warn("OIN event failed:", eventError);
   }
 
   return data;

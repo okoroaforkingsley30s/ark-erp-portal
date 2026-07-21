@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
   logOperationEvent,
   upsertOperationStatus,
@@ -27,18 +27,22 @@ import {
   Clock,
   UserCheck,
   LogOut,
-  Radio,
   Upload,
-  Image,
-  Video,
   FileText,
   Wallet,
   CalendarDays,
   Landmark,
   HandCoins,
+  Printer,
+  Share2,
 } from 'lucide-react';
 
 import { supabase } from '@/lib/supabaseClient';
+import { safeUploadName, validateEvidenceFile } from '@/lib/fileValidation';
+import { usePrivateStorageItems } from '@/hooks/usePrivateStorageUrl';
+import { useFormDraft } from '@/hooks/useFormDraft';
+import PrivateDocumentUpload from '@/components/files/PrivateDocumentUpload';
+import { isTicketFinallyClosed } from '@/lib/ticketFinality';
 
 const EVIDENCE_BUCKET = 'ticket-evidence';
 const FIELD_DEPARTMENT = 'Field Engineering';
@@ -230,6 +234,40 @@ const createMobileRequestForm = () => ({
 const normalizeRequestValue = (value) =>
   String(value || '').toLowerCase().trim().replace(/[\s-]+/g, '_');
 
+// A ticket must belong to exactly one current-work bucket. Keep this shared
+// classifier as the single source for Home, Jobs and Profile counters.
+const getFieldJobGroup = (ticket) => {
+  const status = normalizeRequestValue(ticket?.status);
+  const completion = normalizeRequestValue(ticket?.completion_status);
+  const review = normalizeRequestValue(ticket?.review_status);
+
+  if (isTicketFinallyClosed(ticket)) return 'closed';
+
+  if (
+    ['rejected', 'rejected_parts'].includes(status) ||
+    ['rejected', 'rejected_parts'].includes(completion) ||
+    review === 'rejected'
+  ) return 'rejected';
+
+  if (
+    ['pending_review', 'awaiting_review', 'submitted_for_review'].includes(status) ||
+    ['pending_review', 'awaiting_review', 'submitted_for_review'].includes(completion) ||
+    ['pending', 'pending_review', 'awaiting_review'].includes(review)
+  ) return 'review';
+
+  if (
+    ['pending_bank', 'waiting_bank'].includes(status) ||
+    ['pending_bank', 'waiting_bank'].includes(completion)
+  ) return 'bank';
+
+  if (
+    ['pending_part', 'pending_parts', 'waiting_part', 'waiting_parts'].includes(status) ||
+    ['pending_part', 'pending_parts', 'waiting_part', 'waiting_parts'].includes(completion)
+  ) return 'parts';
+
+  return 'open';
+};
+
 const getMobileRequestCategory = (request) => {
   const raw = normalizeRequestValue(request?.request_category);
 
@@ -298,7 +336,6 @@ const calculateMobileLeaveDays = (start, end) => {
 
 export default function FieldEngineerMobileApp({
   user,
-  notifCount = 0,
   dmCount = 0,
 }) {
   const FEMOBI_ACTIVE_TAB_KEY = 'femobi_active_tab';
@@ -475,6 +512,41 @@ useEffect(() => {
     setNotifications(data || []);
   }, [user?.email]);
 
+  const mobileUnreadCount = notifications.filter(
+    (notification) => !notification.read && !notification.is_read
+  ).length;
+
+  const openNotifications = useCallback(async () => {
+    setNotificationsOpen(true);
+
+    if (!user?.email) return;
+
+    const unreadIds = notifications
+      .filter((notification) => !notification.read && !notification.is_read)
+      .map((notification) => notification.id)
+      .filter(Boolean);
+
+    if (unreadIds.length === 0) return;
+
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true, is_read: true })
+      .in('id', unreadIds);
+
+    if (error) {
+      console.error('Unable to mark mobile notifications as read:', error);
+      return;
+    }
+
+    setNotifications((current) =>
+      current.map((notification) =>
+        unreadIds.includes(notification.id)
+          ? { ...notification, read: true, is_read: true }
+          : notification
+      )
+    );
+  }, [notifications, user?.email]);
+
   useEffect(() => {
     fetchAssignedTickets();
     fetchNotifications();
@@ -642,90 +714,56 @@ useEffect(() => {
 };
 
   const updateTicketStatus = async (ticketId, status) => {
-    const now = new Date().toISOString();
     const ticket = tickets.find((t) => t.id === ticketId);
-    const actorName = getActorName(user);
     const engineerStatus = ticketStatusToEngineerStatus(status);
     const gps = await getCurrentPosition();
 
-    const statusTimeMap = {
-      accepted: {
-        accepted_at: now,
-      },
-      traveling: {
-        trip_started_at: now,
-      },
-      arrived_on_site: {
-        arrived_at: now,
-      },
-      in_progress: {
-        started_at: now,
-        work_started_at: now,
-      },
-      pending_review: {
-        submitted_review_at: now,
-        submitted_at: now,
-      },
+    const actionByStatus = {
+      accepted: 'accept',
+      traveling: 'start_trip',
+      arrived_on_site: 'arrive',
+      in_progress: 'start_work',
     };
 
-    const { error } = await supabase
-      .from('tickets')
-      .update({
-        status,
-        updated_at: now,
-        ...(statusTimeMap[status] || {}),
-      })
-      .eq('id', ticketId);
-
-    if (error) {
-      console.error('Ticket status update error:', error);
-      alert('Could not update ticket status.');
+    const action = actionByStatus[status];
+    if (!ticket || !action) {
+      alert('This workflow action is not available.');
       return;
     }
 
-    await safeLogOperationEvent({
-      event_type: 'ticket_status_changed',
-      entity_type: 'ticket',
-      entity_id: ticketId,
-      title: `${getTicketDisplayName(ticket)} moved to ${status.replaceAll('_', ' ')}`,
-      description: `${actorName} changed ${getTicketDisplayName(ticket)} to ${status.replaceAll('_', ' ')}`,
-      actor_name: actorName,
-      actor_id: user?.id || user?.email,
-      department: FIELD_DEPARTMENT,
-      severity: 'info',
-      metadata: {
-        ticket_number: getTicketDisplayName(ticket),
-        status,
-        site: getTicketSiteName(ticket),
-        engineer_email: user?.email,
-      },
+    const { error } = await supabase.rpc('ark_fe_transition_ticket_v2', {
+      p_ticket_id: ticketId,
+      p_action: action,
+      p_payload: {},
     });
 
-    await safeUpsertOperationStatus({
-      entity_type: 'ticket',
-      entity_id: ticketId,
-      entity_name: getTicketDisplayName(ticket),
-      status,
-      latitude: getTicketLatitude(ticket) || gps.latitude,
-      longitude: getTicketLongitude(ticket) || gps.longitude,
-      last_seen: now,
-      source_module: 'FieldEngineerMobile',
-      metadata: {
-        engineer: actorName,
-        engineer_email: user?.email,
-        site: getTicketSiteName(ticket),
-        terminal_id: ticket?.terminal_id,
-      },
-    });
+    if (error) {
+      console.error('Ticket status update error:', error);
+      alert(error.message || 'Could not update ticket status.');
+      return;
+    }
+
+    setTickets((current) =>
+      current.map((currentTicket) =>
+        currentTicket.id === ticketId
+          ? { ...currentTicket, status, updated_at: new Date().toISOString() }
+          : currentTicket
+      )
+    );
+    setSelectedTicket((current) =>
+      current?.id === ticketId
+        ? { ...current, status, updated_at: new Date().toISOString() }
+        : current
+    );
 
     await safeUpsertOperationStatus({
       entity_type: 'engineer',
       entity_id: user?.id || user?.email,
-      entity_name: actorName,
+      entity_name: getActorName(user),
       status: engineerStatus,
       latitude: gps.latitude || getTicketLatitude(ticket),
       longitude: gps.longitude || getTicketLongitude(ticket),
-      last_seen: now,
+      last_seen: new Date().toISOString(),
       source_module: 'FEMobi',
       metadata: {
         email: user?.email,
@@ -737,7 +775,7 @@ useEffect(() => {
       },
     });
 
-    fetchAssignedTickets();
+    await fetchAssignedTickets();
   };
 
   const openGoogleMaps = (ticket) => {
@@ -876,17 +914,14 @@ useEffect(() => {
 
             <button
               type="button"
-              onClick={() => {
-                fetchNotifications();
-                setNotificationsOpen(true);
-              }}
+              onClick={openNotifications}
               className="relative h-10 w-10 rounded-xl text-white flex items-center justify-center"
               aria-label="Notifications"
             >
               <Bell size={26} />
-              {notifCount > 0 && (
+              {mobileUnreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-[10px] min-w-5 h-5 rounded-full flex items-center justify-center px-1">
-                  {notifCount}
+                  {mobileUnreadCount}
                 </span>
               )}
             </button>
@@ -904,16 +939,13 @@ useEffect(() => {
 
             <button
               type="button"
-              onClick={() => {
-                fetchNotifications();
-                setNotificationsOpen(true);
-              }}
+              onClick={openNotifications}
               className="relative rounded-full bg-slate-800 p-2"
             >
               <Bell size={22} />
-              {notifCount > 0 && (
+              {mobileUnreadCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-orange-500 text-white text-[10px] min-w-5 h-5 rounded-full flex items-center justify-center px-1">
-                  {notifCount}
+                  {mobileUnreadCount}
                 </span>
               )}
             </button>
@@ -931,7 +963,7 @@ useEffect(() => {
       >
         {activeTab === 'home' && (
           <HomeScreen
-            notifCount={notifCount}
+            notifCount={mobileUnreadCount}
             dmCount={dmCount}
             tickets={tickets}
             loadingTickets={loadingTickets}
@@ -1058,7 +1090,6 @@ useEffect(() => {
 
 function HomeScreen({
   notifCount,
-  dmCount,
   tickets,
   loadingTickets,
   onRefresh,
@@ -1073,15 +1104,9 @@ function HomeScreen({
       ticket?.sla_status?.toLowerCase() === 'breached'
   );
 
-  const pendingReview = tickets.filter(
-    (ticket) =>
-      ticket.status === 'pending_review' ||
-      ticket.completion_status === 'pending'
-  );
+  const pendingReview = tickets.filter((ticket) => getFieldJobGroup(ticket) === 'review');
 
-  const completed = tickets.filter((ticket) =>
-    ['approved', 'closed', 'completed'].includes(ticket.status)
-  );
+  const completed = tickets.filter((ticket) => getFieldJobGroup(ticket) === 'closed');
 
   const firstTicket = tickets[0];
 
@@ -1337,65 +1362,19 @@ function JobsScreen({
   onNavigate,
   onSelectTicket,
 }) {
-  const [selectedGroup, setSelectedGroup] = useState(null);
+  const [selectedGroupKey, setSelectedGroupKey] = useState(null);
 
-  const closedCalls = tickets.filter((t) =>
-    ['closed', 'completed', 'approved'].includes(
-      String(t.status || '').toLowerCase()
-    )
-  );
+  const groupedTickets = tickets.reduce((groups, ticket) => {
+    groups[getFieldJobGroup(ticket)].push(ticket);
+    return groups;
+  }, { open: [], review: [], rejected: [], parts: [], bank: [], closed: [] });
 
-  const pendingReview = tickets.filter((t) =>
-    String(t.status || '').toLowerCase() === 'pending_review' ||
-    String(t.completion_status || '').toLowerCase() === 'pending'
-  );
-
-  const pendingParts = tickets.filter((t) => {
-    const status = String(t.status || '').toLowerCase();
-    const completionStatus = String(t.completion_status || '').toLowerCase();
-    const requestType = String(t.part_request_type || '').toLowerCase();
-
-    return (
-      status === 'pending_parts' ||
-      completionStatus === 'pending_parts' ||
-      requestType === 'consumable'
-    );
-  });
-
-  const pendingBank = tickets.filter((t) => {
-    const status = String(t.status || '').toLowerCase();
-    const completionStatus = String(t.completion_status || '').toLowerCase();
-    const requestType = String(t.part_request_type || '').toLowerCase();
-
-    return (
-      status === 'pending_bank' ||
-      completionStatus === 'pending_bank' ||
-      requestType === 'bank'
-    );
-  });
-
-  const rejectedCalls = tickets.filter((t) => {
-    const status = String(t.status || '').toLowerCase();
-    const completionStatus = String(t.completion_status || '').toLowerCase();
-    const reviewStatus = String(t.review_status || '').toLowerCase();
-
-    return (
-      status === 'rejected' ||
-      completionStatus === 'rejected' ||
-      reviewStatus === 'rejected'
-    );
-  });
-
-  const openCalls = tickets.filter((t) => {
-    const status = String(t.status || '').toLowerCase();
-
-    return ![
-      'closed',
-      'completed',
-      'approved',
-      'rejected',
-    ].includes(status);
-  });
+  const openCalls = groupedTickets.open;
+  const pendingReview = groupedTickets.review;
+  const rejectedCalls = groupedTickets.rejected;
+  const pendingParts = groupedTickets.parts;
+  const pendingBank = groupedTickets.bank;
+  const closedCalls = groupedTickets.closed;
 
   const groups = [
     {
@@ -1466,6 +1445,8 @@ function JobsScreen({
     },
   ];
 
+  const selectedGroup = groups.find((group) => group.key === selectedGroupKey) || null;
+
   return (
     <div className="space-y-4">
       <section className="rounded-2xl bg-slate-900 border border-slate-800 p-4">
@@ -1516,7 +1497,7 @@ function JobsScreen({
           <button
             key={group.key}
             type="button"
-            onClick={() => setSelectedGroup(group)}
+            onClick={() => setSelectedGroupKey(group.key)}
             className={`rounded-2xl bg-slate-900 border ${group.border} p-4 text-left active:scale-[0.98]`}
           >
             <div
@@ -1547,7 +1528,7 @@ function JobsScreen({
       {selectedGroup && (
         <JobGroupModal
           group={selectedGroup}
-          onClose={() => setSelectedGroup(null)}
+          onClose={() => setSelectedGroupKey(null)}
           onUpdateStatus={onUpdateStatus}
           onNavigate={onNavigate}
           onSelectTicket={onSelectTicket}
@@ -1629,53 +1610,53 @@ function JobGroupModal({
               </button>
 
               <div className="grid grid-cols-2 gap-2 mt-4">
-                <button
+                {['new', 'open', 'assigned'].includes(String(ticket.status || 'assigned').toLowerCase()) && <button
                   type="button"
                   onClick={() => onUpdateStatus(ticket.id, 'accepted')}
                   className="rounded-xl bg-blue-500/10 border border-blue-500/20 py-3 text-xs font-semibold text-blue-300 active:bg-blue-500 active:text-white active:scale-95 transition-all"
                 >
                   Accept
-                </button>
+                </button>}
 
-                <button
+                {String(ticket.status || '').toLowerCase() === 'accepted' && <button
                   type="button"
                   onClick={() => onUpdateStatus(ticket.id, 'traveling')}
                   className="rounded-xl bg-purple-500/10 border border-purple-500/20 py-3 text-xs font-semibold text-purple-300 active:bg-purple-500 active:text-white active:scale-95 transition-all"
                 >
                   Start Trip
-                </button>
+                </button>}
 
-                <button
+                {String(ticket.status || '').toLowerCase() === 'traveling' && <button
                   type="button"
                   onClick={() => onUpdateStatus(ticket.id, 'arrived_on_site')}
                   className="rounded-xl bg-yellow-500/10 border border-yellow-500/20 py-3 text-xs font-semibold text-yellow-300 active:bg-yellow-500 active:text-white active:scale-95 transition-all"
                 >
                   Arrived
-                </button>
+                </button>}
 
-                <button
+                {['accepted', 'traveling', 'arrived_on_site', 'in_progress'].includes(String(ticket.status || '').toLowerCase()) && <button
                   type="button"
                   onClick={() => onNavigate(ticket)}
                   className="rounded-xl bg-orange-500 py-3 text-xs font-semibold text-white active:bg-green-500 active:scale-95 transition-all"
                 >
                   Navigate
-                </button>
+                </button>}
 
-                <button
+                {['arrived_on_site', 'rejected'].includes(String(ticket.status || '').toLowerCase()) && <button
                   type="button"
                   onClick={() => onUpdateStatus(ticket.id, 'in_progress')}
                   className="rounded-xl bg-green-500/10 border border-green-500/20 py-3 text-xs font-semibold text-green-300 active:bg-green-500 active:text-white active:scale-95 transition-all"
                 >
                   Start Work
-                </button>
+                </button>}
 
-                <button
+                {String(ticket.status || '').toLowerCase() === 'in_progress' && <button
                   type="button"
                   onClick={() => openTicketDetails(ticket)}
                   className="rounded-xl bg-slate-800 border border-slate-700 py-3 text-xs font-semibold text-white active:bg-orange-500 active:border-orange-500 active:scale-95 transition-all"
                 >
                   Complete Report
-                </button>
+                </button>}
               </div>
             </section>
           ))
@@ -1741,10 +1722,9 @@ function TicketDetailsModal({
   ticket,
   user,
   onClose,
-  onNavigate,
-  onUpdateStatus,
   onCompleted,
 }) {
+  const isFinallyClosed = isTicketFinallyClosed(ticket);
   const [completionNote, setCompletionNote] = useState(ticket?.completion_note || '');
   const [beforeFiles, setBeforeFiles] = useState([]);
   const [afterFiles, setAfterFiles] = useState([]);
@@ -1761,6 +1741,78 @@ function TicketDetailsModal({
   const [selectedInventoryPart, setSelectedInventoryPart] = useState(null);
   const [inventoryParts, setInventoryParts] = useState([]);
   const [loadingInventoryParts, setLoadingInventoryParts] = useState(false);
+  const [linkedPartRequest, setLinkedPartRequest] = useState(null);
+
+  const ticketDraft = useMemo(() => ({
+    completionNote,
+    showPartRequest,
+    partType,
+    partName,
+    partQty,
+    partReason,
+    selectedInventoryPart,
+  }), [
+    completionNote,
+    showPartRequest,
+    partType,
+    partName,
+    partQty,
+    partReason,
+    selectedInventoryPart,
+  ]);
+
+  const restoreTicketDraft = useCallback((draft) => {
+    setCompletionNote(draft?.completionNote || ticket?.completion_note || '');
+    setShowPartRequest(Boolean(draft?.showPartRequest));
+    setPartType(draft?.partType || 'consumable');
+    setPartName(draft?.partName || '');
+    setPartQty(draft?.partQty || '1');
+    setPartReason(draft?.partReason || '');
+    setSelectedInventoryPart(draft?.selectedInventoryPart || null);
+  }, [ticket?.completion_note]);
+
+  useFormDraft({
+    key: `fe-job:${ticket?.id || ticket?.ticket_number || 'unknown'}`,
+    form: ticketDraft,
+    setForm: restoreTicketDraft,
+    userId: user?.id || user?.email,
+    storage: 'local',
+    maxAgeMs: 24 * 60 * 60 * 1000,
+  });
+
+  useEffect(() => {
+    const requestId = ticket?.linked_part_request_id;
+    if (!requestId) {
+      setLinkedPartRequest(null);
+      return undefined;
+    }
+
+    let active = true;
+    const loadLinkedRequest = async () => {
+      const { data, error } = await supabase
+        .from('part_requests')
+        .select('id, approval_status, operations_status, inventory_status, finance_status, dispatch_status, part_request_status, lifecycle_status, current_department, updated_at')
+        .eq('id', requestId)
+        .maybeSingle();
+
+      if (!active) return;
+      if (error) console.error('Linked part request fetch error:', error);
+      else setLinkedPartRequest(data || null);
+    };
+
+    loadLinkedRequest();
+    const channel = supabase
+      .channel(`fe-linked-part-${requestId}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'part_requests', filter: `id=eq.${requestId}`,
+      }, loadLinkedRequest)
+      .subscribe();
+
+    return () => {
+      active = false;
+      supabase.removeChannel(channel);
+    };
+  }, [ticket?.linked_part_request_id]);
 
   const handleBeforePhotoChange = (e) => {
     const files = Array.from(e.target.files || []);
@@ -1835,17 +1887,9 @@ function TicketDetailsModal({
 
   const matchingInventoryParts = inventoryParts;
 
-  const existingBeforePhotos = Array.isArray(ticket?.before_photos)
-    ? ticket.before_photos
-    : [];
-
-  const existingAfterPhotos = Array.isArray(ticket?.after_photos)
-    ? ticket.after_photos
-    : [];
-
-  const existingVideos = Array.isArray(ticket?.evidence_videos)
-    ? ticket.evidence_videos
-    : [];
+  const existingBeforePhotos = usePrivateStorageItems(ticket?.before_photos, EVIDENCE_BUCKET);
+  const existingAfterPhotos = usePrivateStorageItems(ticket?.after_photos, EVIDENCE_BUCKET);
+  const existingVideos = usePrivateStorageItems(ticket?.evidence_videos, EVIDENCE_BUCKET);
 
   const rejectionLog =
     ticket?.attachments?.rejection_log &&
@@ -1856,7 +1900,9 @@ function TicketDetailsModal({
   const ticketStatus = String(ticket?.status || '').toLowerCase();
 
 const currentPartRequestStatus = String(
-  ticket?.part_request_status ||
+  linkedPartRequest?.dispatch_status ||
+    linkedPartRequest?.lifecycle_status ||
+    ticket?.part_request_status ||
     ticket?.dispatch_status ||
     ticket?.finance_status ||
     ticket?.lifecycle_status ||
@@ -1864,13 +1910,33 @@ const currentPartRequestStatus = String(
     ''
 ).toLowerCase();
 
+const linkedPartRequestStates = [
+  linkedPartRequest?.approval_status,
+  linkedPartRequest?.operations_status,
+  linkedPartRequest?.inventory_status,
+  linkedPartRequest?.finance_status,
+  linkedPartRequest?.dispatch_status,
+  linkedPartRequest?.part_request_status,
+  linkedPartRequest?.lifecycle_status,
+  ticket?.part_request_status,
+].map((value) => String(value || '').toLowerCase().trim()).filter(Boolean);
+
 const ticketCompletionStatus = String(ticket?.completion_status || '').toLowerCase();
 
-const hasLinkedPartRequest = Boolean(
+const hasPartRequestHistory = Boolean(
   ticket?.linked_part_request_id ||
     ticket?.part_request_type ||
     ['pending_parts', 'pending_bank'].includes(ticketStatus)
 );
+
+const partRequestReturnedToEngineer = linkedPartRequestStates.some((status) => [
+  'rejected',
+  'operations_rejected',
+  'rejected_by_operations',
+  'cancelled',
+].includes(status));
+
+const hasLinkedPartRequest = hasPartRequestHistory && !partRequestReturnedToEngineer;
 
 const partAlreadyReceived =
   hasLinkedPartRequest &&
@@ -1912,8 +1978,9 @@ const partLocked =
     const uploaded = [];
 
     for (const file of files) {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const filePath = `${ticket.id}/${type}/${Date.now()}-${safeName}`;
+      validateEvidenceFile(file, { allowVideo: type === 'completion-video' });
+      const safeName = safeUploadName(file.name);
+      const filePath = `${ticket.id}/${type}/${crypto.randomUUID()}-${safeName}`;
 
       const { error: uploadError } = await supabase.storage
         .from(EVIDENCE_BUCKET)
@@ -1926,14 +1993,10 @@ const partLocked =
         throw uploadError;
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from(EVIDENCE_BUCKET)
-        .getPublicUrl(filePath);
-
       uploaded.push({
         name: file.name,
         path: filePath,
-        url: publicUrlData?.publicUrl,
+        bucket: EVIDENCE_BUCKET,
         type,
         uploaded_at: new Date().toISOString(),
       });
@@ -2159,30 +2222,12 @@ const partLocked =
     const now = new Date().toISOString();
 
     try {
-      const { error: ticketError } = await supabase
-        .from('tickets')
-        .update({
-          status: 'in_progress',
-          completion_status: 'part_received',
-          part_request_status: 'received_by_engineer',
-          received_part_at: now,
-          updated_at: now,
-        })
-        .eq('id', ticket.id);
-
-      if (ticketError) {
-        throw ticketError;
-      }
-
-      await supabase
-        .from('part_requests')
-        .update({
-          dispatch_status: 'received_by_engineer',
-          part_request_status: 'received_by_engineer',
-          received_by_engineer_at: now,
-          updated_at: now,
-        })
-        .eq('id', ticket.linked_part_request_id);
+      const { error: receiveError } = await supabase.rpc('inventory_transition_part_request', {
+        p_part_request_id: ticket.linked_part_request_id,
+        p_action: 'engineer_receive',
+        p_note: 'Engineer confirmed receipt from Inventory',
+      });
+      if (receiveError) throw receiveError;
 
       await safeLogOperationEvent({
         event_type: 'part_received_by_engineer',
@@ -2221,6 +2266,12 @@ const partLocked =
       });
 
       setLocalPartReceived(true);
+      setLinkedPartRequest((current) => current ? {
+        ...current,
+        dispatch_status: 'received_by_engineer',
+        lifecycle_status: 'received_by_engineer',
+      } : current);
+      await onCompleted();
       alert('Part received. You can now continue the job and submit review when completed.');
     } catch (err) {
       console.error('Receive part error:', err);
@@ -2229,6 +2280,10 @@ const partLocked =
   };
 
   const submitForReview = async () => {
+    if (isFinallyClosed) {
+      alert('This job is completely closed. No further workflow action is allowed.');
+      return;
+    }
     if (partLocked || partReadyToReceive) {
       alert(
         partReadyToReceive
@@ -2288,47 +2343,44 @@ const partLocked =
         ...uploadedVideos,
       ];
 
-      const { error } = await supabase
-        .from('tickets')
-        .update({
-          status: 'pending_review',
-          completion_status: 'pending',
+      const { error } = await supabase.rpc('ark_fe_transition_ticket_v2', {
+        p_ticket_id: ticket.id,
+        p_action: 'submit_report',
+        p_payload: {
           completion_note: completionNote.trim(),
-          completed_by: user?.full_name || user?.email,
           before_photos: allBeforePhotos,
           after_photos: allAfterPhotos,
-          evidence_photos: [...allBeforePhotos, ...allAfterPhotos],
           evidence_videos: allVideos,
-          submitted_review_at: now,
-          submitted_at: now,
-          updated_at: now,
-          resolved_date: now,
-        })
-        .eq('id', ticket.id);
+        },
+      });
 
       if (error) {
         throw error;
       }
 
-      await safeLogOperationEvent({
-        event_type: 'ticket_submitted_for_review',
-        entity_type: 'ticket',
-        entity_id: ticket.id,
-        title: `${getTicketDisplayName(ticket)} submitted for review`,
-        description: `${getActorName(user)} submitted completion report for ${getTicketDisplayName(ticket)}`,
-        actor_name: getActorName(user),
-        actor_id: user?.id || user?.email,
-        department: FIELD_DEPARTMENT,
-        severity: 'info',
-        metadata: {
-          ticket_number: getTicketDisplayName(ticket),
-          before_photos: allBeforePhotos.length,
-          after_photos: allAfterPhotos.length,
-          videos: allVideos.length,
-          engineer_email: user?.email,
-          site: getTicketSiteName(ticket),
-        },
-      });
+      const { data: majorNotifications, error: majorNotificationError } = await supabase
+        .rpc('ark_fe_major_notification_ids', { p_ticket_id: ticket.id });
+
+      if (majorNotificationError) {
+        console.warn('Major notification email lookup failed:', majorNotificationError);
+      } else {
+        const emailResults = await Promise.allSettled(
+          (majorNotifications || []).map(({ notification_id: notificationId }) =>
+            supabase.functions.invoke('send-notification-email', {
+              body: { notificationId },
+            })
+          )
+        );
+
+        emailResults.forEach((result) => {
+          if (result.status === 'rejected' || result.value?.error) {
+            console.warn(
+              'Major notification email was not delivered:',
+              result.status === 'rejected' ? result.reason : result.value.error
+            );
+          }
+        });
+      }
 
       await safeUpsertOperationStatus({
         entity_type: 'ticket',
@@ -2397,6 +2449,31 @@ const partLocked =
       </div>
 
       <div className="p-4 space-y-4 pb-36">
+        {isFinallyClosed && (
+          <SectionCard title="Job Completely Closed">
+            <div className="space-y-3">
+              <p className="text-sm text-green-300">
+                This completion has been approved and the ticket is permanently closed. No further job, part, evidence, or review action is available.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <ActionButton
+                  label="Print"
+                  icon={<Printer size={16} />}
+                  onClick={() => window.print()}
+                />
+                <ActionButton
+                  label="Share"
+                  icon={<Share2 size={16} />}
+                  onClick={async () => {
+                    const text = `${getTicketDisplayName(ticket)} — closed and approved`;
+                    if (navigator.share) await navigator.share({ title: getTicketDisplayName(ticket), text });
+                    else await navigator.clipboard.writeText(text);
+                  }}
+                />
+              </div>
+            </div>
+          </SectionCard>
+        )}
         <SectionCard title="Fault Description">
           <h3 className="font-semibold">
             {ticket.title || ticket.category || 'Assigned Job'}
@@ -2418,7 +2495,7 @@ const partLocked =
           </div>
         </SectionCard>
 
-        {ticket?.completion_status === 'rejected' && rejectionLog.length > 0 && (
+        {!isFinallyClosed && ticket?.completion_status === 'rejected' && rejectionLog.length > 0 && (
           <SectionCard title="Rejected Completion">
             <div className="space-y-3">
               {rejectionLog.map((item, index) => (
@@ -2527,13 +2604,35 @@ const partLocked =
           />
         </SectionCard>
 
+        {!isFinallyClosed && <>
         <SectionCard title="Redirect Part Issue">
   <div className="space-y-3">
     <p className="text-sm text-slate-400">
       Use this when the machine cannot be completed because a part, consumable, or bank-damaged item is required.
     </p>
 
-    {!showPartRequest ? (
+    {partRequestReturnedToEngineer ? (
+      <div className="space-y-3 rounded-xl border border-red-500/30 bg-red-500/10 p-3">
+        <p className="text-sm font-semibold text-red-300">Part request returned to engineer</p>
+        <p className="text-xs text-slate-300">
+          The previous request remains in the audit history. Correct the request and submit a new one when ready.
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowPartRequest(true)}
+          className="w-full rounded-xl bg-orange-500 py-3 text-sm font-semibold text-white"
+        >
+          Reopen Part Request Form
+        </button>
+      </div>
+    ) : hasLinkedPartRequest ? (
+      <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3">
+        <p className="text-sm font-semibold text-yellow-300">Part request already submitted</p>
+        <p className="mt-1 text-xs text-slate-300">
+          This ticket cannot send another part request until the current request is received, rejected, or completed.
+        </p>
+      </div>
+    ) : !showPartRequest ? (
       <button
         type="button"
         onClick={() => setShowPartRequest(true)}
@@ -2770,7 +2869,7 @@ const partLocked =
                   Existing Before Photos:
                 </p>
 
-                {existingBeforePhotos.map((item, index) => (
+                {existingBeforePhotos.filter((item) => item.url).map((item, index) => (
                   <a
                     key={`${item.url}-${index}`}
                     href={item.url}
@@ -2808,7 +2907,7 @@ const partLocked =
                   Existing After Photos:
                 </p>
 
-                {existingAfterPhotos.map((item, index) => (
+                {existingAfterPhotos.filter((item) => item.url).map((item, index) => (
                   <a
                     key={`${item.url}-${index}`}
                     href={item.url}
@@ -2843,7 +2942,7 @@ const partLocked =
       <div className="space-y-2">
         <p className="text-xs text-slate-400">Existing Videos:</p>
 
-        {existingVideos.map((item, index) => (
+        {existingVideos.filter((item) => item.url).map((item, index) => (
           <a
             key={`${item.url}-${index}`}
             href={item.url}
@@ -2897,6 +2996,7 @@ const partLocked =
             onClick={onClose}
           />
         </div>
+        </>}
       </div>
     </div>
   );
@@ -2986,7 +3086,7 @@ function NotificationsModal({ notifications, onClose, onRefresh }) {
                       {item.title || item.type || 'Notification'}
                     </p>
                     <p className="text-sm text-slate-400 mt-1">
-                      {item.message || item.body || 'No message'}
+                      {item.message || item.message_body || item.body || 'No message'}
                     </p>
                     <p className="text-xs text-slate-500 mt-2">
                       {formatDate(item.created_at)}
@@ -3017,6 +3117,31 @@ function PartsScreen({ tickets, user }) {
   const [loadingMyRequests, setLoadingMyRequests] = useState(false);
   const [activeFilter, setActiveFilter] = useState('all');
   const [expandedRequestId, setExpandedRequestId] = useState(null);
+
+  const partDraft = useMemo(() => ({
+    selectedTicketId,
+    partName,
+    quantity,
+    reason,
+    selectedInventoryPart,
+  }), [selectedTicketId, partName, quantity, reason, selectedInventoryPart]);
+
+  const restorePartDraft = useCallback((draft) => {
+    setSelectedTicketId(draft?.selectedTicketId || '');
+    setPartName(draft?.partName || '');
+    setQuantity(draft?.quantity || '1');
+    setReason(draft?.reason || '');
+    setSelectedInventoryPart(draft?.selectedInventoryPart || null);
+  }, []);
+
+  useFormDraft({
+    key: 'fe-part-request',
+    form: partDraft,
+    setForm: restorePartDraft,
+    userId: user?.id || user?.email,
+    storage: 'local',
+    maxAgeMs: 24 * 60 * 60 * 1000,
+  });
 
   const clean = (value) => String(value || '').toLowerCase();
 
@@ -3179,6 +3304,18 @@ function PartsScreen({ tickets, user }) {
       ? myPartRequests
       : myPartRequests.filter((request) => getRequestStage(request) === activeFilter);
 
+  const activeRequestTicketIds = useMemo(() => new Set(
+    myPartRequests
+      .filter((request) => {
+        const terminal = ['received', 'received_by_engineer', 'rejected', 'cancelled', 'closed', 'completed'];
+        return !terminal.includes(clean(request.dispatch_status))
+          && !terminal.includes(clean(request.operations_status))
+          && !terminal.includes(clean(request.inventory_status));
+      })
+      .map((request) => String(request.ticket_id || ''))
+      .filter(Boolean)
+  ), [myPartRequests]);
+
   const statusPillClass = (value) => {
     const v = clean(value);
     if (v.includes('approved') || v.includes('complete') || v.includes('dispatched')) {
@@ -3224,6 +3361,9 @@ function PartsScreen({ tickets, user }) {
     try {
       const now = new Date().toISOString();
       const selectedTicket = tickets.find((ticket) => ticket.id === selectedTicketId);
+      if (selectedTicket?.id && activeRequestTicketIds.has(String(selectedTicket.id))) {
+        throw new Error('This ticket already has an active part request. Track the existing request instead.');
+      }
       const finalPartName = (
         selectedInventoryPart?.part_name ||
         selectedInventoryPart?.description ||
@@ -3482,8 +3622,9 @@ function PartsScreen({ tickets, user }) {
           >
             <option value="">Select related ticket optional</option>
             {tickets.map((ticket) => (
-              <option key={ticket.id} value={ticket.id}>
+              <option key={ticket.id} value={ticket.id} disabled={activeRequestTicketIds.has(String(ticket.id))}>
                 {ticket.ticket_number || ticket.ticket_id || ticket.title}
+                {activeRequestTicketIds.has(String(ticket.id)) ? ' — active part request exists' : ''}
               </option>
             ))}
           </select>
@@ -3603,6 +3744,20 @@ function RequestScreen({ user }) {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [filter, setFilter] = useState('all');
+
+  const requestDraft = useMemo(() => ({
+    ...form,
+    attachment_url: '',
+  }), [form]);
+
+  useFormDraft({
+    key: 'fe-general-request',
+    form: requestDraft,
+    setForm,
+    userId: user?.id || user?.email,
+    storage: 'local',
+    maxAgeMs: 24 * 60 * 60 * 1000,
+  });
 
   const categoryConfig =
     MOBILE_REQUEST_CATEGORIES[form.request_category] ||
@@ -3924,12 +4079,12 @@ function RequestScreen({ user }) {
         </div>
 
         <div>
-          <label className="text-xs text-slate-400">Attachment URL</label>
-          <input
+          <label className="text-xs text-slate-400">Supporting Document</label>
+          <PrivateDocumentUpload
             value={form.attachment_url}
-            onChange={(event) => updateForm('attachment_url', event.target.value)}
-            placeholder="Optional document link"
-            className="mt-1 w-full rounded-xl bg-slate-800 border border-slate-700 px-3 py-3 text-sm text-white"
+            onChange={(value) => updateForm('attachment_url', value)}
+            category="fund-request"
+            retentionYears={7}
           />
         </div>
 
@@ -4070,7 +4225,6 @@ function RequestScreen({ user }) {
 
 function ConnectScreen({
   user,
-  dmCount,
   mails = [],
   loadingMails = false,
   chatMessages = [],
@@ -4834,17 +4988,11 @@ function ProfileScreen({
 
   const profilePhoto = mobileEngineerStatus?.profile_photo || '';
 
-  const completed = tickets.filter((ticket) =>
-    ['approved', 'closed', 'completed'].includes(ticket.status)
-  ).length;
+  const completed = tickets.filter((ticket) => getFieldJobGroup(ticket) === 'closed').length;
 
-  const pendingReview = tickets.filter((ticket) =>
-    ticket.status === 'pending_review' || ticket.completion_status === 'pending'
-  ).length;
+  const pendingReview = tickets.filter((ticket) => getFieldJobGroup(ticket) === 'review').length;
 
-  const rejectedTickets = tickets.filter((ticket) =>
-    ticket.completion_status === 'rejected'
-  );
+  const rejectedTickets = tickets.filter((ticket) => getFieldJobGroup(ticket) === 'rejected');
 
   const activeMachines = devices.filter((device) =>
     ['active', 'Active'].includes(device.device_status || device.status || device.state)
@@ -4869,13 +5017,9 @@ function ProfileScreen({
   const updateFieldStatus = async (value) => {
     setFieldStatus(value);
 
-    const { error } = await supabase
-      .from('users')
-      .update({
-        field_status: value,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('email', user.email);
+    const { error } = await supabase.rpc('ark_update_field_status', {
+      p_field_status: value,
+    });
 
     if (error) {
       console.error('Field status update error:', error);
@@ -5449,16 +5593,6 @@ function getAssistantReply(message, tickets) {
 Describe the fault or error code you are seeing on site.`;
 }
 
-function MiniTicketCard({ ticket, onClick }) {
-  return (
-    <button type="button" onClick={onClick} className="w-full text-left rounded-xl bg-slate-800 border border-slate-700 p-3">
-      <p className="text-xs text-slate-500">{ticket.ticket_number || ticket.ticket_id || 'Ticket'}</p>
-      <p className="font-medium text-sm mt-1">{ticket.title || ticket.category || 'Assigned Job'}</p>
-      <p className="text-xs text-slate-400 mt-1">{ticket.bank_name || ticket.client_name || 'Bank'} • {ticket.branch_name || ticket.branch || 'Branch'}</p>
-    </button>
-  );
-}
-
 function TimelineItem({ icon, label, value }) {
   return (
     <div className="flex gap-3 border-l border-slate-700 pl-3 pb-3">
@@ -5486,18 +5620,6 @@ function SectionCard({ title, children }) {
       <h3 className="font-semibold mb-3">{title}</h3>
       {children}
     </section>
-  );
-}
-
-function StatCard({ title, value, icon }) {
-  return (
-    <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800">
-      <div className="flex items-center justify-between text-slate-400">
-        <span className="text-xs">{title}</span>
-        {icon}
-      </div>
-      <p className="text-2xl font-bold mt-3">{value}</p>
-    </div>
   );
 }
 

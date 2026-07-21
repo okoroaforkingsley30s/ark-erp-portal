@@ -2,6 +2,8 @@ import { useState, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { usePrivateStorageUrl } from '@/hooks/usePrivateStorageUrl';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -28,8 +30,9 @@ import InvStatsCards from '@/components/inventory/InvStatsCards';
 import StockMoveDialog from '@/components/inventory/StockMoveDialog';
 import QRBarcodeModal from '@/components/inventory/QRBarcodeModal';
 import AIInventoryChat from '@/components/inventory/AIInventoryChat';
+import InventoryMasterData, { fetchInventoryMasterData } from '@/components/inventory/InventoryMasterData';
 
-import * as XLSX from 'xlsx';
+import { exportWorkbook, readWorkbookRows } from '@/lib/safeWorkbook';
 import jsPDF from 'jspdf';
 
 import {
@@ -49,16 +52,6 @@ import {
   XCircle,
   CheckCircle2,
 } from 'lucide-react';
-
-const CATEGORIES = [
-  'WINCOR',
-  'NCR_S1',
-  'NCR_S2',
-  'HYOSUNG',
-  'ENTRUST',
-  'EVOLIS',
-  'GENERAL_PRINTER_ACCESSORIES',
-];
 
 const WAREHOUSES = ['Oshodi', 'Ipaja', 'Enugu'];
 
@@ -243,7 +236,9 @@ const getPhotoUrl = (photo) => {
   if (typeof photo === 'string') return photo;
 
   if (typeof photo === 'object') {
-    return photo.url || photo.publicUrl || photo.path || '';
+    return photo.path
+      ? `storage://${photo.bucket || 'ticket-evidence'}/${photo.path}`
+      : photo.url || photo.publicUrl || '';
   }
 
   return '';
@@ -260,6 +255,12 @@ const requestPhoto = (req) => {
 
   return req.faulty_part_photo || req.photo_url || '';
 };
+
+function PrivatePartPhoto({ value }) {
+  const url = usePrivateStorageUrl(value, 'inventory');
+  if (!url) return null;
+  return <img src={url} alt="Faulty part" className="w-16 h-16 object-cover rounded-lg border" />;
+}
 
 const workflowStatus = (req) => {
   if (
@@ -368,10 +369,44 @@ export default function SparePartsInventory() {
   const [filterTracking, setFilterTracking] = useState('all');
   const [importMode, setImportMode] = useState('merge');
 
+  const inventoryDraftOptions = {
+    userId: user?.id || user?.email,
+    storage: 'session',
+    maxAgeMs: 8 * 60 * 60 * 1000,
+  };
+
+  useFormDraft({ key: editingItem?.id ? `inventory-item-edit:${editingItem.id}` : 'inventory-item-new', form: pf, setForm: setPf, enabled: itemOpen, ...inventoryDraftOptions });
+  useFormDraft({ key: 'inventory-part-request-new', form: rf, setForm: setRf, enabled: reqOpen, ...inventoryDraftOptions });
+  useFormDraft({ key: 'inventory-serial-new', form: serialForm, setForm: setSerialForm, enabled: serialOpen, ...inventoryDraftOptions });
+
   const { data: items = [], isLoading } = useQuery({
     queryKey: ['inventory-items'],
     queryFn: fetchSpareParts,
   });
+
+  const { data: masterData = { categories: [], brands: [], models: [], supplies: [] } } = useQuery({
+    queryKey: ['inventory-master-data'],
+    queryFn: fetchInventoryMasterData,
+    enabled: canManage,
+  });
+
+  const activeMasterCategories = masterData.categories.filter((item) => item.status === 'active');
+  const selectedMasterCategory = activeMasterCategories.find((item) => item.name === pf.category_group);
+  const activeMasterBrands = masterData.brands.filter(
+    (item) => item.status === 'active' && (!selectedMasterCategory || item.category_id === selectedMasterCategory.id)
+  );
+  const selectedMasterBrand = activeMasterBrands.find((item) => item.name === pf.device_brand);
+  const activeMasterModels = masterData.models.filter(
+    (item) => item.status === 'active' && (!selectedMasterBrand || item.brand_id === selectedMasterBrand.id)
+  );
+
+  const categoryFilters = useMemo(
+    () => [...new Set([
+      ...masterData.categories.map((item) => item.name),
+      ...items.map((item) => item.category_group),
+    ].filter(Boolean))].sort(),
+    [masterData.categories, items]
+  );
 
   const { data: requests = [] } = useQuery({
     queryKey: ['spare-requests', user?.email, role],
@@ -410,7 +445,6 @@ export default function SparePartsInventory() {
 
   const outStock = items.filter((i) => (i.quantity_available || 0) === 0);
   const serialTrackedCount = items.filter((i) => normalizeTrackingType(i.tracking_type) === 'serial').length;
-  const quantityTrackedCount = items.filter((i) => normalizeTrackingType(i.tracking_type) === 'quantity').length;
   const inStockSerialCount = serials.filter((s) => s.status === 'in_stock').length;
 
   const getSerialsForItem = (item) =>
@@ -730,187 +764,48 @@ export default function SparePartsInventory() {
 
   const reqAction = async (req, action) => {
     try {
-      const now = new Date().toISOString();
-      const updatePayload = {};
-
-      if (action === 'operations_approved') {
-        Object.assign(updatePayload, {
-          approval_status: 'operations_approved',
-          operations_status: 'approved',
-          inventory_status: 'pending_review',
-          finance_status:
-            req.request_type === 'bank'
-              ? 'pending_payment_review'
-              : 'pending_dispatch_cost_review',
-          current_department: 'inventory_accounts',
-          operations_note: 'Approved by Operations and pushed to Inventory and Accounts',
-          updated_at: now,
-        });
-      }
-
-      if (action === 'operations_rejected') {
-        Object.assign(updatePayload, {
-          approval_status: 'rejected',
-          operations_status: 'rejected',
-          current_department: 'operations',
-          operations_note: 'Rejected by Operations',
-          updated_at: now,
-        });
-      }
-
-      if (action === 'inventory_approved') {
-        Object.assign(updatePayload, {
-          inventory_status: 'approved_for_dispatch',
-          current_department:
-            ['approved', 'not_required'].includes(req.finance_status || 'not_required')
-              ? 'inventory'
-              : 'accounts',
-          inventory_note: 'Stock confirmed / approved for dispatch',
-          updated_at: now,
-        });
-      }
-
-      if (action === 'inventory_rejected') {
-        Object.assign(updatePayload, {
-          approval_status: 'rejected',
-          inventory_status: 'rejected',
-          current_department: 'inventory',
-          inventory_note: 'Rejected by Inventory',
-          updated_at: now,
-        });
-      }
-
-      if (action === 'finance_approved') {
-        Object.assign(updatePayload, {
-          finance_status: 'approved',
-          current_department:
-            req.inventory_status === 'approved_for_dispatch'
-              ? 'inventory'
-              : 'inventory_accounts',
-          finance_note: 'Payment / waybill cost approved by Accounts',
-          updated_at: now,
-        });
-      }
-
-      if (action === 'dispatched') {
-        Object.assign(updatePayload, {
-          dispatch_status: 'dispatched',
-          current_department: 'engineer',
-          dispatch_note: 'Part dispatched to engineer/site',
-          updated_at: now,
-        });
-      }
-
-      if (action === 'received') {
-        Object.assign(updatePayload, {
-          dispatch_status: 'received',
-          current_department: 'engineer',
-          updated_at: now,
-        });
-      }
-
-      const { error } = await supabase
-        .from('part_requests')
-        .update(updatePayload)
-        .eq('id', req.id);
-
-      if (error) throw error;
-
-      if (req.ticket_id) {
-        const ticketPayload = {
-          part_request_status:
-            updatePayload.current_department ||
-            updatePayload.approval_status ||
-            req.current_department ||
-            req.approval_status,
-          updated_at: now,
-        };
-
-        if (action === 'operations_rejected' || action === 'inventory_rejected') {
-          ticketPayload.status = 'rejected_parts';
-        }
-
-        const { error: ticketError } = await supabase
-          .from('tickets')
-          .update(ticketPayload)
-          .eq('id', req.ticket_id);
-
-        if (ticketError) throw ticketError;
-      }
-
       if (action === 'dispatched') {
         const item = items.find(
-          (p) =>
-            p.id === req.part_id ||
-            p.part_number === req.part_number ||
-            p.description === req.part_name ||
-            p.part_name === req.part_name
+          (part) =>
+            part.id === req.part_id ||
+            part.part_number === req.part_number ||
+            part.description === req.part_name ||
+            part.part_name === req.part_name
         );
 
-        if (item) {
-          const previousQty = item.quantity_available || 0;
-          const qty = requestQty(req);
-          const newQty = Math.max(0, previousQty - qty);
+        if (!item?.id) throw new Error('Matching inventory stock item was not found.');
 
-          const { error: stockError } = await supabase
-            .from('spare_parts')
-            .update({
-              quantity_available: newQty,
-              stock_status: computeStatus(newQty, item.minimum_stock_level),
-              total_stock_value: (item.unit_price_ngn || 0) * newQty,
-              updated_at: now,
-            })
-            .eq('id', item.id);
+        const { error } = await supabase.rpc('inventory_dispatch_stock_request', {
+          p_part_request_id: req.id,
+          p_stock_item_id: item.id,
+        });
+        if (error) throw error;
 
-          if (stockError) throw stockError;
-
-          const { error: movementError } = await supabase
-            .from('inventory_movements')
-            .insert({
-              item_id: item.id,
-              part_number: item.part_number,
-              item_description: item.description,
-              warehouse: item.warehouse || 'Oshodi',
-              movement_type: 'request_dispatch',
-              quantity_changed: -qty,
-              previous_quantity: previousQty,
-              new_quantity: newQty,
-              reason: `Dispatched for request ${req.request_number || req.id}`,
-              performed_by_email: user.email,
-              performed_by_name: user.full_name || user.name || user.email,
-              created_at: now,
-            });
-
-          if (movementError) throw movementError;
-
-          qc.invalidateQueries({ queryKey: ['inventory-items'] });
-          qc.invalidateQueries({ queryKey: ['inventory-movements'] });
-        }
-      }
-
-      if (action === 'received') {
-        const { error: movementError } = await supabase
-          .from('inventory_movements')
-          .insert({
-            item_id: req.part_id || null,
-            part_number: req.part_number || '',
-            item_description: req.part_name,
-            warehouse: req.warehouse || 'Oshodi',
-            movement_type: 'request_received',
-            quantity_changed: 0,
-            previous_quantity: 0,
-            new_quantity: 0,
-            reason: `Engineer confirmed receipt for request ${req.request_number || req.id}`,
-            performed_by_email: user.email,
-            performed_by_name: user.full_name || user.name || user.email,
-            created_at: now,
-          });
-
-        if (movementError) throw movementError;
-
+        qc.invalidateQueries({ queryKey: ['inventory-items'] });
         qc.invalidateQueries({ queryKey: ['inventory-movements'] });
+        qc.invalidateQueries({ queryKey: ['spare-requests'] });
+        return;
       }
 
+      const actionMap = {
+        operations_approved: 'operations_approve',
+        operations_rejected: 'operations_reject',
+        inventory_approved: 'inventory_approve',
+        inventory_rejected: 'inventory_reject',
+        finance_approved: 'finance_approve',
+        received: 'engineer_receive',
+      };
+      const rpcAction = actionMap[action];
+      if (!rpcAction) throw new Error('Unsupported part request action.');
+
+      const { error } = await supabase.rpc('inventory_transition_part_request', {
+        p_part_request_id: req.id,
+        p_action: rpcAction,
+        p_note: null,
+      });
+      if (error) throw error;
+
+      qc.invalidateQueries({ queryKey: ['inventory-movements'] });
       qc.invalidateQueries({ queryKey: ['spare-requests'] });
     } catch (err) {
       alert('Action failed: ' + (err?.message || 'Please try again.'));
@@ -923,13 +818,8 @@ export default function SparePartsInventory() {
 
     setImportLoading(true);
 
-    const reader = new FileReader();
-
-    reader.onload = async (evt) => {
-      try {
-        const wb = XLSX.read(evt.target.result, { type: 'binary' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(ws);
+    try {
+        const rows = await readWorkbookRows(file, { allSheets: false });
 
         let createdParts = 0;
         let updatedParts = 0;
@@ -1088,12 +978,9 @@ export default function SparePartsInventory() {
         setImportLoading(false);
         e.target.value = '';
       }
-    };
-
-    reader.readAsBinaryString(file);
   };
 
-  const exportExcel = () => {
+  const exportExcel = async () => {
     const quantityRows = filtered.map((i) => ({
       'Part Number': i.part_number,
       'Serial Number': '',
@@ -1145,11 +1032,10 @@ export default function SparePartsInventory() {
       };
     });
 
-    const ws = XLSX.utils.json_to_sheet([...quantityRows, ...serialRows]);
-    const wb = XLSX.utils.book_new();
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Inventory_Template');
-    XLSX.writeFile(wb, `ARK_Inventory_Template_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    await exportWorkbook(
+      { Inventory_Template: [...quantityRows, ...serialRows] },
+      `ARK_Inventory_Template_${new Date().toISOString().slice(0, 10)}.xlsx`
+    );
   };
 
   const exportPDF = () => {
@@ -1396,7 +1282,7 @@ export default function SparePartsInventory() {
               <label className="cursor-pointer">
                 <input
                   type="file"
-                  accept=".xlsx,.xls,.csv"
+                  accept=".xlsx,.xlsm"
                   className="hidden"
                   onChange={handleImportExcel}
                 />
@@ -1521,6 +1407,11 @@ export default function SparePartsInventory() {
                 Serials ({serials.length})
               </TabsTrigger>
             )}
+            {canManage && (
+              <TabsTrigger value="master-data" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                Master Data
+              </TabsTrigger>
+            )}
             <TabsTrigger value="requests" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Requests{' '}
               {pending > 0 && (
@@ -1570,7 +1461,7 @@ export default function SparePartsInventory() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Categories</SelectItem>
-                {CATEGORIES.map((c) => (
+                {categoryFilters.map((c) => (
                   <SelectItem key={c} value={c}>
                     {c}
                   </SelectItem>
@@ -2083,6 +1974,12 @@ export default function SparePartsInventory() {
           </TabsContent>
         )}
 
+        {canManage && (
+          <TabsContent value="master-data" className="space-y-3 mt-4">
+            <InventoryMasterData />
+          </TabsContent>
+        )}
+
         <TabsContent value="requests" className="space-y-3 mt-4">
           {requests.length === 0 && (
             <div className="text-center py-16 text-muted-foreground">
@@ -2179,11 +2076,7 @@ export default function SparePartsInventory() {
                   </div>
 
                   {photo && (
-                    <img
-                      src={photo}
-                      alt="Faulty part"
-                      className="w-16 h-16 object-cover rounded-lg border"
-                    />
+                    <PrivatePartPhoto value={photo} />
                   )}
                 </div>
 
@@ -2411,9 +2304,9 @@ export default function SparePartsInventory() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CATEGORIES.map((c) => (
-                      <SelectItem key={c} value={c}>
-                        {c}
+                    {activeMasterCategories.map((category) => (
+                      <SelectItem key={category.id} value={category.name}>
+                        {category.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -2446,30 +2339,35 @@ export default function SparePartsInventory() {
 
               <div className="space-y-1">
                 <Label className="text-xs">Brand</Label>
-                <Input
+                <Select
                   value={pf.device_brand}
-                  onChange={(e) =>
+                  onValueChange={(value) =>
                     setPf((f) => ({
                       ...f,
-                      device_brand: e.target.value,
+                      device_brand: value,
+                      device_model: '',
                     }))
                   }
-                  className="h-8 text-sm"
-                />
+                >
+                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select brand" /></SelectTrigger>
+                  <SelectContent>{activeMasterBrands.map((brand) => <SelectItem key={brand.id} value={brand.name}>{brand.name}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1">
                 <Label className="text-xs">Machine Family / Model</Label>
-                <Input
+                <Select
                   value={pf.device_model}
-                  onChange={(e) =>
+                  onValueChange={(value) =>
                     setPf((f) => ({
                       ...f,
-                      device_model: e.target.value,
+                      device_model: value,
                     }))
                   }
-                  className="h-8 text-sm"
-                />
+                >
+                  <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select model" /></SelectTrigger>
+                  <SelectContent>{activeMasterModels.map((model) => <SelectItem key={model.id} value={model.name}>{model.name}</SelectItem>)}</SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-1">

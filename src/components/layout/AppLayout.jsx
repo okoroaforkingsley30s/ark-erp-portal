@@ -7,10 +7,10 @@ import MobileBottomNav from './MobileBottomNav';
 import PendingApproval from '@/components/auth/PendingApproval';
 import MobileHomeScreen from '@/components/mobile/MobileHomeScreen';
 import FieldEngineerMobileApp from '@/components/mobile/FieldEngineerMobileApp';
+import AppUpdateNotice from '@/components/AppUpdateNotice';
 
 import { useAuth } from '@/lib/AuthContext';
 import useDMNotifications from '@/hooks/useDMNotifications';
-import useInactivityLogout from '@/hooks/useInactivityLogout';
 
 import { supabase } from '@/lib/supabaseClient';
 import { getUserRole } from '@/lib/roleAccess';
@@ -33,8 +33,6 @@ export default function AppLayout() {
   const globalRefreshTimerRef = useRef(null);
 
   const { dmUnreadCount, resetDMCount } = useDMNotifications(user);
-
-  useInactivityLogout(!!user);
 
   const playNotificationSound = useCallback((sound = 'bell') => {
     try {
@@ -281,15 +279,19 @@ export default function AppLayout() {
 
   const isEngineerMobile =
     isMobile &&
-    role === 'engineer';
+    role === 'engineer' &&
+    (location.pathname === '/' || location.pathname === '/dashboard');
 
   if (isEngineerMobile) {
     return (
+      <>
+      <AppUpdateNotice />
       <FieldEngineerMobileApp
         user={user}
         notifCount={notifCount}
         dmCount={dmUnreadCount}
       />
+      </>
     );
   }
 
@@ -298,6 +300,8 @@ export default function AppLayout() {
     (location.pathname === '/' || location.pathname === '/dashboard');
 
   return (
+    <>
+    <AppUpdateNotice />
     <div className="flex h-screen overflow-hidden bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] text-white">
       <div className="hidden md:block flex-shrink-0">
         <Sidebar
@@ -329,5 +333,6 @@ export default function AppLayout() {
         dmCount={dmUnreadCount}
       />
     </div>
+    </>
   );
 }

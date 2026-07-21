@@ -18,10 +18,8 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
+import { reportError } from '@/lib/errorReporting';
 import { Button } from '@/components/ui/button';
-
-const GMAIL_OAUTH_URL =
-  'https://fryidzyhqhdenghyxjfp.supabase.co/functions/v1/gmail-oauth';
 
 function cleanBody(text = '') {
   return String(text)
@@ -145,14 +143,14 @@ export default function OfficialMailInbox() {
         .maybeSingle();
 
       if (error) {
-        console.error('Gmail connection query error:', error);
+        reportError(error, { context: 'gmail.connection.query', notify: false });
         setGmailConnection(null);
         return;
       }
 
       setGmailConnection(data || null);
     } catch (error) {
-      console.error('Gmail connection loading error:', error);
+      reportError(error, { context: 'gmail.connection.load', notify: false });
       setGmailConnection(null);
     } finally {
       setLoadingConnection(false);
@@ -204,7 +202,7 @@ export default function OfficialMailInbox() {
         .limit(80);
 
       if (error) {
-        console.error('Official Mail query error:', error);
+        reportError(error, { context: 'gmail.messages.query', notify: false });
         setErrorMessage(error.message || 'Unable to load emails.');
         setEmails([]);
         setSelectedEmail(null);
@@ -219,7 +217,7 @@ export default function OfficialMailInbox() {
         return rows.find((email) => email.id === current.id) || null;
       });
     } catch (error) {
-      console.error('Official Mail loading error:', error);
+      reportError(error, { context: 'gmail.messages.load', notify: false });
       setErrorMessage('Unable to load emails. Please try again.');
       setEmails([]);
       setSelectedEmail(null);
@@ -229,17 +227,25 @@ export default function OfficialMailInbox() {
     }
   };
 
-  const connectGmail = () => {
+  const connectGmail = async () => {
     if (!user?.id) {
       alert('User session not ready. Please refresh and try again.');
       return;
     }
 
-    window.open(
-      `${GMAIL_OAUTH_URL}?user_id=${user.id}`,
-      '_blank',
-      'noopener,noreferrer'
-    );
+    const { data, error } = await supabase.functions.invoke('gmail-oauth', {
+      body: {},
+    });
+
+    if (error || !data?.authorization_url) {
+      reportError(error || new Error('OAuth authorization URL was not returned.'), {
+        context: 'gmail.oauth.start',
+        userMessage: 'Unable to start Gmail connection. Please try again.',
+      });
+      return;
+    }
+
+    window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
   };
 
   const syncGmail = async () => {
@@ -268,16 +274,14 @@ export default function OfficialMailInbox() {
       });
 
       if (error) {
-        console.error('Gmail sync failed:', error);
-        alert(error.message || 'Failed to sync Gmail.');
+        reportError(error, { context: 'gmail.sync.invoke', userMessage: 'Failed to sync Gmail.' });
         return;
       }
 
       await loadEmails(true);
       alert(`Gmail sync completed. Synced ${data?.synced ?? 0} email(s).`);
     } catch (error) {
-      console.error('Gmail sync error:', error);
-      alert('Failed to sync Gmail.');
+      reportError(error, { context: 'gmail.sync.unexpected', userMessage: 'Failed to sync Gmail.' });
     } finally {
       setSyncing(false);
     }
@@ -480,13 +484,17 @@ export default function OfficialMailInbox() {
       });
 
       if (error) {
-        console.error(`${functionName} failed:`, error);
+        reportError(error, { context: `gmail.message.${isReply ? 'reply' : 'send'}`, notify: false });
         setComposerError(error.message || 'Unable to send email.');
         return;
       }
 
       if (data?.error) {
-        console.error(`${functionName} response error:`, data);
+        reportError(new Error(data.error), {
+          context: `gmail.message.${isReply ? 'reply' : 'send'}.response`,
+          metadata: { functionName },
+          notify: false,
+        });
         setComposerError(data.error || 'Unable to send email.');
         return;
       }
@@ -495,7 +503,7 @@ export default function OfficialMailInbox() {
       await loadEmails(true);
       alert(isReply ? 'Reply sent successfully.' : 'Email sent successfully.');
     } catch (error) {
-      console.error('Email sending error:', error);
+      reportError(error, { context: 'gmail.message.send.unexpected', notify: false });
       setComposerError('Unable to send email. Please try again.');
     } finally {
       setSending(false);
@@ -886,7 +894,7 @@ export default function OfficialMailInbox() {
 
                     <input
                       value={composer.bcc}
-                      onChange={(event) => updateComposer('bcc', ent.target.value)}
+                      onChange={(event) => updateComposer('bcc', event.target.value)}
                       placeholder="BCC"
                       className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900 outline-none focus:border-[#ff5a00]"
                     />

@@ -3,6 +3,17 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CheckCircle2, XCircle, Package } from 'lucide-react';
+import { usePrivateStorageUrl } from '@/hooks/usePrivateStorageUrl';
+
+function PrivatePartPhoto({ value }) {
+  const url = usePrivateStorageUrl(value, 'inventory');
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer">
+      <img src={url} alt="Faulty part" className="w-14 h-14 object-cover rounded-lg border" />
+    </a>
+  );
+}
 
 const REQ_STATUS = {
   pending: {
@@ -116,17 +127,7 @@ export default function RequestsPanel({
               </div>
 
               {req.faulty_part_photo && (
-                <a
-                  href={req.faulty_part_photo}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <img
-                    src={req.faulty_part_photo}
-                    alt="Faulty part"
-                    className="w-14 h-14 object-cover rounded-lg border"
-                  />
-                </a>
+                <PrivatePartPhoto value={req.faulty_part_photo} />
               )}
             </div>
 

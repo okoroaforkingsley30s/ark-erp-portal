@@ -1,0 +1,19 @@
+{
+  "extends": "./jsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "types": ["node"],
+    "maxNodeModuleJsDepth": 0
+  },
+  "include": [
+    "src/lib/authRedirects.js",
+    "src/lib/errorReporting.js",
+    "src/lib/fileValidation.js",
+    "src/lib/financePortalModel.js",
+    "src/lib/safeWorkbook.js",
+    "src/lib/workflowRules.js"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

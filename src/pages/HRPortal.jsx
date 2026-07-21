@@ -23,8 +23,6 @@ import TrainingModule from '@/components/hr/TrainingModule';
 import PerformanceModule from '@/components/hr/PerformanceModule';
 import HolidayModule from '@/components/hr/HolidayModule';
 
-const MAIN_ADMIN_EMAIL = 'iamkizmith@gmail.com';
-
 const EMPTY_EMP = {
   full_name: '', staff_id: '', title: '', phone_number: '', marital_status: '', gender: '',
   date_of_birth: '', home_address: '', job_title: '', current_level: '', department: '',
@@ -77,6 +75,8 @@ export default function HRPortal() {
     setForm: setEmpForm,
     userId: user?.email,
     enabled: empFormOpen,
+    storage: 'session',
+    maxAgeMs: 30 * 60 * 1000,
   });
 
   const { data: employees = [] } = useQuery({
@@ -215,11 +215,9 @@ export default function HRPortal() {
       employeeData.updated_at = new Date().toISOString();
       let shouldSyncLoginRole = Boolean(employeeData.access_role);
 
-      const [employeeRows, engineerRows, userRows, profileRows] = await Promise.all([
+      const [employeeRows, engineerRows] = await Promise.all([
         supabase.from('employees').select('id, full_name, staff_id, email_address, user_account_email'),
         supabase.from('engineers').select('id, engineer_name, email'),
-        supabase.from('users').select('id, full_name, email'),
-        supabase.from('user_profiles').select('id, user_email'),
       ]);
 
       const duplicate = findDuplicateIdentity({
@@ -240,85 +238,17 @@ export default function HRPortal() {
       }
 
       if (create_login && cleanLoginEmail) {
-        const existingUser = (userRows.data || []).find(
-          (item) => normalizeEmail(item.email) === cleanLoginEmail
-        );
+        const { error: pendingError } = await supabase.rpc('ark_create_pending_user', {
+          p_email: cleanLoginEmail,
+          p_full_name: employeeData.full_name,
+          p_department: employeeData.department || 'General',
+          p_employee_id: employeeData.staff_id || null,
+        });
+        if (pendingError) throw pendingError;
+        // The requested role remains on the employee record for the approval
+        // screen; it is never granted to the pending portal account here.
+        shouldSyncLoginRole = false;
 
-        if (existingUser) {
-          shouldSyncLoginRole = false;
-
-          const { error: userUpdateError } = await supabase
-            .from('users')
-            .update({
-              full_name: employeeData.full_name,
-              department: employeeData.department || 'General',
-              employee_id: employeeData.staff_id || null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', existingUser.id);
-
-          if (userUpdateError) throw userUpdateError;
-        } else {
-          const { error: pendingError } = await supabase
-            .from('users')
-            .insert({
-            email: cleanLoginEmail,
-            full_name: employeeData.full_name,
-            role: null,
-            status: 'pending',
-            approval_status: 'pending',
-            is_approved: false,
-            account_status: 'active',
-            department: employeeData.department || 'General',
-            employee_id: employeeData.staff_id || null,
-            updated_at: new Date().toISOString(),
-          });
-
-          if (pendingError) {
-            console.error('Pending user creation failed:', pendingError);
-            throw pendingError;
-          }
-        }
-
-        const existingProfile = (profileRows.data || []).find(
-          (item) => normalizeEmail(item.user_email) === cleanLoginEmail
-        );
-
-        if (!existingProfile) {
-          await supabase.from('user_profiles').insert({
-            user_email: cleanLoginEmail,
-            employee_id: employeeData.staff_id || null,
-            department: employeeData.department || 'General',
-            account_status: 'active',
-            role: login_role || null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          });
-        }
-
-        if (!existingUser) {
-          await supabase
-            .from('notifications')
-            .insert({
-            title: 'New User Approval Request',
-            message: `${employeeData.full_name} requires login access approval as ${login_role}.`,
-            type: 'approval',
-            user_email: MAIN_ADMIN_EMAIL,
-            recipient_email: MAIN_ADMIN_EMAIL,
-            read: false,
-            is_read: false,
-            data: {
-              email: cleanLoginEmail,
-              full_name: employeeData.full_name,
-              role: login_role,
-              department: employeeData.department || 'General',
-              employee_id: employeeData.staff_id || null,
-            },
-            link: '/users',
-            sound: 'bell',
-            created_at: new Date().toISOString(),
-          });
-        }
       }
 
       if (editingEmp) {

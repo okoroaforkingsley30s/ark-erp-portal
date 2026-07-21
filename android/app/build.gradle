@@ -1,5 +1,13 @@
 apply plugin: 'com.android.application'
 
+def arkVersionCode = (System.getenv('ARK_ANDROID_VERSION_CODE') ?: '10016') as Integer
+def arkVersionName = System.getenv('ARK_ANDROID_VERSION_NAME') ?: '1.0.16'
+def releaseStoreFile = System.getenv('ARK_ANDROID_KEYSTORE_FILE')
+def releaseStorePassword = System.getenv('ARK_ANDROID_KEYSTORE_PASSWORD')
+def releaseKeyAlias = System.getenv('ARK_ANDROID_KEY_ALIAS')
+def releaseKeyPassword = System.getenv('ARK_ANDROID_KEY_PASSWORD')
+def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 android {
     namespace = "com.arktechnologiesgroup.arkone"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +15,8 @@ android {
         applicationId "com.arktechnologiesgroup.arkone"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode arkVersionCode
+        versionName arkVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,9 +24,31 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+                enableV1Signing true
+                enableV2Signing true
+                enableV3Signing true
+            }
+        }
+    }
     buildTypes {
+        debug {
+            manifestPlaceholders = [usesCleartextTraffic: "true"]
+        }
         release {
-            minifyEnabled false
+            if (!hasReleaseSigning) {
+                throw new GradleException('ARK Android release signing variables are required. See docs/RELEASES.md')
+            }
+            signingConfig signingConfigs.release
+            minifyEnabled true
+            shrinkResources true
+            manifestPlaceholders = [usesCleartextTraffic: "false"]
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }

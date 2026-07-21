@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -26,7 +27,7 @@ import {
 } from 'lucide-react';
 
 export default function Departments() {
-  const { user } = useOutletContext();
+  useOutletContext();
 
   const queryClient = useQueryClient();
 
@@ -39,6 +40,8 @@ export default function Departments() {
     head_email: '',
     status: 'active'
   });
+
+  useFormDraft({ key: editing?.id ? `admin-department-edit:${editing.id}` : 'admin-department-new', form, setForm, enabled: dialogOpen, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const [saving, setSaving] = useState(false);
 

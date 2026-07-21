@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Navigation, MapPin, Clock, Loader2, Play, StopCircle, Wrench, Building2, CalendarDays, Cpu, AlertTriangle, Users } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 const REGION_COLORS = {
   NORTH: 'bg-blue-100 text-blue-800',
@@ -31,6 +32,16 @@ export default function FieldOperations() {
   const [saving, setSaving] = useState(false);
   const [filterRegion, setFilterRegion] = useState('all');
   const [filterEngineer, setFilterEngineer] = useState('all');
+
+  useFormDraft({
+    key: 'operations-field-checkout',
+    form: checkoutForm,
+    setForm: setCheckoutForm,
+    userId: user?.id || user?.email,
+    enabled: checkoutOpen,
+    storage: 'session',
+    maxAgeMs: 8 * 60 * 60 * 1000,
+  });
 
   const { data: engineers = [] } = useQuery({
     queryKey: ['engineers'],

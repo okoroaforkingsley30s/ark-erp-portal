@@ -1,7 +1,70 @@
+project_id = "ark-one-local-test"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[db.migrations]
+enabled = true
+schema_paths = []
+
+[db.seed]
+enabled = false
+sql_paths = []
+
+[realtime]
+enabled = true
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://127.0.0.1"
+
+[inbucket]
+enabled = true
+port = 54324
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:5173"
+additional_redirect_urls = [
+  "http://127.0.0.1:5173/#/create-password",
+  "http://127.0.0.1:5173/#/reset-password",
+  "http://localhost:5173/#/create-password",
+  "http://localhost:5173/#/reset-password"
+]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = false
+enable_anonymous_sign_ins = false
+minimum_password_length = 8
+password_requirements = "lower_upper_letters_digits_symbols"
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = false
+secure_password_change = true
+max_frequency = "1s"
+otp_length = 6
+otp_expiry = 3600
 
 [functions.invite-user]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/invite-user/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -23,7 +86,7 @@ entrypoint = "./functions/gmail-oauth/index.ts"
 
 [functions.gmail-sync]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/gmail-sync/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -34,7 +97,7 @@ entrypoint = "./functions/gmail-sync/index.ts"
 
 [functions.gmail-send]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/gmail-send/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -45,7 +108,7 @@ entrypoint = "./functions/gmail-send/index.ts"
 
 [functions.gmail-reply]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/gmail-reply/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
@@ -56,7 +119,7 @@ entrypoint = "./functions/gmail-reply/index.ts"
 
 [functions.send-notification-email]
 enabled = true
-verify_jwt = false
+verify_jwt = true
 import_map = "./functions/send-notification-email/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx

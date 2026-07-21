@@ -36,10 +36,10 @@ import {
   FileText,
   Mail,
   FileSpreadsheet,
-  Wrench,
   PackageCheck,
   Inbox,
   Wallet,
+  Search,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -275,6 +275,12 @@ const ALL_MENUS = [
     icon: Shield,
     path: '/audit-logs',
     permission: 'audit_logs',
+  },
+  {
+    label: 'ERP Diagnostics',
+    icon: Search,
+    path: '/admin-diagnostics',
+    permission: 'admin_diagnostics',
   },
   {
     label: 'Reports',

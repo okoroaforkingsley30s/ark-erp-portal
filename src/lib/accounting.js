@@ -129,15 +129,11 @@ export async function validatePostedJournalBalance(journalId) {
 
 export async function createReversalJournal({
   journalId,
-  createdBy,
-  createdByName,
   narration,
 }) {
-  const { data, error } = await supabase.rpc("finance_create_reversal_journal", {
+  const { data, error } = await supabase.rpc("finance_create_reversal_transaction", {
     p_original_journal_id: journalId,
-    p_created_by: createdBy || null,
-    p_created_by_name: createdByName || null,
-    p_narration: narration || null,
+    p_reason: narration || null,
   });
 
   if (error) throw error;

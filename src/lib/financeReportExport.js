@@ -1,5 +1,5 @@
 import { jsPDF } from 'jspdf';
-import * as XLSX from 'xlsx';
+import { exportArrayWorkbook } from '@/lib/safeWorkbook';
 
 const currencyFormatter = new Intl.NumberFormat('en-NG', {
   style: 'currency',
@@ -99,9 +99,8 @@ export const exportFinanceReportCsv = ({ title, columns, rows, filters, totals, 
   downloadBlob(csvRows.join('\n'), toFileName(title, 'csv'), 'text/csv;charset=utf-8;');
 };
 
-export const exportFinanceReportExcel = ({ title, columns, rows, filters, totals, metadata, dateRange }) => {
+export const exportFinanceReportExcel = async ({ title, columns, rows, filters, totals, metadata, dateRange }) => {
   const normalizedRows = normalizeRows(rows, columns);
-  const workbook = XLSX.utils.book_new();
   const metaRows = buildFinanceReportMeta({ title, filters, totals, metadata, dateRange });
   const sheetRows = [
     ...metaRows,
@@ -109,10 +108,12 @@ export const exportFinanceReportExcel = ({ title, columns, rows, filters, totals
     columns.map((column) => column.label || column.key),
     ...normalizedRows.map((row) => columns.map((column) => row[column.label || column.key] ?? '')),
   ];
-  const worksheet = XLSX.utils.aoa_to_sheet(sheetRows);
-  worksheet['!cols'] = columns.map((column) => ({ wch: Math.max(14, String(column.label || column.key).length + 4) }));
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
-  XLSX.writeFile(workbook, toFileName(title, 'xlsx'));
+  await exportArrayWorkbook(
+    sheetRows,
+    'Report',
+    toFileName(title, 'xlsx'),
+    columns.map((column) => Math.max(14, String(column.label || column.key).length + 4))
+  );
 };
 
 export const exportFinanceReportPdf = ({ title, columns, rows, filters, totals, metadata, dateRange }) => {

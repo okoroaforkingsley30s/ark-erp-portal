@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,6 +51,8 @@ export default function BranchDevices() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingDevice, setEditingDevice] = useState(null);
   const [form, setForm] = useState(EMPTY_DEVICE);
+
+  useFormDraft({ key: editingDevice?.id ? `it-branch-device-edit:${editingDevice.id}` : `it-branch-device-new:${id}`, form, setForm, enabled: dialogOpen, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const { data: branch, isLoading: branchLoading } = useQuery({
     queryKey: ['branch', id],

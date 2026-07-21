@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   LogIn,
-  UserPlus,
   Loader2,
   ArrowLeft,
   Headphones,
@@ -19,15 +18,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { supabase } from '@/lib/supabaseClient';
-
-const ADMIN_EMAIL = 'iamkizmith@gmail.com';
+import { getPasswordSetupRedirectUrl } from '@/lib/authRedirects';
+import { useReleaseManifest } from '@/lib/appRelease';
 
 function PendingApproval({ onBackToSignin }) {
   return (
     <div className="text-center">
       <h2 className="text-3xl font-bold text-white mb-3">Pending Approval</h2>
       <p className="text-slate-300 mb-6">
-        Your registration has been submitted successfully. Please wait for admin approval.
+        Your ARK ONE account is awaiting administrator approval.
       </p>
 
       <Button
@@ -43,14 +42,11 @@ function PendingApproval({ onBackToSignin }) {
 
 function AuthForm({
   desktop = false,
-  authMode,
   setAuthMode,
   email,
   setEmail,
   password,
   setPassword,
-  fullName,
-  setFullName,
   loading,
   handleAuth,
   handleForgotPassword,
@@ -71,29 +67,14 @@ function AuthForm({
       )}
 
       <h2 className="text-3xl xl:text-4xl font-black text-white mb-2">
-        {authMode === 'register' ? 'Create Account' : 'Welcome Back'}
+        Welcome Back
       </h2>
 
       <p className="text-slate-300 mb-8">
-        {authMode === 'register'
-          ? 'Register your ARK ONE account for approval'
-          : 'Sign in to continue to ARK ONE Portal'}
+        Sign in with your administrator-issued ARK ONE account
       </p>
 
       <div className="space-y-5">
-        {authMode === 'register' && (
-          <div>
-            <Label className="text-slate-200 font-semibold">Full Name</Label>
-            <Input
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
-              placeholder="Your full name"
-              autoComplete="name"
-              className="mt-2 h-14 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
-            />
-          </div>
-        )}
-
         <div>
           <Label className="text-slate-200 font-semibold">
             {desktop ? 'Username' : 'Email'}
@@ -123,7 +104,7 @@ function AuthForm({
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Enter your password"
-              autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+              autoComplete="current-password"
               className="h-14 pl-12 pr-12 bg-[#06102f]/80 border-white/20 text-white rounded-xl"
             />
 
@@ -142,8 +123,7 @@ function AuthForm({
           </div>
         </div>
 
-        {authMode === 'signin' && (
-          <div className="flex justify-between items-center text-sm">
+        <div className="flex justify-between items-center text-sm">
             <label className="flex items-center gap-2 text-slate-200">
               <input type="checkbox" className="accent-[#ff5a00]" />
               Remember me
@@ -156,8 +136,7 @@ function AuthForm({
             >
               Forgot Password?
             </button>
-          </div>
-        )}
+        </div>
 
         <Button
           type="button"
@@ -170,19 +149,12 @@ function AuthForm({
           ) : (
             <LogIn className="w-5 h-5 mr-3" />
           )}
-          {authMode === 'register' ? 'Submit Registration' : 'Sign In'}
+          Sign In
         </Button>
 
-        <button
-          type="button"
-          onClick={() => setAuthMode(authMode === 'signin' ? 'register' : 'signin')}
-          className="w-full h-14 rounded-xl border border-[#ff5a00]/60 text-white hover:bg-[#ff5a00]/10 font-bold"
-        >
-          <UserPlus className="inline w-5 h-5 mr-2 text-[#ff5a00]" />
-          {authMode === 'signin'
-            ? 'Register / Sign Up'
-            : 'Already registered? Sign In'}
-        </button>
+        <p className="text-center text-xs text-slate-400">
+          New accounts are created and invited by an ARK ONE administrator.
+        </p>
       </div>
     </div>
   );
@@ -190,6 +162,7 @@ function AuthForm({
 
 export default function Welcome() {
   const navigate = useNavigate();
+  const releaseManifest = useReleaseManifest();
 
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [authMode, setAuthMode] = useState(
@@ -198,8 +171,9 @@ export default function Welcome() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const windowsDownloadUrl = releaseManifest?.windowsUrl || String(import.meta.env.VITE_WINDOWS_DOWNLOAD_URL || '').trim();
+  const androidDownloadUrl = releaseManifest?.androidUrl || String(import.meta.env.VITE_ANDROID_DOWNLOAD_URL || '').trim();
 
   useEffect(() => {
     setCheckingAuth(false);
@@ -214,60 +188,28 @@ export default function Welcome() {
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-      redirectTo: `${window.location.origin}/#/create-password`,
+      redirectTo: getPasswordSetupRedirectUrl(),
     });
 
     if (error) alert(error.message);
     else alert('Password reset email sent successfully.');
   };
 
-  const createAdminApprovalNotification = async ({ userId, userEmail, userName }) => {
-    const displayName = userName || userEmail;
-
-    await supabase.from('notifications').insert({
-      user_email: ADMIN_EMAIL,
-      recipient_email: ADMIN_EMAIL,
-      title: 'New User Awaiting Approval',
-      message: `${displayName} just registered and is awaiting admin approval.`,
-      type: 'user_approval',
-      read: false,
-      is_read: false,
-      related_user_id: userId,
-      related_user_email: userEmail,
-      data: {
-        user_id: userId,
-        email: userEmail,
-        full_name: userName,
-        approval_status: 'pending',
-      },
-      link: '/users',
-      sound: 'bell',
-      created_at: new Date().toISOString(),
-    });
-  };
-
   const handleAuth = async () => {
     const cleanEmail = email.trim().toLowerCase();
-    const cleanName = fullName.trim();
 
     if (!cleanEmail || !password) {
       alert('Please enter email and password.');
       return;
     }
 
-    if (authMode === 'register' && !cleanName) {
-      alert('Please enter your full name.');
-      return;
-    }
-
     setLoading(true);
 
     try {
-      if (authMode === 'signin') {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password,
-        });
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
 
         if (error) throw error;
 
@@ -304,55 +246,7 @@ export default function Welcome() {
           }
         }
 
-        navigate('/dashboard');
-        return;
-      }
-
-      if (authMode === 'register') {
-        const { data, error } = await supabase.auth.signUp({
-          email: cleanEmail,
-          password,
-          options: {
-            data: { full_name: cleanName },
-          },
-        });
-
-        if (error) throw error;
-
-        const authUserId = data?.user?.id;
-
-        if (authUserId) {
-          const now = new Date().toISOString();
-
-          const { error: userError } = await supabase.from('users').upsert(
-            {
-              id: authUserId,
-              email: cleanEmail,
-              full_name: cleanName,
-              role: null,
-              status: 'pending',
-              approval_status: 'pending',
-              is_approved: false,
-              department: null,
-              updated_at: now,
-            },
-            { onConflict: 'email' }
-          );
-
-          if (userError) throw userError;
-
-          await createAdminApprovalNotification({
-            userId: authUserId,
-            userEmail: cleanEmail,
-            userName: cleanName,
-          });
-        }
-
-        setEmail('');
-        setPassword('');
-        setFullName('');
-        setAuthMode('pending');
-      }
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       alert(err?.message || 'Authentication failed.');
     } finally {
@@ -360,15 +254,20 @@ export default function Welcome() {
     }
   };
 
+  const handleAppDownload = (platform, url) => {
+    if (!url) {
+      alert(`${platform} download is currently unavailable. Please contact IT support.`);
+      return;
+    }
+    window.location.assign(url);
+  };
+
   const authFormProps = {
-    authMode,
     setAuthMode,
     email,
     setEmail,
     password,
     setPassword,
-    fullName,
-    setFullName,
     loading,
     handleAuth,
     handleForgotPassword,
@@ -428,15 +327,9 @@ export default function Welcome() {
                   Sign In
                 </Button>
 
-                <Button
-                  type="button"
-                  onClick={() => setAuthMode('register')}
-                  variant="outline"
-                  className="w-full h-16 border-[#ff5a00] text-white hover:bg-[#ff5a00]/10 rounded-2xl text-lg font-bold"
-                >
-                  <UserPlus className="w-6 h-6 mr-3 text-[#ff5a00]" />
-                  Register / Sign Up
-                </Button>
+                <p className="text-center text-sm text-slate-300">
+                  Need access? Contact your ARK ONE administrator for an invitation.
+                </p>
               </div>
 
               <p className="text-center text-xs text-slate-400 mt-14">
@@ -509,6 +402,8 @@ export default function Welcome() {
                 <div className="grid grid-cols-2 gap-4 mt-5">
                   <Button
                     type="button"
+                    onClick={() => handleAppDownload('Windows', windowsDownloadUrl)}
+                    aria-label="Download ARK ONE for Windows"
                     variant="outline"
                     className="h-14 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
                   >
@@ -518,6 +413,8 @@ export default function Welcome() {
 
                   <Button
                     type="button"
+                    onClick={() => handleAppDownload('Android', androidDownloadUrl)}
+                    aria-label="Download ARK ONE for Android"
                     variant="outline"
                     className="h-14 border-white/15 bg-white/5 text-white hover:bg-white/10 rounded-xl"
                   >

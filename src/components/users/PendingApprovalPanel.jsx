@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
-import {
-  normalizeEmail,
-  syncRelatedIdentityRecords,
-} from '@/lib/identity';
+import { normalizeEmail } from '@/lib/identity';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -38,8 +35,6 @@ import {
 } from 'lucide-react';
 
 import { format, isValid } from 'date-fns';
-
-const MAIN_ADMIN_EMAIL = 'iamkizmith@gmail.com';
 
 const ALL_ROLES = [
   { value: 'ceo', label: 'CEO' },
@@ -110,7 +105,6 @@ export default function PendingApprovalPanel() {
 
   const pendingUsers = users.filter(
     (u) =>
-      u.email !== MAIN_ADMIN_EMAIL &&
       (
         u.approval_status === 'pending' ||
         u.status === 'pending' ||
@@ -139,124 +133,40 @@ export default function PendingApprovalPanel() {
 const handleApprove = async () => {
   if (!selectedUser) return;
 
-  if (assignRole === 'admin') {
-    alert('Admin role is locked. Only iamkizmith@gmail.com can be admin.');
-    return;
-  }
-
   try {
     setSaving(true);
 
-    const now = new Date().toISOString();
-    const cleanEmail = normalizeEmail(selectedUser.email);
+    const { error: approveError } = await supabase.rpc('ark_manage_user_approval', {
+      p_target_user_id: selectedUser.id,
+      p_action: 'approve',
+      p_role: assignRole,
+      p_department: assignDept || null,
+      p_employee_id: assignEmpId || null,
+    });
 
-    const { error: approveError } = await supabase.rpc('approve_ark_user', {
-  target_user_id: selectedUser.id,
-  new_role: assignRole,
-  new_department: assignDept || null,
-  new_employee_id: assignEmpId || null,
-});
+    if (approveError) throw approveError;
 
-if (approveError) throw approveError;
+    const { data: createAuthResult, error: createAuthError } =
+      await supabase.functions.invoke('invite-user', {
+        body: {
+          target_user_id: selectedUser.id,
+        },
+      });
 
-    const { data: sessionData } = await supabase.auth.getSession();
-const accessToken = sessionData?.session?.access_token;
-
-if (!accessToken) {
-  throw new Error('Admin session expired. Please sign in again.');
-}
-
-const createAuthResponse = await fetch(
-  'https://fryidzyhqhdenghyxjfp.functions.supabase.co/invite-user',
-  {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      email: cleanEmail,
-      full_name: selectedUser.full_name || selectedUser.email,
-      role: assignRole,
-      department: assignDept || 'General',
-      employee_id: assignEmpId || null,
-    }),
-  }
-);
-
-const createAuthResult = await createAuthResponse.json();
-
-if (!createAuthResponse.ok) {
-  throw new Error(createAuthResult?.error || 'Auth user creation failed.');
-}
-
-const { error: resetEmailError } =
-  await supabase.auth.resetPasswordForEmail(cleanEmail, {
-    redirectTo: 'https://portal.arktechnologiesgroup.com/create-password',
-  });
-
-if (resetEmailError) throw resetEmailError;
-
-    const existing = getProfile(cleanEmail);
-
-    const profileData = {
-      user_email: cleanEmail,
-      department: assignDept,
-      employee_id: assignEmpId,
-      account_status: 'active',
-      role: assignRole,
-      updated_at: now,
-    };
-
-    if (existing) {
-      const { error } = await supabase
-        .from('user_profiles')
-        .update(profileData)
-        .eq('id', existing.id);
-
-      if (error) throw error;
-    } else {
-      const { error } = await supabase
-        .from('user_profiles')
-        .insert({
-          ...profileData,
-          created_at: now,
-        });
-
-      if (error) throw error;
+    if (createAuthError || !createAuthResult?.success) {
+      alert(
+        'The account was approved, but the setup email could not be sent. Retry the invite to send it again. ' +
+        (createAuthResult?.error || createAuthError?.message || '')
+      );
     }
-
-    await supabase.from('notifications').insert({
-      user_email: cleanEmail,
-      title: 'Account Approved',
-      message:
-        'Your ARK ONE Portal account has been approved. A password setup email has been sent to your email address.',
-      type: 'system',
-      read: false,
-      data: {
-        role: assignRole,
-        department: assignDept,
-        employee_id: assignEmpId,
-        email: cleanEmail,
-      },
-      link: '/dashboard',
-      sound: 'bell',
-      created_at: now,
-    });
-
-    await syncRelatedIdentityRecords(supabase, {
-      email: cleanEmail,
-      fullName: selectedUser.full_name || selectedUser.email,
-      department: assignDept || 'General',
-      role: assignRole,
-      employeeId: assignEmpId || null,
-    });
 
     qc.invalidateQueries({ queryKey: ['pending-users'] });
     qc.invalidateQueries({ queryKey: ['users'] });
     qc.invalidateQueries({ queryKey: ['user-profiles'] });
 
-    alert('User approved successfully. Password setup email sent.');
+    if (!createAuthError && createAuthResult?.success) {
+      alert('User approved successfully. Password setup email sent.');
+    }
 
     setApproveOpen(false);
     setSelectedUser(null);
@@ -273,63 +183,15 @@ if (resetEmailError) throw resetEmailError;
 
   const handleReject = async (u) => {
     try {
-      const now = new Date().toISOString();
-
-      const { error: userErr } = await supabase
-        .from('users')
-        .update({
-          role: null,
-          status: 'rejected',
-          approval_status: 'rejected',
-          is_approved: false,
-          account_status: 'suspended',
-          updated_at: now,
-        })
-        .eq('id', u.id);
-
-      if (userErr) throw userErr;
-
-      const existing = getProfile(u.email);
-
-      const profileData = {
-        user_email: u.email,
-        account_status: 'suspended',
-        updated_at: now,
-      };
-
-      if (existing) {
-        const { error } = await supabase
-          .from('user_profiles')
-          .update(profileData)
-          .eq('id', existing.id);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('user_profiles')
-          .insert({
-            ...profileData,
-            created_at: now,
-          });
-
-        if (error) throw error;
-      }
-
-      await supabase.from('notifications').insert({
-        user_email: u.email,
-        recipient_email: u.email,
-        title: 'Account Rejected',
-        message: 'Your ARK ONE Portal account request was rejected. Please contact admin.',
-        type: 'system',
-        read: false,
-        is_read: false,
-        data: {
-          status: 'rejected',
-        },
-        link: '/welcome',
-        sound: 'bell',
-        created_at: now,
+      const { error } = await supabase.rpc('ark_manage_user_approval', {
+        p_target_user_id: u.id,
+        p_action: 'reject',
+        p_role: null,
+        p_department: null,
+        p_employee_id: null,
       });
+
+      if (error) throw error;
 
       qc.invalidateQueries({ queryKey: ['pending-users'] });
       qc.invalidateQueries({ queryKey: ['users'] });

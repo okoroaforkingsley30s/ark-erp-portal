@@ -130,7 +130,7 @@ async function fetchPurchaseRequests() {
 }
 
 export default function ManagerDashboard() {
-  const { user } = useOutletContext();
+  useOutletContext();
 
   const { data: tickets = [] } = useQuery({
     queryKey: ['tickets-mgr'],
@@ -153,7 +153,7 @@ export default function ManagerDashboard() {
     queryFn: fetchEngineerStatuses,
   });
 
-  const { data: partRequests = [] } = useQuery({
+  useQuery({
     queryKey: ['spare-req-mgr'],
     queryFn: fetchSparePartRequests,
   });

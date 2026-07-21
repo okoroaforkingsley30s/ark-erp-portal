@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { usePrivateStorageUrl } from '@/hooks/usePrivateStorageUrl';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -30,6 +31,7 @@ import {
 } from 'lucide-react';
 
 import CreateTicketDialog from '@/components/tickets/CreateTicketDialog';
+import { isTicketFinallyClosed } from '@/lib/ticketFinality';
 
 const DEFAULT_GROUP_LIMIT = 24;
 
@@ -49,15 +51,7 @@ const niceDate = (value) => {
   }
 };
 
-const isFinalClosedTicket = (ticket) => {
-  const status = normalize(ticket.status);
-  const completionStatus = normalize(ticket.completion_status);
-
-  return (
-    ['approved', 'closed', 'completed'].includes(status) ||
-    ['approved', 'closed', 'completed'].includes(completionStatus)
-  );
-};
+const isFinalClosedTicket = isTicketFinallyClosed;
 
 /*
   IMPORTANT:
@@ -214,7 +208,7 @@ const getTimeline = (ticket) => [
   },
 ];
 
-const ticketPrintHtml = (ticket) => {
+const ticketPrintHtml = (ticket, printedByUser) => {
   const logoSrc = '/logo.png';
 
   const esc = (value) =>
@@ -224,6 +218,20 @@ const ticketPrintHtml = (ticket) => {
       .replaceAll('>', '&gt;')
       .replaceAll('"', '&quot;')
       .replaceAll("'", '&#039;');
+
+  const printedBy =
+    printedByUser?.full_name ||
+    printedByUser?.name ||
+    printedByUser?.email ||
+    'Authenticated ARK ONE user';
+  const printedByRole = [printedByUser?.role, printedByUser?.department]
+    .filter(Boolean)
+    .join(' • ');
+  const approvedBy =
+    ticket.approved_by || ticket.closed_by || ticket.reviewed_by || 'Pending approval';
+  const approvedAt =
+    ticket.approved_at || ticket.closed_date || ticket.reviewed_at || null;
+  const printedAt = new Date();
 
   const timelineRows = getTimeline(ticket)
     .map(
@@ -467,7 +475,7 @@ const ticketPrintHtml = (ticket) => {
 
             <div class="report-title">
               <h1>Ticket Service Report</h1>
-              <p>Printed: ${esc(new Date().toLocaleString())}</p>
+              <p>Printed: ${esc(printedAt.toLocaleString())}</p>
             </div>
           </div>
 
@@ -544,9 +552,36 @@ const ticketPrintHtml = (ticket) => {
             </table>
           </div>
 
+          <div class="section">
+            <div class="section-title">Approval and Closure</div>
+            <div class="grid">
+              <div class="box">
+                <div class="label">Approved / Closed By</div>
+                <div class="value">${esc(approvedBy)}</div>
+              </div>
+              <div class="box">
+                <div class="label">Approval / Closure Date</div>
+                <div class="value">${esc(approvedAt ? niceDate(approvedAt) : 'Pending approval')}</div>
+              </div>
+              <div class="box">
+                <div class="label">Final Status</div>
+                <div class="value">${esc(String(ticket.completion_status || ticket.status || 'Not set').replace(/_/g, ' '))}</div>
+              </div>
+            </div>
+          </div>
+
           <div class="footer">
-            <div class="sign-box">Prepared / Printed By</div>
-            <div class="sign-box">Reviewed / Approved By</div>
+            <div class="sign-box">
+              <strong>Prepared / Printed By</strong><br />
+              ${esc(printedBy)}<br />
+              ${esc(printedByRole || 'ARK ONE ERP User')}<br />
+              ${esc(printedAt.toLocaleString())}
+            </div>
+            <div class="sign-box">
+              <strong>Reviewed / Approved By</strong><br />
+              ${esc(approvedBy)}<br />
+              ${esc(approvedAt ? niceDate(approvedAt) : 'Pending approval')}
+            </div>
           </div>
 
           <div class="watermark">
@@ -661,7 +696,8 @@ function getPriorityStyle(priority) {
 const getFileUrl = (item) => {
   if (!item) return '';
   if (typeof item === 'string') return item;
-  return item.url || item.publicUrl || item.file_url || item.href || '';
+  return item.path ? `storage://${item.bucket || 'ticket-evidence'}/${item.path}` :
+    item.url || item.publicUrl || item.file_url || item.href || '';
 };
 
 const getFileName = (item, fallback) => {
@@ -706,10 +742,22 @@ const getTicketPhotoGroups = (ticket) => {
   ];
 };
 
-const hasTicketPhotos = (ticket) =>
-  getTicketPhotoGroups(ticket).some((group) =>
-    group.photos.some((photo) => Boolean(getFileUrl(photo)))
+function PrivateEvidenceImage({ photo, name }) {
+  const url = usePrivateStorageUrl(getFileUrl(photo), 'ticket-evidence');
+  if (!url) return null;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block overflow-hidden rounded-xl border border-blue-400/10 bg-[#0B1E4D]"
+      title={name}
+    >
+      <img src={url} alt={name} loading="lazy" className="h-28 w-full object-cover" />
+      <div className="truncate px-2 py-1 text-[10px] text-blue-100/60">{name}</div>
+    </a>
   );
+}
 
 function EngineerPhotoGallery({ ticket }) {
   const groups = getTicketPhotoGroups(ticket).filter((group) =>
@@ -745,30 +793,13 @@ function EngineerPhotoGallery({ ticket }) {
 
             <div className="grid grid-cols-2 gap-2">
               {group.photos.map((photo, index) => {
-                const url = getFileUrl(photo);
                 const name = getFileName(photo, `${group.title} ${index + 1}`);
-
-                if (!url) return null;
-
                 return (
-                  <a
-                    key={`${group.title}-${index}-${url}`}
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block overflow-hidden rounded-xl border border-blue-400/10 bg-[#0B1E4D]"
-                    title={name}
-                  >
-                    <img
-                      src={url}
-                      alt={name}
-                      loading="lazy"
-                      className="h-28 w-full object-cover"
-                    />
-                    <div className="truncate px-2 py-1 text-[10px] text-blue-100/60">
-                      {name}
-                    </div>
-                  </a>
+                  <PrivateEvidenceImage
+                    key={`${group.title}-${index}-${name}`}
+                    photo={photo}
+                    name={name}
+                  />
                 );
               })}
             </div>
@@ -789,6 +820,7 @@ export default function Tickets() {
   const [createOpen, setCreateOpen] = useState(false);
   const [rejectingTicket, setRejectingTicket] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [reviewingTicketId, setReviewingTicketId] = useState(null);
   const [expandedTicketId, setExpandedTicketId] = useState(null);
   const [activeGroup, setActiveGroup] = useState('open');
 
@@ -954,7 +986,7 @@ export default function Tickets() {
   }, [tickets]);
 
   const refreshTickets = () => {
-    queryClient.invalidateQueries({ queryKey: ['tickets'] });
+    return queryClient.invalidateQueries({ queryKey: ['tickets'] });
   };
 
   const clearAndSetGroup = (groupKey) => {
@@ -994,29 +1026,33 @@ export default function Tickets() {
       return;
     }
 
-    const now = new Date().toISOString();
+    if (reviewingTicketId) return;
+    setReviewingTicketId(ticket.id);
 
-    const { error } = await supabase
-      .from('tickets')
-      .update({
-        status: 'approved',
-        completion_status: 'approved',
-        approved_by: user?.full_name || user?.email,
-        approved_at: now,
-        closed_date: now,
-        last_action_at: now,
-        updated_at: now,
-      })
-      .eq('id', ticket.id);
+    const { data, error } = await supabase.rpc('ark_review_ticket_completion_v2', {
+      p_ticket_id: ticket.id,
+      p_decision: 'approve',
+      p_reason: null,
+    });
 
     if (error) {
       console.error('APPROVE COMPLETION ERROR:', error);
-      alert('Could not approve completion.');
+      alert(error.message || 'Could not approve completion.');
+      setReviewingTicketId(null);
       return;
     }
 
+    await Promise.allSettled(
+      (data?.notification_ids || []).map((notificationId) =>
+        supabase.functions.invoke('send-notification-email', {
+          body: { notificationId },
+        })
+      )
+    );
+
     alert('Completion approved and ticket moved to closed group.');
-    refreshTickets();
+    await refreshTickets();
+    setReviewingTicketId(null);
   };
 
   const rejectCompletion = async () => {
@@ -1034,47 +1070,35 @@ export default function Tickets() {
       return;
     }
 
-    const now = new Date().toISOString();
+    if (reviewingTicketId) return;
+    setReviewingTicketId(rejectingTicket.id);
 
-    const existingAttachments =
-      typeof rejectingTicket.attachments === 'object' &&
-      rejectingTicket.attachments !== null
-        ? rejectingTicket.attachments
-        : {};
-
-    const rejectionLog = [
-      ...(existingAttachments.rejection_log || []),
-      {
-        rejected_by: user?.full_name || user?.email,
-        rejected_at: now,
-        reason: rejectReason.trim(),
-      },
-    ];
-
-    const { error } = await supabase
-      .from('tickets')
-      .update({
-        status: 'in_progress',
-        completion_status: 'rejected',
-        attachments: {
-          ...existingAttachments,
-          rejection_log: rejectionLog,
-        },
-        last_action_at: now,
-        updated_at: now,
-      })
-      .eq('id', rejectingTicket.id);
+    const { data, error } = await supabase.rpc('ark_review_ticket_completion_v2', {
+      p_ticket_id: rejectingTicket.id,
+      p_decision: 'reject',
+      p_reason: rejectReason.trim(),
+    });
 
     if (error) {
       console.error('REJECT COMPLETION ERROR:', error);
-      alert('Could not reject completion.');
+      alert(error.message || 'Could not reject completion.');
+      setReviewingTicketId(null);
       return;
     }
+
+    await Promise.allSettled(
+      (data?.notification_ids || []).map((notificationId) =>
+        supabase.functions.invoke('send-notification-email', {
+          body: { notificationId },
+        })
+      )
+    );
 
     alert('Completion rejected and returned to engineer. Ticket remains open.');
     setRejectingTicket(null);
     setRejectReason('');
-    refreshTickets();
+    await refreshTickets();
+    setReviewingTicketId(null);
   };
 
   const escalateTicket = async (ticket) => {
@@ -1130,7 +1154,7 @@ export default function Tickets() {
       return;
     }
 
-    popup.document.write(ticketPrintHtml(ticket));
+    popup.document.write(ticketPrintHtml(ticket, user));
     popup.document.close();
     popup.focus();
 
@@ -1471,6 +1495,7 @@ export default function Tickets() {
                             expanded={expandedTicketId === ticket.id}
                             canReviewCompletion={canReviewCompletion}
                             canShareTicket={canShareTicket}
+                            reviewing={reviewingTicketId === ticket.id}
                             onToggle={() =>
                               setExpandedTicketId((current) =>
                                 current === ticket.id ? null : ticket.id
@@ -1547,8 +1572,12 @@ export default function Tickets() {
                 Cancel
               </Button>
 
-              <Button variant="destructive" onClick={rejectCompletion}>
-                Reject
+              <Button
+                variant="destructive"
+                onClick={rejectCompletion}
+                disabled={reviewingTicketId === rejectingTicket.id}
+              >
+                {reviewingTicketId === rejectingTicket.id ? 'Rejecting…' : 'Reject'}
               </Button>
             </div>
           </div>
@@ -1657,6 +1686,7 @@ function TicketDashboardCard({
   expanded,
   canReviewCompletion,
   canShareTicket,
+  reviewing,
   onToggle,
   onApprove,
   onReject,
@@ -1854,6 +1884,7 @@ function TicketDashboardCard({
                 size="sm"
                 className="border-red-400/20 bg-red-500/10 text-red-200 hover:bg-red-500/20"
                 onClick={onReject}
+                disabled={reviewing}
               >
                 <XCircle className="mr-2 h-4 w-4" />
                 Reject
@@ -1863,9 +1894,10 @@ function TicketDashboardCard({
                 size="sm"
                 className="bg-green-600 text-white hover:bg-green-700"
                 onClick={onApprove}
+                disabled={reviewing}
               >
                 <CheckCircle className="mr-2 h-4 w-4" />
-                Approve / Close
+                {reviewing ? 'Processing…' : 'Approve / Close'}
               </Button>
             </div>
           )}

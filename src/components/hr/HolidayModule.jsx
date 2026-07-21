@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +82,8 @@ export default function HolidayModule({
 
   const [filterCountry, setFilterCountry] =
     useState('all');
+
+  useFormDraft({ key: 'hr-holiday-new', form, setForm, enabled: open, storage: 'session', maxAgeMs: 30 * 60 * 1000 });
 
   const set = (k, v) =>
     setForm(f => ({

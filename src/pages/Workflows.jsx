@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -72,6 +73,8 @@ export default function Workflows() {
   });
 
   const [saving, setSaving] = useState(false);
+
+  useFormDraft({ key: 'workflow-request-new', form, setForm, userId: user?.id || user?.email, enabled: createOpen, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const { data: requests = [], isLoading } = useQuery({
     queryKey: ['workflow-requests', role, user?.email],

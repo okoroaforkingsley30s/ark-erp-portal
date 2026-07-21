@@ -7,7 +7,6 @@ import {
   buildSiteHealthSites,
   getSiteHealthLabel,
   getSiteHealthStyle,
-  normalizeOperationalStatus,
   summarizeSiteHealth,
 } from '@/lib/siteHealth';
 
@@ -46,15 +45,6 @@ const getDeviceBranch = (device) =>
   device.device_location ||
   device.site_name ||
   'Unknown Branch';
-
-const getDeviceEngineer = (device, branch) =>
-  device.assigned_engineer ||
-  device.engineer_name ||
-  device.assigned_to_name ||
-  device.assigned_to ||
-  branch?.assigned_engineer ||
-  branch?.engineer_name ||
-  '';
 
 async function fetchDevices() {
   const [bankDevicesResult, devicesResult] = await Promise.allSettled([
