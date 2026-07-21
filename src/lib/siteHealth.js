@@ -341,7 +341,10 @@ export function buildSiteHealthSites({ devices = [], branches = [], sites = [], 
     map.get(key).devices.push(device);
   });
 
-  sites.forEach((site) => {
+  // Registered branches are monitoring sites even before a device is attached.
+  // Previously only `sites` was used here, so a valid branch disappeared when
+  // the device query returned no rows (including when RLS restricted it).
+  [...branches, ...sites].forEach((site) => {
     const bankName = firstValue(site.bank_name, site.client_name, site.bank, 'Unknown Bank');
     const branchName = firstValue(site.branch_name, site.name, site.location, site.device_location, 'Unknown Branch');
     const key = getSiteKey(bankName, branchName);

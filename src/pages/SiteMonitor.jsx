@@ -46,7 +46,21 @@ const getDeviceBranch = (device) =>
   device.site_name ||
   'Unknown Branch';
 
-async function fetchDevices() {
+async function fetchMonitorSnapshot() {
+  const { data: snapshot, error: snapshotError } = await supabase.rpc('ark_site_monitor_snapshot');
+
+  if (!snapshotError && snapshot) {
+    return {
+      devices: [...(snapshot.devices || []), ...(snapshot.bank_devices || [])],
+      branches: snapshot.branches || [],
+      banks: snapshot.banks || [],
+      tickets: snapshot.tickets || [],
+      warnings: [],
+    };
+  }
+
+  console.warn('Site Monitor snapshot unavailable; using direct-table fallback:', snapshotError);
+
   const [bankDevicesResult, devicesResult] = await Promise.allSettled([
     supabase
       .from('bank_devices')
@@ -99,32 +113,32 @@ async function fetchDevices() {
     return true;
   });
 
-  return { rows, warnings };
+  const [branchesResult, banksResult, ticketsResult] = await Promise.allSettled([
+    fetchBranches(),
+    fetchBanks(),
+    fetchTickets(),
+  ]);
+
+  const fallbackRows = (result, source) => {
+    if (result.status === 'fulfilled') return result.value || [];
+    console.error(`Site Monitor ${source} fallback failed:`, result.reason);
+    warnings.push(source);
+    return [];
+  };
+
+  return {
+    devices: rows,
+    branches: fallbackRows(branchesResult, 'branches'),
+    banks: fallbackRows(banksResult, 'banks'),
+    tickets: fallbackRows(ticketsResult, 'tickets'),
+    warnings,
+  };
 }
 
 async function fetchBranches() {
   const { data, error } = await supabase.from('branches').select('*');
   if (error) throw error;
   return data || [];
-}
-
-async function fetchEngineers() {
-  const [engineersResult, usersResult] = await Promise.allSettled([
-    supabase.from('engineers').select('*'),
-    supabase.from('users').select('*').in('role', ['engineer', 'field_engineer', 'Field Engineer']),
-  ]);
-
-  const engineers =
-    engineersResult.status === 'fulfilled' && !engineersResult.value.error
-      ? engineersResult.value.data || []
-      : [];
-
-  const users =
-    usersResult.status === 'fulfilled' && !usersResult.value.error
-      ? usersResult.value.data || []
-      : [];
-
-  return [...engineers, ...users];
 }
 
 async function fetchBanks() {
@@ -152,40 +166,22 @@ export default function SiteMonitor() {
   const [filterEngineer, setFilterEngineer] = useState('all');
 
   const {
-    data: deviceResult = { rows: [], warnings: [] },
+    data: monitorResult = { devices: [], branches: [], banks: [], tickets: [], warnings: [] },
     isLoading,
     error: devicesError,
     refetch,
   } = useQuery({
-    queryKey: ['site-monitor-devices'],
-    queryFn: fetchDevices,
+    queryKey: ['site-monitor-snapshot'],
+    queryFn: fetchMonitorSnapshot,
     refetchInterval: 60000,
   });
 
-  const { data: engineers = [], error: engineersError } = useQuery({
-    queryKey: ['engineers-site-monitor'],
-    queryFn: fetchEngineers,
-  });
-
-  const { data: banks = [], error: banksError } = useQuery({
-    queryKey: ['banks'],
-    queryFn: fetchBanks,
-  });
-
-  const { data: tickets = [], error: ticketsError } = useQuery({
-    queryKey: ['tickets-monitor'],
-    queryFn: fetchTickets,
-    refetchInterval: 60000,
-  });
-
-  const { data: branches = [], error: branchesError } = useQuery({
-    queryKey: ['branches'],
-    queryFn: fetchBranches,
-  });
-
-  const devices = deviceResult.rows || [];
-  const dataWarnings = deviceResult.warnings || [];
-  const queryError = devicesError || branchesError || engineersError || banksError || ticketsError;
+  const devices = monitorResult.devices || [];
+  const branches = monitorResult.branches || [];
+  const banks = monitorResult.banks || [];
+  const tickets = monitorResult.tickets || [];
+  const dataWarnings = monitorResult.warnings || [];
+  const queryError = devicesError;
 
   const sites = useMemo(() => {
     return buildSiteHealthSites({ devices, branches, tickets });
@@ -222,12 +218,8 @@ export default function SiteMonitor() {
 
   const engineerOptions = useMemo(() => {
     const fromSites = sites.map((site) => site.assigned_engineer).filter(Boolean);
-    const fromEngineers = engineers
-      .map((engineer) => engineer.engineer_name || engineer.full_name || engineer.name || engineer.email)
-      .filter(Boolean);
-
-    return [...new Set([...fromEngineers, ...fromSites])].sort();
-  }, [engineers, sites]);
+    return [...new Set(fromSites)].sort();
+  }, [sites]);
 
   const goToDevices = (site, status = 'all') => {
     const params = new URLSearchParams();
