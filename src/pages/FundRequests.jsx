@@ -219,6 +219,23 @@ function dateLabel(value) {
   return new Date(value).toLocaleDateString();
 }
 
+function submittedAtLabel(value) {
+  if (!value) return 'Submission time unavailable';
+
+  const submittedAt = new Date(value);
+  if (Number.isNaN(submittedAt.getTime())) return 'Submission time unavailable';
+
+  return submittedAt.toLocaleString('en-NG', {
+    timeZone: 'Africa/Lagos',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
 function calculateDays(start, end) {
   if (!start || !end) return null;
 
@@ -907,9 +924,24 @@ export default function FundRequests() {
 
                     <p className="text-sm text-muted-foreground mt-1">{request.purpose}</p>
 
-                    <p className="text-xs text-muted-foreground">
-                      Requested by {request.requested_by_name || request.requested_by_email || 'User'} · {request.department || 'No department'}
-                    </p>
+                    <div className="mt-3 grid gap-2 rounded-lg border border-slate-700 bg-slate-950/45 px-3 py-2 text-xs sm:grid-cols-2">
+                      <div>
+                        <p className="font-semibold text-slate-400">Requested by</p>
+                        <p className="font-medium text-white">
+                          {request.requested_by_name || request.requested_by_email || 'Requester unavailable'}
+                        </p>
+                        {request.requested_by_name && request.requested_by_email && (
+                          <p className="text-slate-300">{request.requested_by_email}</p>
+                        )}
+                        <p className="text-slate-300">{request.department || 'Department unavailable'}</p>
+                      </div>
+
+                      <div className="sm:text-right">
+                        <p className="font-semibold text-slate-400">Submitted</p>
+                        <p className="font-medium text-white">{submittedAtLabel(request.created_at)}</p>
+                        <p className="font-mono text-[11px] text-slate-400">Ref: {request.id}</p>
+                      </div>
+                    </div>
 
                     {category === 'leave' && (
                       <p className="text-xs text-purple-300 mt-1">
