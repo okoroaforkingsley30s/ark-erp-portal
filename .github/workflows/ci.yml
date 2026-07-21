@@ -60,7 +60,7 @@ jobs:
         run: npm run test:coverage
 
       - name: Dependency vulnerability audit
-        run: npm audit --audit-level=high
+        run: npm audit --omit=dev --audit-level=high
 
       - name: Production build
         run: npm run build

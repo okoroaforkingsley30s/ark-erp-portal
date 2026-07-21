@@ -29,7 +29,11 @@
     "validate:release": "node scripts/validate-release-config.mjs",
     "validate:windows-release": "node scripts/validate-release-config.mjs windows",
     "validate:android-release": "node scripts/validate-release-config.mjs android",
-    "validate:migrations": "node scripts/validate-migrations.mjs"
+    "validate:migrations": "node scripts/validate-migrations.mjs",
+    "validate:security-headers": "node scripts/validate-security-headers.mjs",
+    "validate:electron": "node scripts/validate-electron-config.mjs",
+    "validate:android": "node scripts/validate-android-config.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.0",
