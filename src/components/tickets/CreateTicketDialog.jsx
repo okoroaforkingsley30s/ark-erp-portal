@@ -102,10 +102,17 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
     if (!open) return;
 
     try {
-      const saved = localStorage.getItem(draftKey);
+      localStorage.removeItem(draftKey);
+      const saved = sessionStorage.getItem(draftKey);
       if (!saved) return;
 
       const parsed = JSON.parse(saved);
+
+      const savedAt = new Date(parsed?.savedAt || 0).getTime();
+      if (!savedAt || Date.now() - savedAt > 2 * 60 * 60 * 1000) {
+        sessionStorage.removeItem(draftKey);
+        return;
+      }
 
       if (parsed?.form) setForm({ ...EMPTY_FORM, ...parsed.form });
       if (parsed?.branchSearch) setBranchSearch(parsed.branchSearch);
@@ -125,7 +132,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
       savedAt: new Date().toISOString(),
     };
 
-    localStorage.setItem(draftKey, JSON.stringify(payload));
+    sessionStorage.setItem(draftKey, JSON.stringify(payload));
   }, [open, draftKey, form, branchSearch, fileNames]);
 
   const { data: devices = [] } = useQuery({
@@ -210,6 +217,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
   };
 
   const clearDraft = () => {
+    sessionStorage.removeItem(draftKey);
     localStorage.removeItem(draftKey);
     setForm(EMPTY_FORM);
     setBranchSearch('');

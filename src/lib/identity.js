@@ -200,111 +200,22 @@ export async function syncRelatedIdentityRecords(
     email,
     fullName,
     department,
-    role,
     employeeId,
     staffId,
     phone,
-    excludeEmployeeId,
   } = {}
 ) {
-  const oldEmail = normalizeEmail(previousEmail);
   const cleanEmail = normalizeEmail(email || previousEmail);
-  const now = new Date().toISOString();
-  const emailFilters = [oldEmail, cleanEmail].filter(Boolean);
-  const uniqueEmails = [...new Set(emailFilters)];
+  if (!cleanEmail && !employeeId && !staffId) return;
 
-  if (uniqueEmails.length === 0 && !employeeId && !staffId) return;
-
-  const userUpdates = {
-    updated_at: now,
-  };
-
-  if (cleanEmail) userUpdates.email = cleanEmail;
-  if (fullName) userUpdates.full_name = fullName;
-  if (department !== undefined) userUpdates.department = department;
-  if (role !== undefined) userUpdates.role = role;
-  if (employeeId !== undefined || staffId !== undefined) {
-    userUpdates.employee_id = employeeId || staffId || null;
-  }
-  if (phone !== undefined) userUpdates.phone = phone || null;
-
-  for (const targetEmail of uniqueEmails) {
-    const { error } = await supabase
-      .from('users')
-      .update(userUpdates)
-      .ilike('email', targetEmail);
-
-    if (error) console.warn('User identity sync warning:', error.message);
-  }
-
-  const profileUpdates = {
-    updated_at: now,
-  };
-
-  if (cleanEmail) profileUpdates.user_email = cleanEmail;
-  if (department !== undefined) profileUpdates.department = department;
-  if (role !== undefined) profileUpdates.role = role;
-  if (employeeId !== undefined || staffId !== undefined) {
-    profileUpdates.employee_id = employeeId || staffId || null;
-  }
-  if (phone !== undefined) profileUpdates.phone = phone || null;
-
-  for (const targetEmail of uniqueEmails) {
-    const { error } = await supabase
-      .from('user_profiles')
-      .update(profileUpdates)
-      .ilike('user_email', targetEmail);
-
-    if (error) {
-      console.warn('User profile identity sync warning:', error.message);
-    }
-  }
-
-  if (uniqueEmails.length > 0) {
-    const employeeUpdates = {
-      updated_at: now,
-    };
-
-    if (cleanEmail) {
-      employeeUpdates.email_address = cleanEmail;
-      employeeUpdates.user_account_email = cleanEmail;
-    }
-    if (fullName) employeeUpdates.full_name = fullName;
-    if (department !== undefined) employeeUpdates.department = department;
-    if (role !== undefined) employeeUpdates.access_role = role;
-    if (phone !== undefined) employeeUpdates.phone_number = phone || null;
-
-    for (const targetEmail of uniqueEmails) {
-      let query = supabase
-        .from('employees')
-        .update(employeeUpdates)
-        .or(
-          `email_address.ilike.${targetEmail},user_account_email.ilike.${targetEmail}`
-        );
-
-      if (excludeEmployeeId) {
-        query = query.neq('id', excludeEmployeeId);
-      }
-
-      const { error } = await query;
-      if (error) console.warn('Employee identity sync warning:', error.message);
-    }
-
-    const engineerUpdates = {
-      updated_at: now,
-    };
-
-    if (cleanEmail) engineerUpdates.email = cleanEmail;
-    if (fullName) engineerUpdates.engineer_name = fullName;
-    if (phone !== undefined) engineerUpdates.phone_number = phone || null;
-
-    for (const targetEmail of uniqueEmails) {
-      const { error } = await supabase
-        .from('engineers')
-        .update(engineerUpdates)
-        .ilike('email', targetEmail);
-
-      if (error) console.warn('Engineer identity sync warning:', error.message);
-    }
+  if (cleanEmail) {
+    const { error } = await supabase.rpc('ark_sync_identity_details', {
+      p_email: cleanEmail,
+      p_full_name: fullName || null,
+      p_department: department ?? null,
+      p_employee_id: employeeId || staffId || null,
+      p_phone: phone ?? null,
+    });
+    if (error) throw error;
   }
 }

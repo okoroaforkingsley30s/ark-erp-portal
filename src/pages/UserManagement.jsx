@@ -2,10 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { useOutletContext } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { getPasswordSetupRedirectUrl } from '@/lib/authRedirects';
 import {
   normalizeEmail,
-  normalizeStaffId,
-  syncRelatedIdentityRecords,
 } from '@/lib/identity';
 
 import { Card } from '@/components/ui/card';
@@ -60,14 +59,11 @@ import {
 import { format } from 'date-fns';
 
 import {
-  ROLE_LABELS,
   ROLE_DEPARTMENTS,
   normalizeRole,
   getRoleDepartment,
   getRoleLabel,
 } from '@/lib/roleAccess';
-
-const MAIN_ADMIN_EMAIL = 'iamkizmith@gmail.com';
 
 const ROLE_GROUPS = [
   {
@@ -294,8 +290,7 @@ export default function UserManagement() {
   const qc = useQueryClient();
 
   const currentUserRole = normalizeRole(user?.role);
-  const isMainDeveloper = user?.email === MAIN_ADMIN_EMAIL;
-  const isAdmin = isMainDeveloper && ['system_admin', 'admin', 'super_admin'].includes(currentUserRole);
+  const isAdmin = currentUserRole === 'system_admin';
 
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
@@ -426,7 +421,7 @@ export default function UserManagement() {
 
     try {
       return format(new Date(dateValue), 'MMM d, yyyy HH:mm');
-    } catch (error) {
+    } catch {
       return 'Invalid date';
     }
   };
@@ -459,48 +454,6 @@ export default function UserManagement() {
     }
   };
 
-  const syncUserProfileTable = async ({
-    email,
-    role,
-    department,
-    extraUpdates = {},
-  }) => {
-    const cleanEmail = normalizeEmail(email);
-    if (!cleanEmail) return;
-
-    const { error } = await supabase
-      .from('user_profiles')
-      .update({
-        role,
-        department,
-        updated_at: new Date().toISOString(),
-        ...extraUpdates,
-      })
-      .ilike('user_email', cleanEmail);
-
-    if (error) {
-      console.warn('User profile sync warning:', error.message);
-    }
-  };
-
-  const syncEmployeeRole = async ({ email, role, department }) => {
-    const cleanEmail = normalizeEmail(email);
-    if (!cleanEmail) return;
-
-    const { error } = await supabase
-      .from('employees')
-      .update({
-        access_role: role,
-        department,
-        updated_at: new Date().toISOString(),
-      })
-      .or(`user_account_email.ilike.${cleanEmail},email_address.ilike.${cleanEmail}`);
-
-    if (error) {
-      console.warn('Employee role sync warning:', error.message);
-    }
-  };
-
   const handleInvite = async () => {
     if (!isAdmin) {
       alert('Unauthorized. Only the System Administrator can invite users.');
@@ -522,60 +475,39 @@ export default function UserManagement() {
         return;
       }
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const accessToken = sessionData?.session?.access_token;
-
-      const response = await fetch(
-        'https://fryidzyhqhdenghyxjfp.functions.supabase.co/invite-user',
+      const { data: targetUserId, error: createTargetError } = await supabase.rpc(
+        'ark_create_pending_user',
         {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({
-            email: cleanEmail,
-            full_name: cleanEmail.split('@')[0],
-            role: inviteRole,
-            department: inviteDepartment,
-          }),
+          p_email: cleanEmail,
+          p_full_name: cleanEmail.split('@')[0],
+          p_department: inviteDepartment,
+          p_employee_id: null,
+        }
+      );
+      if (createTargetError) throw createTargetError;
+
+      const { error: approvalError } = await supabase.rpc('ark_manage_user_approval', {
+        p_target_user_id: targetUserId,
+        p_action: 'approve',
+        p_role: inviteRole,
+        p_department: inviteDepartment,
+        p_employee_id: null,
+      });
+      if (approvalError) throw approvalError;
+
+      const { data: result, error: inviteError } = await supabase.functions.invoke(
+        'invite-user',
+        {
+          body: { target_user_id: targetUserId },
         }
       );
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        alert(result?.error || 'Invite failed');
+      if (inviteError || !result?.success) {
+        alert(result?.error || inviteError?.message || 'Invite failed');
         return;
       }
 
-      await syncUserProfileTable({
-        email: cleanEmail,
-        role: inviteRole,
-        department: inviteDepartment,
-      });
-
-      await syncEmployeeRole({
-        email: cleanEmail,
-        role: inviteRole,
-        department: inviteDepartment,
-      });
-
-      await syncRelatedIdentityRecords(supabase, {
-        email: cleanEmail,
-        role: inviteRole,
-        department: inviteDepartment,
-      });
-
-      if (result?.action_link) {
-        await navigator.clipboard.writeText(result.action_link);
-
-        alert(
-          `User created successfully.\n\nCreate Password link copied to clipboard.\n\n${result.action_link}`
-        );
-      } else {
-        alert('User created successfully but no password link was returned.');
-      }
+      alert('User created successfully. A secure password setup email has been sent.');
 
       setInviteEmail('');
       setInviteDepartment('Helpdesk');
@@ -603,48 +535,21 @@ export default function UserManagement() {
     const normalizedNewRole = normalizeRole(newRole);
     const newDepartment = getRoleDepartment(normalizedNewRole);
 
-    if (targetUser?.email === MAIN_ADMIN_EMAIL && normalizedNewRole !== 'system_admin') {
+    if (normalizeRole(targetUser?.role) === 'system_admin' && normalizedNewRole !== 'system_admin') {
       alert('System Administrator role cannot be changed from this screen.');
       return;
     }
 
-    const { error } = await supabase
-      .from('users')
-      .update({
-        role: normalizedNewRole,
-        department: newDepartment,
-        status: 'active',
-        approval_status: 'approved',
-        is_approved: true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', userId);
+    const { error } = await supabase.rpc('ark_admin_manage_user', {
+      p_target_user_id: userId,
+      p_action: 'update_profile',
+      p_changes: { role: normalizedNewRole, department: newDepartment, is_approved: true },
+    });
 
     if (error) {
       alert('Role update failed: ' + error.message);
       return;
     }
-
-    await syncUserProfileTable({
-      email: targetUser?.email,
-      role: normalizedNewRole,
-      department: newDepartment,
-    });
-
-    await syncEmployeeRole({
-      email: targetUser?.email,
-      role: normalizedNewRole,
-      department: newDepartment,
-    });
-
-    await syncRelatedIdentityRecords(supabase, {
-      email: targetUser?.email,
-      fullName: targetUser?.full_name,
-      department: newDepartment,
-      role: normalizedNewRole,
-      employeeId: targetUser?.employee_id,
-      phone: targetUser?.phone,
-    });
 
     qc.invalidateQueries({ queryKey: ['users'] });
     alert('Role updated successfully');
@@ -657,7 +562,7 @@ export default function UserManagement() {
     }
 
     const { error } = await supabase.auth.resetPasswordForEmail(u.email, {
-      redirectTo: 'https://portal.arktechnologiesgroup.com/#/create-password',
+      redirectTo: getPasswordSetupRedirectUrl(),
     });
 
     if (error) {
@@ -665,13 +570,15 @@ export default function UserManagement() {
       return;
     }
 
-    await supabase
-      .from('users')
-      .update({
-        must_change_password: true,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', u.id);
+    const { error: flagError } = await supabase.rpc('ark_admin_manage_user', {
+      p_target_user_id: u.id,
+      p_action: 'force_password_reset',
+      p_changes: {},
+    });
+    if (flagError) {
+      alert(flagError.message);
+      return;
+    }
 
     alert('Password reset email sent successfully.');
 
@@ -688,13 +595,11 @@ export default function UserManagement() {
 
     if (!confirm(`Force ALL ${users.length} users to change passwords on next login?`)) return;
 
-    const { error } = await supabase
-      .from('users')
-      .update({
-        must_change_password: true,
-        updated_at: new Date().toISOString(),
-      })
-      .not('id', 'is', null);
+    const { error } = await supabase.rpc('ark_admin_manage_user', {
+      p_target_user_id: null,
+      p_action: 'force_all_password_reset',
+      p_changes: {},
+    });
 
     if (error) {
       alert(error.message);
@@ -739,7 +644,7 @@ export default function UserManagement() {
 
     if (!deleteConfirmUser) return;
 
-    if (deleteConfirmUser.email === MAIN_ADMIN_EMAIL) {
+    if (normalizeRole(deleteConfirmUser.role) === 'system_admin') {
       alert('System Administrator cannot be deleted.');
       return;
     }
@@ -747,98 +652,16 @@ export default function UserManagement() {
     setDeleting(true);
 
     try {
-      const cleanDeleteEmail = normalizeEmail(deleteConfirmUser.email);
-      const cleanEmployeeId = normalizeStaffId(deleteConfirmUser.employee_id);
-      const { data: employees, error: employeesFetchError } = await supabase
-        .from('employees')
-        .select('*');
-
-      if (employeesFetchError) throw employeesFetchError;
-
-      const linkedEmployees = (employees || []).filter(
-        (e) =>
-          normalizeEmail(e.user_account_email) === cleanDeleteEmail ||
-          normalizeEmail(e.email_address) === cleanDeleteEmail ||
-          (cleanEmployeeId && normalizeStaffId(e.staff_id) === cleanEmployeeId) ||
-          (cleanEmployeeId && String(e.id) === String(deleteConfirmUser.employee_id))
-      );
-
-      for (const linked of linkedEmployees) {
-        const { error: employeeUpdateError } = await supabase
-          .from('employees')
-          .update({
-            employment_status: 'Terminated',
-            user_account_email: null,
-            access_role: null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', linked.id);
-
-        if (employeeUpdateError) throw employeeUpdateError;
-      }
-
-      const { data: engineers, error: engineersFetchError } = await supabase
-        .from('engineers')
-        .select('*');
-
-      if (engineersFetchError) throw engineersFetchError;
-
-      const linkedEngineers = (engineers || []).filter(
-        (engineer) => normalizeEmail(engineer.email) === cleanDeleteEmail
-      );
-
-      for (const engineer of linkedEngineers) {
-        const { error: engineerUpdateError } = await supabase
-          .from('engineers')
-          .update({
-            status: 'inactive',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', engineer.id);
-
-        if (engineerUpdateError) throw engineerUpdateError;
-      }
-
-      const { error: profileUpdateError } = await supabase
-        .from('user_profiles')
-        .update({
-          account_status: 'deleted',
-          role: null,
-          updated_at: new Date().toISOString(),
-        })
-        .ilike('user_email', cleanDeleteEmail);
-
-      if (profileUpdateError) {
-        console.warn('User profile delete sync warning:', profileUpdateError.message);
-      }
-
-      const { error } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', deleteConfirmUser.id);
-
-      if (error) {
-        alert(error.message);
-        return;
-      }
+      const { error } = await supabase.rpc('ark_admin_manage_user', {
+        p_target_user_id: deleteConfirmUser.id,
+        p_action: 'deprovision',
+        p_changes: {},
+      });
+      if (error) throw error;
 
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['hr-employees'] });
       qc.invalidateQueries({ queryKey: ['engineers-list'] });
-      qc.setQueryData(['hr-employees'], (current = []) =>
-        current.filter((employee) => {
-          const employeeEmail = normalizeEmail(employee.email_address || employee.user_account_email);
-          const staffId = normalizeStaffId(employee.staff_id);
-
-          return (
-            employeeEmail !== cleanDeleteEmail &&
-            (!cleanEmployeeId || staffId !== cleanEmployeeId)
-          );
-        })
-      );
-      qc.setQueryData(['engineers-list'], (current = []) =>
-        current.filter((engineer) => normalizeEmail(engineer.email) !== cleanDeleteEmail)
-      );
     } catch (err) {
       alert('Delete failed: ' + (err?.message || 'Unknown error'));
     } finally {
@@ -858,12 +681,12 @@ export default function UserManagement() {
     const normalizedProfileRole = normalizeRole(profileRole);
     const resolvedDepartment = profileDepartment || getRoleDepartment(normalizedProfileRole);
 
-    if (selectedUser.email === MAIN_ADMIN_EMAIL && normalizedProfileRole !== 'system_admin') {
+    if (normalizeRole(selectedUser.role) === 'system_admin' && normalizedProfileRole !== 'system_admin') {
       alert('System Administrator role cannot be changed from this screen.');
       return;
     }
 
-    if (selectedUser.email === MAIN_ADMIN_EMAIL && profile.account_status !== 'active') {
+    if (normalizeRole(selectedUser.role) === 'system_admin' && profile.account_status !== 'active') {
       alert('System Administrator account must remain active.');
       return;
     }
@@ -871,9 +694,10 @@ export default function UserManagement() {
     setSavingProfile(true);
 
     try {
-      const { error } = await supabase
-        .from('users')
-        .update({
+      const { error } = await supabase.rpc('ark_admin_manage_user', {
+        p_target_user_id: selectedUser.id,
+        p_action: 'update_profile',
+        p_changes: {
           role: normalizedProfileRole,
           employee_id: profile.employee_id,
           phone: profile.phone,
@@ -883,42 +707,13 @@ export default function UserManagement() {
           account_status: profile.account_status,
           is_approved: profile.is_approved,
           must_change_password: profile.must_change_password,
-          status: profile.is_approved ? 'active' : 'pending',
-          approval_status: profile.is_approved ? 'approved' : 'pending',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', selectedUser.id);
+        },
+      });
 
       if (error) {
         alert('Profile save failed: ' + error.message);
         return;
       }
-
-      await syncUserProfileTable({
-        email: selectedUser.email,
-        role: normalizedProfileRole,
-        department: resolvedDepartment,
-        extraUpdates: {
-          account_status: profile.account_status,
-          is_approved: profile.is_approved,
-          must_change_password: profile.must_change_password,
-        },
-      });
-
-      await syncEmployeeRole({
-        email: selectedUser.email,
-        role: normalizedProfileRole,
-        department: resolvedDepartment,
-      });
-
-      await syncRelatedIdentityRecords(supabase, {
-        email: selectedUser.email,
-        fullName: selectedUser.full_name,
-        department: resolvedDepartment,
-        role: normalizedProfileRole,
-        employeeId: profile.employee_id,
-        phone: profile.phone,
-      });
 
       qc.invalidateQueries({ queryKey: ['users'] });
       qc.invalidateQueries({ queryKey: ['hr-employees'] });
@@ -1138,7 +933,7 @@ export default function UserManagement() {
                           {u.full_name || 'Unnamed'}
                         </p>
 
-                        {u.email === MAIN_ADMIN_EMAIL && (
+                        {normalizedUserRole === 'system_admin' && (
                           <Badge
                             variant="outline"
                             className="text-[10px] bg-red-50 text-red-700 border-red-200"
@@ -1277,7 +1072,7 @@ export default function UserManagement() {
                       <KeyRound className="w-3.5 h-3.5" />
                     </Button>
 
-                    {u.email !== user.email && u.email !== MAIN_ADMIN_EMAIL && (
+                    {u.email !== user.email && normalizedUserRole !== 'system_admin' && (
                       <Button
                         variant="outline"
                         size="sm"

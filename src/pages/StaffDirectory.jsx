@@ -108,6 +108,8 @@ export default function StaffDirectory() {
     setForm,
     userId: user?.email,
     enabled: dialogOpen,
+    storage: 'session',
+    maxAgeMs: 30 * 60 * 1000,
   });
 
   const { data: employees = [], isLoading: loadingEmp } = useQuery({
@@ -197,7 +199,7 @@ export default function StaffDirectory() {
     try {
       const {
         create_login,
-        login_email,
+        login_email: _loginEmail,
         login_role,
         ...employeeData
       } = {
@@ -208,11 +210,9 @@ export default function StaffDirectory() {
       };
       let shouldSyncLoginRole = Boolean(create_login && login_role);
 
-      const [employeeRows, engineerRows, userRows, profileRows] = await Promise.all([
+      const [employeeRows, engineerRows] = await Promise.all([
         supabase.from('employees').select('id, full_name, staff_id, email_address, user_account_email'),
         supabase.from('engineers').select('id, engineer_name, email'),
-        supabase.from('users').select('id, full_name, email'),
-        supabase.from('user_profiles').select('id, user_email'),
       ]);
 
       const duplicate = findDuplicateIdentity({
@@ -297,63 +297,14 @@ export default function StaffDirectory() {
         if (error) throw error;
 
         if (create_login && cleanLoginEmail) {
-          const existingUser = (userRows.data || []).find(
-            (item) => normalizeEmail(item.email) === cleanLoginEmail
-          );
-
-          if (existingUser) {
-            shouldSyncLoginRole = false;
-
-            const { error: userError } = await supabase
-              .from('users')
-              .update({
-                full_name: employeeData.full_name,
-                phone: employeeData.phone_number,
-                department: employeeData.department,
-                employee_id: employeeData.staff_id || null,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', existingUser.id);
-
-            if (userError) {
-              alert('Staff saved. However, linked user profile sync failed: ' + userError.message);
-            }
-          } else {
-            const { error: userError } = await supabase.from('users').insert(
-              {
-              email: cleanLoginEmail,
-              full_name: employeeData.full_name,
-              role: login_role,
-              phone: employeeData.phone_number,
-              department: employeeData.department,
-              status: 'pending',
-              approval_status: 'pending',
-              is_approved: false,
-              updated_at: new Date().toISOString(),
-            }
-            );
-
-            if (userError) {
-              alert('Staff saved. However, user profile creation failed: ' + userError.message);
-            }
-          }
-
-          const existingProfile = (profileRows.data || []).find(
-            (item) => normalizeEmail(item.user_email) === cleanLoginEmail
-          );
-
-          if (!existingProfile) {
-            await supabase.from('user_profiles').insert({
-              user_email: cleanLoginEmail,
-              employee_id: employeeData.staff_id || null,
-              phone: employeeData.phone_number || null,
-              department: employeeData.department || null,
-              account_status: 'active',
-              role: login_role || null,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            });
-          }
+          const { error: userError } = await supabase.rpc('ark_create_pending_user', {
+            p_email: cleanLoginEmail,
+            p_full_name: employeeData.full_name,
+            p_department: employeeData.department || null,
+            p_employee_id: employeeData.staff_id || null,
+          });
+          if (userError) throw userError;
+          shouldSyncLoginRole = false;
         }
 
         await syncRelatedIdentityRecords(supabase, {

@@ -25,6 +25,7 @@ import {
 
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { resolveNotificationTarget } from '@/lib/notificationRouting';
 
 const typeIcons = {
   ticket_created: Ticket,
@@ -262,7 +263,7 @@ export default function Notifications() {
       if (!ok) return;
     }
 
-    navigate(getNotificationTarget(notification));
+    navigate(resolveNotificationTarget(user, getNotificationTarget(notification)));
   };
 
   const handleMarkAllRead = async () => {
@@ -343,7 +344,7 @@ export default function Notifications() {
                   </p>
 
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {n.message}
+                    {n.message || n.message_body}
                   </p>
 
                   <p className="text-[10px] text-muted-foreground mt-1.5">

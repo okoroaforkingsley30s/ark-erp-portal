@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
+import { useFormDraft } from "@/hooks/useFormDraft";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,7 +64,7 @@ const EMPTY = {
   notes: "",
 };
 
-export default function AttendanceModule({ attendance = [], employees = [], canManage }) {
+export default function AttendanceModule({ attendance = [], canManage }) {
   const qc = useQueryClient();
 
   const [open, setOpen] = useState(false);
@@ -73,6 +74,8 @@ export default function AttendanceModule({ attendance = [], employees = [], canM
   const [filterDate, setFilterDate] = useState("");
   const [filterCountry, setFilterCountry] = useState("all");
   const [filterDept, setFilterDept] = useState("all");
+
+  useFormDraft({ key: 'hr-attendance-new', form, setForm, enabled: open, storage: 'session', maxAgeMs: 30 * 60 * 1000 });
 
   const set = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));

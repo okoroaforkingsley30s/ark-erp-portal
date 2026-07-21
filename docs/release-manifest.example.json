@@ -1,0 +1,12 @@
+{
+  "version": "1.0.16",
+  "notes": "Department dashboards, permanent ticket closure, corrected assets and safe notifications.",
+  "mandatory": false,
+  "windows": {
+    "url": "https://downloads.example.com/ark-one/windows/ARK-ONE-Portal-1.0.16-x64.exe"
+  },
+  "android": {
+    "url": "https://downloads.example.com/ark-one/android/ARK-ONE-Portal-1.0.16.apk",
+    "version_code": 10016
+  }
+}

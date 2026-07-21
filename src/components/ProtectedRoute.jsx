@@ -60,6 +60,7 @@ export default function ProtectedRoute({
   children,
   fallback = <DefaultFallback />,
   unauthenticatedElement,
+  authenticationOnly = false,
 }) {
   const {
     user,
@@ -106,11 +107,19 @@ export default function ProtectedRoute({
     return children || <Outlet />;
   }
 
-  if (permission && !canUserAccess(user, permission)) {
+  // The outer application-layout guard authenticates the session only. Each
+  // concrete page remains protected by SecurePage and its explicit permission.
+  if (authenticationOnly) {
+    return children || <Outlet />;
+  }
+
+  // Protected routes must be explicitly mapped. Missing configuration must not
+  // silently grant every authenticated user access to a new module.
+  if (!permission || !canUserAccess(user, permission)) {
     return (
       <AccessDenied
         user={user}
-        permission={permission}
+        permission={permission || 'route permission is not configured'}
         from={location.pathname}
       />
     );

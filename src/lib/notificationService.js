@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabaseClient';
+import { reportError } from '@/lib/errorReporting';
 
-const DEFAULT_PORTAL_LINK = 'https://portal.arktechnologiesgroup.com';
+const DEFAULT_PORTAL_LINK = window.location.origin;
 
 function normalizePortalLink(link) {
   if (!link) return DEFAULT_PORTAL_LINK;
@@ -39,7 +40,7 @@ export async function sendNotificationEmail({
   );
 
   if (error) {
-    console.error('Email notification failed:', error);
+    reportError(error, { context: 'notification.email.send', notify: false });
     return { success: false, error };
   }
 
@@ -77,10 +78,11 @@ export async function notifyUser({
   const now = new Date().toISOString();
 
   const notificationPayload = {
-    user_email: targetEmail,
-    recipient_email: targetEmail,
+    user_email: targetEmail.trim().toLowerCase(),
+    recipient_email: targetEmail.trim().toLowerCase(),
     title,
     message,
+    message_body: message,
     type,
     read: false,
     is_read: false,
@@ -90,14 +92,12 @@ export async function notifyUser({
     created_at: now,
   };
 
-  const { data: notification, error: notificationError } = await supabase
+  const { error: notificationError } = await supabase
     .from('notifications')
-    .insert(notificationPayload)
-    .select()
-    .single();
+    .insert(notificationPayload);
 
   if (notificationError) {
-    console.error('Notification insert failed:', notificationError);
+    reportError(notificationError, { context: 'notification.database.insert', notify: false });
 
     return {
       success: false,
@@ -119,7 +119,7 @@ export async function notifyUser({
 
   return {
     success: true,
-    notification,
+    notification: notificationPayload,
     email: emailResult,
   };
 }

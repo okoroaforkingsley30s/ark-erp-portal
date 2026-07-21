@@ -60,24 +60,11 @@ export default function useCurrentUser() {
     if (!user?.email) return;
 
     const cleanEmail = user.email.trim().toLowerCase();
-
-    const { data: updated, error } = await supabase
-      .from('users')
-      .update(data)
-      .ilike('email', cleanEmail)
-      .select()
-      .maybeSingle();
-
-    console.log('UPDATE USER RESULT:', updated);
-    console.log('UPDATE USER ERROR:', error);
-
-    if (!error && updated) {
-      setUser({
-        ...updated,
-        email: cleanEmail,
-        must_change_password: false,
-      });
-    }
+    setUser((current) => ({
+      ...current,
+      ...data,
+      email: cleanEmail,
+    }));
   };
 
   return { user, loading, updateUser };

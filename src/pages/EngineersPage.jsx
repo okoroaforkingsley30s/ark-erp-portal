@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -52,6 +53,8 @@ export default function EngineersPage() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  useFormDraft({ key: editing?.id ? `operations-engineer-edit:${editing.id}` : 'operations-engineer-new', form, setForm, userId: user?.id || user?.email, enabled: dialogOpen, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const { data: engineers = [] } = useQuery({
   queryKey: ['engineers-from-users'],

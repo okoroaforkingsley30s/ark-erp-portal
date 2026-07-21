@@ -317,34 +317,6 @@ const isEngineerRole = (row) => {
   );
 };
 
-const getDeviceStatus = (device) => {
-  const s = normalize(
-    getFirst(device.device_status, device.status, device.state, device.operational_status, device.health_status)
-  );
-
-  if (['active', 'operational', 'working', 'available', 'online', 'healthy'].includes(s)) return 'active';
-  if (['faulty', 'failed', 'down', 'out_of_service', 'not_working', 'critical'].includes(s)) return 'faulty';
-  if (
-    ['maintenance', 'under_maintenance', 'repair', 'in_repair', 'wip', 'pending_parts', 'pending_bank'].includes(s)
-  ) {
-    return 'maintenance';
-  }
-  if (['offline', 'inactive', 'decommissioned'].includes(s)) return 'offline';
-
-  return 'unknown';
-};
-
-const getDeviceLat = (device, branch) =>
-  toNumber(getFirst(device.latitude, device.lat, device.current_latitude, branch?.latitude, branch?.lat));
-
-const getDeviceLng = (device, branch) =>
-  toNumber(
-    getFirst(device.longitude, device.lng, device.long, device.current_longitude, branch?.longitude, branch?.lng, branch?.long)
-  );
-
-const getBranchKey = (bank, branch) =>
-  `${String(bank || '').trim().toLowerCase()}__${String(branch || '').trim().toLowerCase()}`;
-
 function mergeByKeys(records) {
   const recordsByKey = new Map();
   const aliasToMaster = new Map();

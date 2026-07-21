@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,7 +27,6 @@ import {
 } from '@/components/ui/dialog';
 
 import {
-  Plus,
   CheckCircle2,
   XCircle,
   Loader2,
@@ -70,6 +70,9 @@ export default function LoanModule({
   const [repayAmount, setRepayAmount] = useState('');
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
+
+  useFormDraft({ key: 'hr-loan-new', form, setForm, userId: user?.id || user?.email, enabled: open, storage: 'session', maxAgeMs: 30 * 60 * 1000 });
+  useFormDraft({ key: `hr-loan-repayment:${selectedLoan?.id || 'new'}`, form: { amount: repayAmount }, setForm: (draft) => setRepayAmount(draft?.amount || ''), userId: user?.id || user?.email, enabled: repayOpen, storage: 'session', maxAgeMs: 30 * 60 * 1000 });
 
   const set = (k, v) =>
     setForm(f => ({

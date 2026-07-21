@@ -1,498 +1,205 @@
 import React from 'react';
-import { useOutletContext, Link } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabaseClient';
-
 import {
-  Ticket,
-  Users,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  Package,
-  MapPin,
-  Boxes,
-  Building2,
-  Cpu,
-  UserCheck,
-  MessageSquare
+  Activity, AlertTriangle, Bell, BriefcaseBusiness, Building2, CheckCircle2,
+  ClipboardCheck, Clock, DollarSign, Package, ShieldCheck, Ticket,
+  UserCheck, Users, Wrench,
 } from 'lucide-react';
+import { supabase } from '@/lib/supabaseClient';
+import { normalizeRole } from '@/lib/roleAccess';
+import { resolveNotificationTarget } from '@/lib/notificationRouting';
+import { Card } from '@/components/ui/card';
 
-import StatCard from '@/components/dashboard/StatCard';
-import RecentTicketsTable from '@/components/dashboard/RecentTicketsTable';
-import TicketStatusChart from '@/components/dashboard/TicketStatusChart';
-import TicketTrendChart from '@/components/dashboard/TicketTrendChart';
-import EngineerActivityFeed from '@/components/dashboard/EngineerActivityFeed';
-import SiteStatusPanel from '@/components/dashboard/SiteStatusPanel';
-import LiveMapPanel from '@/components/dashboard/LiveMapPanel';
-import ExportButton from '@/components/ExportButton';
+const DEPARTMENT_NAMES = {
+  system_admin: 'System Administration', ceo: 'Executive Management', agm: 'Executive Management',
+  manager: 'Operations Management', admin_head: 'Administration', admin: 'Administration',
+  head_of_it: 'Information Technology', it: 'Information Technology', helpdesk: 'Helpdesk',
+  operations: 'Operations', engineer: 'Field Engineering', inventory: 'Inventory',
+  repair_head: 'Repair & Refurbishment', repair_technician: 'Repair & Refurbishment',
+  head_of_account: 'Finance & Accounts', finance: 'Finance & Accounts', procurement: 'Procurement',
+  hr: 'Human Resources', head_of_business_development: 'Business Development',
+  business_developer: 'Business Development', client: 'Client Support',
+};
 
-const OPS_ROLES = [
-  'admin',
-  'helpdesk',
-  'manager',
-  'agm',
-  'ceo',
-  'repair_head'
+const ROLE_CARDS = {
+  engineer: [
+    ['assigned_jobs', 'Assigned Jobs', 'Your jobs requiring field action', Ticket, '/field-ops'],
+    ['pending_review', 'Pending Review', 'Your submitted completion reports', Clock, '/field-ops'],
+    ['part_requests', 'Part Requests', 'Your active part workflows', Package, '/parts'],
+    ['closed_jobs', 'Closed Jobs', 'Your approved completions', CheckCircle2, '/field-ops'],
+  ],
+  helpdesk: [
+    ['open_tickets', 'Open Tickets', 'Helpdesk service queue', Ticket, '/tickets'],
+    ['pending_review', 'Pending Review', 'Completions awaiting Helpdesk', ClipboardCheck, '/tickets'],
+    ['escalated', 'Escalations', 'Tickets requiring intervention', AlertTriangle, '/tickets'],
+    ['closed_tickets', 'Closed Tickets', 'Approved service completions', CheckCircle2, '/tickets'],
+  ],
+  operations: [
+    ['part_approvals', 'Part Approvals', 'Requests awaiting Operations', ClipboardCheck, '/operations/part-requests'],
+    ['escalations', 'Escalations', 'Operational exceptions', AlertTriangle, '/operations-feed'],
+    ['sent_inventory', 'Sent to Inventory', 'Approved part workflows', Package, '/operations/part-requests'],
+    ['active_tickets', 'Active Tickets', 'Current operational calls', Ticket, '/tickets'],
+  ],
+  inventory: [
+    ['part_requests', 'Part Requests', 'Inventory action queue', ClipboardCheck, '/inventory/part-requests'],
+    ['rr_consumables', 'RR Consumables', 'Approved RR requests', Package, '/inventory/part-requests'],
+    ['low_stock', 'Low Stock', 'Items at reorder level', AlertTriangle, '/spare-parts'],
+    ['repair_returns', 'Repair Returns', 'Items returning from RR', Wrench, '/inventory/part-requests'],
+  ],
+  repair_head: [
+    ['repair_intake', 'Repair Intake', 'Jobs awaiting RR assignment', Package, '/rr-part-requests'],
+    ['active_repairs', 'Active Repairs', 'Department work in progress', Wrench, '/repair-jobs'],
+    ['support_approvals', 'Support Approvals', 'Consumable/fund decisions', ClipboardCheck, '/rr-consumable-requests'],
+    ['qa_queue', 'QA Queue', 'Jobs awaiting quality review', ShieldCheck, '/repair-jobs'],
+  ],
+  repair_technician: [
+    ['assigned_repairs', 'Assigned Repairs', 'Your repair jobs', Wrench, '/repair-jobs'],
+    ['active_repairs', 'Active Work', 'Your work in progress', Activity, '/repair-jobs'],
+    ['consumables', 'Consumables', 'Your support requests', Package, '/rr-consumable-requests'],
+    ['qa_submitted', 'QA Submitted', 'Your jobs awaiting QA', ClipboardCheck, '/repair-jobs'],
+  ],
+  head_of_account: [
+    ['fund_requests', 'Fund Requests', 'Accounts action queue', DollarSign, '/fund-requests'],
+    ['payments', 'Payments', 'Payments awaiting action', DollarSign, '/finance'],
+    ['journals', 'Journals', 'Accounting workflow', BriefcaseBusiness, '/finance'],
+    ['reconciliations', 'Reconciliations', 'Bank review queue', ClipboardCheck, '/finance'],
+  ],
+  hr: [
+    ['employees', 'Active Employees', 'HR workforce register', Users, '/hr'],
+    ['leave_requests', 'Leave Requests', 'Pending HR decisions', ClipboardCheck, '/hr'],
+    ['training', 'Upcoming Training', 'Scheduled development', BriefcaseBusiness, '/hr'],
+    ['attendance_today', 'Attendance Today', 'Recorded attendance', UserCheck, '/hr'],
+  ],
+  head_of_business_development: [
+    ['leads', 'Active Leads', 'Business pipeline', BriefcaseBusiness, '/crm'],
+    ['clients', 'Clients', 'CRM client register', Building2, '/crm'],
+    ['complaints', 'Open Complaints', 'Customer issues', AlertTriangle, '/crm'],
+    ['won_business', 'Won Business', 'Converted opportunities', CheckCircle2, '/crm'],
+  ],
+  head_of_it: [
+    ['active_users', 'Active Users', 'Enabled identities', Users, '/users'],
+    ['pending_users', 'Pending Users', 'Identity action queue', UserCheck, '/users'],
+    ['system_alerts', 'System Alerts', 'Security and service alerts', AlertTriangle, '/admin-diagnostics'],
+    ['recent_events', 'Recent Events', 'Last 24 hours', Activity, '/audit-logs'],
+  ],
+  admin_head: [
+    ['staff', 'Active Staff', 'Administration directory', Users, '/staff'],
+    ['pending_users', 'Pending Users', 'Approval queue', UserCheck, '/users'],
+    ['departments', 'Departments', 'Organizational units', Building2, '/departments'],
+    ['recent_activity', 'Recent Activity', 'Last 24 hours', Activity, '/audit-logs'],
+  ],
+  system_admin: [
+    ['active_users', 'Active Users', 'System identities', Users, '/users'],
+    ['pending_users', 'Pending Users', 'Approval or identity issues', UserCheck, '/users'],
+    ['system_alerts', 'System Alerts', 'Security and workflow failures', AlertTriangle, '/admin-diagnostics'],
+    ['recent_events', 'Recent Events', 'System activity in 24 hours', Activity, '/admin-diagnostics'],
+  ],
+};
+
+const ROLE_ALIASES = {
+  finance: 'head_of_account', business_developer: 'head_of_business_development',
+  it: 'head_of_it', admin: 'admin_head',
+};
+
+const EXECUTIVE_CARDS = [
+  ['open_tickets', 'Open Tickets', 'Organization service activity', Ticket, '/tickets'],
+  ['part_workflows', 'Part Workflows', 'Active supply workflows', Package, '/operations/part-requests'],
+  ['repair_jobs', 'Repair Jobs', 'RR work in progress', Wrench, '/repair-jobs'],
+  ['pending_funds', 'Pending Funds', 'Finance decisions', DollarSign, '/fund-requests'],
 ];
 
-const MAP_ROLES = [
-  'admin',
-  'helpdesk',
-  'manager',
-  'agm',
-  'ceo'
+const DEFAULT_CARDS = [
+  ['open_items', 'Open Items', 'Items requiring your attention', ClipboardCheck, '/notifications'],
+  ['recent_activity', 'Recent Activity', 'Department activity', Activity, '/operations-feed'],
+  ['reports', 'Reports', 'Available reports', BriefcaseBusiness, '/reports'],
+  ['alerts', 'Alerts', 'Unread alerts', Bell, '/notifications'],
 ];
 
-const INVENTORY_ROLES = [
-  'admin',
-  'inventory',
-  'procurement'
-];
+async function fetchDepartmentDashboard() {
+  const { data, error } = await supabase.rpc('ark_department_dashboard_summary');
+  if (error) throw error;
+  return data || { cards: {}, recent: [] };
+}
 
 export default function Dashboard() {
   const { user } = useOutletContext();
+  const navigate = useNavigate();
+  const role = normalizeRole(user?.role);
+  const configRole = ROLE_ALIASES[role] || role;
+  const isExecutive = ['ceo', 'agm', 'manager'].includes(role);
+  const cardConfig = isExecutive ? EXECUTIVE_CARDS : (ROLE_CARDS[configRole] || DEFAULT_CARDS);
 
-  const role = user?.role || 'client';
-
-  const { data: tickets = [] } = useQuery({
-    queryKey: ['tickets-dashboard'],
-
-    queryFn: async () => {
-      let query = supabase
-        .from('tickets')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (role === 'client') {
-        query = query.eq('client_email', user.email);
-      }
-
-      if (role === 'engineer') {
-        query = query.eq('assigned_to', user.email);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error(error);
-        return [];
-      }
-
-      return data || [];
-    },
-
-    enabled: !!user,
+  const { data = { cards: {}, recent: [] }, isLoading, error } = useQuery({
+    queryKey: ['department-dashboard', role, user?.email],
+    queryFn: fetchDepartmentDashboard,
+    enabled: Boolean(user?.email && role),
+    refetchInterval: 30000,
   });
 
-  const { data: banks = [] } = useQuery({
-    queryKey: ['banks'],
-    queryFn: async () => {
-      const { data } = await supabase.from('banks').select('*');
-      return data || [];
-    },
-    enabled: OPS_ROLES.includes(role),
-  });
-
-  const { data: devices = [] } = useQuery({
-    queryKey: ['devices'],
-    queryFn: async () => {
-      const { data } = await supabase.from('devices').select('*');
-      return data || [];
-    },
-    enabled: OPS_ROLES.includes(role),
-  });
-
-  const { data: engineers = [] } = useQuery({
-    queryKey: ['engineers-dashboard'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .in('role', ['engineer', 'field_engineer', 'field engineer']);
-
-      if (error) {
-        console.error('Engineers dashboard fetch error:', error);
-        return [];
-      }
-
-      return data || [];
-    },
-    enabled: OPS_ROLES.includes(role),
-  });
-
-  const { data: branches = [] } = useQuery({
-    queryKey: ['branches'],
-    queryFn: async () => {
-      const { data } = await supabase.from('branches').select('*');
-      return data || [];
-    },
-    enabled: OPS_ROLES.includes(role),
-  });
-
-  const { data: spareParts = [] } = useQuery({
-    queryKey: ['spare-parts'],
-    queryFn: async () => {
-      const { data } = await supabase.from('spare_parts').select('*');
-      return data || [];
-    },
-    enabled:
-      OPS_ROLES.includes(role) ||
-      INVENTORY_ROLES.includes(role),
-  });
-
-  const { data: spareRequests = [] } = useQuery({
-    queryKey: ['part-requests-dashboard', user?.email, role],
-    queryFn: async () => {
-      let query = supabase
-        .from('part_requests')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (role === 'engineer' || role === 'field_engineer') {
-        query = query.eq('engineer_email', user.email);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Part requests dashboard fetch error:', error);
-        return [];
-      }
-
-      return data || [];
-    },
-    enabled: role !== 'client' && !!user?.email,
-    refetchInterval: 15000,
-  });
-
-  const { data: unreadMessages = [] } = useQuery({
-    queryKey: ['unread-dms', user?.email],
-
-    queryFn: async () => {
-      const { data } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_email', user.email)
-        .eq('type', 'chat_message')
-        .eq('read', false);
-
-      return data || [];
-    },
-
-    enabled: !!user,
-    refetchInterval: 15000,
-  });
-
-  const normalizeStatus = (value) =>
-    String(value || '')
-      .trim()
-      .toLowerCase()
-      .replace(/[\s-]+/g, '_');
-
-  const closedStatuses = [
-    'closed',
-    'resolved',
-    'completed',
-    'approved',
-    'complete',
-    'done',
-  ];
-
-  const pendingRequestStatuses = [
-    'pending',
-    'pending_parts',
-    'pending_bank',
-    'pending_operations',
-    'pending_review',
-    'waiting_operations_approval',
-    'pending_inventory_review',
-    'pending_finance_review',
-    'approved_for_dispatch',
-  ];
-
-  const openTickets = tickets.filter((t) => {
-    const status = normalizeStatus(t.status);
-    const completionStatus = normalizeStatus(t.completion_status);
-
-    return (
-      !closedStatuses.includes(status) &&
-      !closedStatuses.includes(completionStatus)
-    );
-  });
-
-  const resolvedTickets = tickets.filter((t) => {
-    const status = normalizeStatus(t.status);
-    const completionStatus = normalizeStatus(t.completion_status);
-
-    return (
-      closedStatuses.includes(status) ||
-      closedStatuses.includes(completionStatus)
-    );
-  });
-
-  const criticalTickets = tickets.filter((t) => {
-    const status = normalizeStatus(t.status);
-    const completionStatus = normalizeStatus(t.completion_status);
-    const priority = normalizeStatus(t.priority || t.severity || t.urgency);
-    const slaStatus = normalizeStatus(t.sla_status);
-
-    return (
-      !closedStatuses.includes(status) &&
-      !closedStatuses.includes(completionStatus) &&
-      (
-        priority === 'critical' ||
-        priority === 'high' ||
-        slaStatus === 'critical' ||
-        slaStatus === 'breached'
-      )
-    );
-  });
-
-  const lowStock = spareParts.filter((p) => {
-    const qty = Number(p.quantity_available || 0);
-    const min = Number(p.minimum_stock_level || 0);
-
-    return qty <= min;
-  }).length;
-
-  const activeDevices = devices.filter((d) => {
-    const status = normalizeStatus(
-      d.device_status || d.status || d.state || d.operational_status
-    );
-
-    return ['active', 'operational', 'working', 'online'].includes(status);
-  }).length;
-
-  const faultyDevices = devices.filter((d) => {
-    const status = normalizeStatus(
-      d.device_status || d.status || d.state || d.operational_status
-    );
-
-    return [
-      'faulty',
-      'fault',
-      'down',
-      'offline',
-      'under_maintenance',
-      'maintenance',
-      'not_working',
-      'inactive',
-    ].includes(status);
-  }).length;
-
-  const pendingRequests = spareRequests.filter((r) => {
-    const approvalStatus = normalizeStatus(r.approval_status);
-    const operationsStatus = normalizeStatus(r.operations_status);
-    const inventoryStatus = normalizeStatus(r.inventory_status);
-    const financeStatus = normalizeStatus(r.finance_status);
-    const dispatchStatus = normalizeStatus(r.dispatch_status);
-    const requestStatus = normalizeStatus(r.request_status);
-    const status = normalizeStatus(r.status);
-
-    if (
-      ['rejected', 'received', 'closed', 'completed'].includes(status) ||
-      ['rejected', 'received', 'closed', 'completed'].includes(dispatchStatus)
-    ) {
-      return false;
-    }
-
-    return [
-      approvalStatus,
-      operationsStatus,
-      inventoryStatus,
-      financeStatus,
-      dispatchStatus,
-      requestStatus,
-      status,
-    ].some((s) => pendingRequestStatuses.includes(s));
-  });
-
-  const showOpsStats =
-    OPS_ROLES.includes(role) ||
-    INVENTORY_ROLES.includes(role);
-
-  const showMap = MAP_ROLES.includes(role);
-
-  const greeting = () => {
-    const h = new Date().getHours();
-
-    if (h < 12) return 'Good Morning';
-    if (h < 17) return 'Good Afternoon';
-
-    return 'Good Evening';
-  };
+  const greeting = new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening';
+  const openTarget = (target) => navigate(resolveNotificationTarget(user, target));
 
   return (
     <div className="space-y-6 text-white">
+      <header>
+        <h1 className="text-3xl lg:text-4xl font-black tracking-tight">
+          {greeting}, <span className="text-[#ff5a00]">{user?.full_name?.split(' ')[0] || 'User'}</span>
+        </h1>
+        <p className="text-slate-300 mt-2 text-sm">
+          {DEPARTMENT_NAMES[role] || user?.department || 'Your Department'} Activity Dashboard
+        </p>
+        <p className="text-xs text-slate-400 mt-1">Only activity assigned to your role and department is shown here.</p>
+      </header>
 
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-
-        <div>
-          <h1 className="text-3xl lg:text-4xl font-black tracking-tight">
-            {greeting()},{" "}
-            <span className="text-[#ff5a00]">
-              {user?.full_name?.split(' ')[0] || 'User'}
-            </span>
-          </h1>
-
-          <p className="text-slate-300 mt-2 text-sm tracking-wide">
-            ARK ONE Enterprise Command Center
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3">
-
-          <div className="scale-95">
-            <ExportButton
-              filename={`ark-tickets-${new Date().toISOString().split('T')[0]}`}
-              label="Export"
-              data={tickets.map(t => ({
-                ID: t.id,
-                Title: t.title || '',
-                Status: t.status || '',
-                Priority: t.priority || '',
-                AssignedTo: t.assigned_to || '',
-              }))}
-            />
-          </div>
-
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-400/20 text-emerald-300 text-sm font-semibold">
-            <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-            Live
-          </div>
-
-        </div>
-
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
-        <StatCard title="Total Tickets" value={tickets.length} icon={Ticket} />
-        <StatCard title="Open Tickets" value={openTickets.length} icon={Clock} />
-        <StatCard title="Resolved" value={resolvedTickets.length} icon={CheckCircle2} />
-        <StatCard title="Critical" value={criticalTickets.length} icon={AlertTriangle} />
-
-      </div>
-
-      {showOpsStats && (
-        <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
-            <StatCard title="Banks" value={banks.length} icon={Building2} />
-            <StatCard title="Devices" value={devices.length} icon={Cpu} />
-            <StatCard title="Engineers" value={engineers.length} icon={UserCheck} />
-            <StatCard title="Branches" value={branches.length} icon={MapPin} />
-
-          </div>
-
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-
-            <StatCard title="Active Devices" value={activeDevices} icon={CheckCircle2} />
-            <StatCard title="Faulty Devices" value={faultyDevices} icon={AlertTriangle} />
-            <StatCard title="Low Stock" value={lowStock} icon={Package} />
-            <StatCard title="Pending Requests" value={pendingRequests.length} icon={Boxes} />
-
-          </div>
-        </>
+      {error && (
+        <Card className="border-red-500/30 bg-red-500/10 p-4 text-red-200">
+          Department dashboard could not load: {error.message}
+        </Card>
       )}
 
-      {showMap && (
-        <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
-          <LiveMapPanel compact />
-        </div>
-      )}
-
-      <div className="grid lg:grid-cols-3 gap-4">
-
-        <div className="lg:col-span-2 space-y-4">
-
-          <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
-            <TicketTrendChart tickets={tickets} />
-          </div>
-
-          <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
-            <TicketStatusChart tickets={tickets} />
-          </div>
-
-        </div>
-
-        <div className="space-y-4">
-
-          <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
-            <SiteStatusPanel />
-          </div>
-
-          <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
-            <EngineerActivityFeed />
-          </div>
-
-        </div>
-
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        {cardConfig.map(([key, title, subtitle, Icon, target]) => (
+          <button key={key} type="button" onClick={() => openTarget(target)} className="text-left">
+            <Card className="h-full p-4 border-white/10 bg-[#102969]/90 hover:border-[#ff5a00]/50 transition-colors">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs text-slate-300">{title}</p>
+                  <p className="text-3xl font-black mt-2 text-white">{isLoading ? '…' : Number(data.cards?.[key] || 0)}</p>
+                </div>
+                <Icon className="w-6 h-6 text-[#ff5a00]" />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-3">{subtitle}</p>
+            </Card>
+          </button>
+        ))}
       </div>
 
-      {unreadMessages.length > 0 && (
-        <div className="rounded-3xl border border-[#ff5a00]/20 bg-[#102969]/90 backdrop-blur-xl p-5 shadow-[0_0_30px_rgba(0,0,0,0.25)]">
-
-          <div className="flex items-center justify-between mb-4">
-
-            <div className="flex items-center gap-2">
-              <MessageSquare className="w-5 h-5 text-[#ff5a00]" />
-
-              <h3 className="font-bold text-white">
-                Unread Messages ({unreadMessages.length})
-              </h3>
-            </div>
-
-            <Link
-              to="/ark-connect"
-              className="text-sm text-[#ff5a00] hover:underline"
+      <Card className="p-5 border-white/10 bg-[#102969]/90">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="font-bold">Your Recent Notifications</h2>
+            <p className="text-xs text-slate-400">Only notifications addressed to your account</p>
+          </div>
+          <button type="button" onClick={() => openTarget('/notifications')} className="text-xs text-[#ff5a00]">View all →</button>
+        </div>
+        <div className="space-y-2">
+          {(data.recent || []).map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => openTarget(item.link || '/notifications')}
+              className="w-full text-left rounded-xl border border-white/5 bg-[#0b1f5e] p-3 hover:border-[#ff5a00]/30"
             >
-              Open ARK Connect →
-            </Link>
-
-          </div>
-
-          <div className="space-y-3">
-
-            {unreadMessages.slice(0, 5).map(n => (
-              <Link
-                key={n.id}
-                to="/ark-connect"
-                className="flex items-start gap-3 p-3 rounded-2xl bg-[#0b1f5e] border border-white/5 hover:border-[#ff5a00]/20 transition-all"
-              >
-
-                <div className="w-9 h-9 rounded-full bg-[#ff5a00]/20 flex items-center justify-center flex-shrink-0 text-sm font-bold text-[#ff5a00]">
-                  {n.title?.[0]?.toUpperCase() || '?'}
-                </div>
-
-                <div className="flex-1 min-w-0">
-
-                  <p className="text-sm font-semibold text-white truncate">
-                    {n.title}
-                  </p>
-
-                  <p className="text-xs text-slate-300 truncate">
-                    {n.message}
-                  </p>
-
-                </div>
-
-              </Link>
-            ))}
-
-          </div>
-
+              <p className="text-sm font-semibold">{item.title || 'Notification'}</p>
+              <p className="text-xs text-slate-300 mt-1 line-clamp-2">{item.message || 'Open for details'}</p>
+            </button>
+          ))}
+          {!isLoading && (data.recent || []).length === 0 && (
+            <p className="text-sm text-slate-400 text-center py-8">No activity yet for your account.</p>
+          )}
         </div>
-      )}
-
-      <div className="rounded-3xl overflow-hidden border border-white/10 bg-[#102969]/90 backdrop-blur-xl shadow-[0_0_30px_rgba(0,0,0,0.25)]">
-        <RecentTicketsTable
-          tickets={tickets}
-          showAssignee={role !== 'client'}
-        />
-      </div>
-
+      </Card>
     </div>
   );
 }

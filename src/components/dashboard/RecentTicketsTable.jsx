@@ -24,7 +24,6 @@ const safeDate = (value) => {
 
 export default function RecentTicketsTable({
   tickets = [],
-  showAssignee,
 }) {
   const recent = tickets.slice(0, 8);
 

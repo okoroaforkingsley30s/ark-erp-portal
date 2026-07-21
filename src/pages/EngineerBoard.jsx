@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -66,6 +67,8 @@ export default function EngineerBoard() {
     status: 'offline',
     profile_photo: '',
   });
+
+  useFormDraft({ key: 'engineer-profile-edit', form: { ...form, profile_photo: '' }, setForm, userId: user?.id || user?.email, enabled: editOpen, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const { data: engineers = [], refetch } = useQuery({
   queryKey: ['engineers-board'],

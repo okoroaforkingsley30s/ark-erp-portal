@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabaseClient';
+import { notifyUser } from '@/lib/notificationService';
 
 export async function createNotification({
   userEmail,
@@ -7,28 +7,30 @@ export async function createNotification({
   type = 'system',
   link = '/notifications',
   sound = 'bell',
+  data = {},
+  sendEmail = true,
 }) {
   if (!userEmail) return null;
 
-  const { data, error } = await supabase
-    .from('notifications')
-    .insert({
-      user_email: userEmail,
-      title,
-      message,
-      type,
-      link,
-      sound,
-      read: false,
-      created_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
+  const result = await notifyUser({
+    email: userEmail,
+    title,
+    message,
+    type,
+    link,
+    sound,
+    data,
+    sendEmail,
+  });
 
-  if (error) {
-    console.error('Create notification failed:', error);
+  if (!result.success) {
+    console.error('Create notification failed:', result.error);
     return null;
   }
 
-  return data;
+  if (sendEmail && result.email?.success === false) {
+    console.warn('Notification was created, but its email was not delivered.', result.email.error);
+  }
+
+  return result.notification;
 }

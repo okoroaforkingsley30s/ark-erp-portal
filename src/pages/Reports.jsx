@@ -83,8 +83,7 @@ async function fetchUsers() {
 }
 
 export default function Reports() {
-  const { user } =
-    useOutletContext();
+  useOutletContext();
 
   const {
     data: tickets = [],

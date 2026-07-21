@@ -5,7 +5,9 @@ import { supabase } from '@/lib/supabaseClient';
 import FinancePageHeader from '@/components/finance/FinancePageHeader';
 import FinanceReportToolbar from '@/components/finance/FinanceReportToolbar';
 import { notifyUser } from '@/lib/notificationService';
-import { normalizeRole } from '@/lib/roleAccess';
+import { reportError } from '@/lib/errorReporting';
+import PrivateDocumentUpload, { PrivateDocumentLink } from '@/components/files/PrivateDocumentUpload';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -42,12 +44,11 @@ import {
   XCircle,
   Wallet,
   Clock,
-  PackageCheck,
   ShoppingCart,
   Building2,
 } from 'lucide-react';
 
-import { format, isValid } from 'date-fns';
+import { isValid } from 'date-fns';
 import {
   BarChart,
   Bar,
@@ -60,536 +61,20 @@ import {
   Cell,
 } from 'recharts';
 
-const INV_STATUS = {
-  draft: { label: 'Draft', color: 'bg-slate-500/15 text-slate-300 border-slate-200' },
-  sent: { label: 'Sent', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  paid: { label: 'Paid', color: 'bg-green-500/15 text-green-300 border-green-200' },
-  overdue: { label: 'Overdue', color: 'bg-red-500/15 text-red-300 border-red-200' },
-  cancelled: { label: 'Cancelled', color: 'bg-gray-50 text-gray-500 border-gray-200' },
-};
-
-const DISPATCH_FUND_STATUS = {
-  pending_review: {
-    label: 'Pending Review',
-    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
-  },
-  pending_finance: {
-    label: 'Pending Finance',
-    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
-  },
-  approved: {
-    label: 'Approved',
-    color: 'bg-blue-500/15 text-blue-300 border-blue-200',
-  },
-  rejected: {
-    label: 'Rejected',
-    color: 'bg-red-500/15 text-red-300 border-red-200',
-  },
-  disbursed: {
-    label: 'Disbursed',
-    color: 'bg-green-500/15 text-green-300 border-green-200',
-  },
-};
-
-const PO_STATUS = {
-  Draft: { label: 'Draft', color: 'bg-slate-500/15 text-slate-300 border-slate-200' },
-  'Pending Approval': {
-    label: 'Pending Approval',
-    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
-  },
-  'Pending HR Approval': {
-    label: 'Pending HR Approval',
-    color: 'bg-amber-500/15 text-amber-300 border-amber-200',
-  },
-  'Pending AGM Approval': {
-    label: 'Pending AGM Approval',
-    color: 'bg-purple-500/15 text-purple-300 border-purple-200',
-  },
-  'Pending Operations Approval': {
-    label: 'Pending Operations Approval',
-    color: 'bg-orange-500/15 text-orange-300 border-orange-200',
-  },
-  'Pending Account Release': {
-    label: 'Pending Account Release',
-    color: 'bg-cyan-500/15 text-cyan-300 border-cyan-200',
-  },
-  'Funds Released': {
-    label: 'Funds Released',
-    color: 'bg-blue-500/15 text-blue-300 border-blue-200',
-  },
-  Approved: {
-    label: 'Approved',
-    color: 'bg-green-500/15 text-green-300 border-green-200',
-  },
-  Rejected: {
-    label: 'Rejected',
-    color: 'bg-red-500/15 text-red-300 border-red-200',
-  },
-  Issued: {
-    label: 'Issued',
-    color: 'bg-blue-500/15 text-blue-300 border-blue-200',
-  },
-  Completed: {
-    label: 'Completed',
-    color: 'bg-green-500/15 text-green-300 border-green-200',
-  },
-};
-
-const EMPTY_INV = {
-  client_name: '',
-  client_email: '',
-  description: '',
-  amount: '',
-  currency: 'NGN',
-  status: 'draft',
-  due_date: '',
-  payment_source: '',
-  payment_mode: '',
-  notes: '',
-};
-
-const EXPENSE_CATEGORIES = [
-  'Logistics',
-  'Procurement',
-  'Fuel',
-  'Staff Welfare',
-  'Transportation',
-  'Device Repair',
-  'Operational',
-  'Maintenance',
-  'Utilities',
-  'Other',
-];
-
-const PAYMENT_METHODS = [
-  'Bank Transfer',
-  'Cash',
-  'Cheque',
-  'POS',
-  'Online Transfer',
-  'Other',
-];
-
-const APPROVAL_STATUS = {
-  pending: { label: 'Pending', color: 'bg-amber-500/15 text-amber-300 border-amber-200' },
-  approved: { label: 'Approved', color: 'bg-green-500/15 text-green-300 border-green-200' },
-  rejected: { label: 'Rejected', color: 'bg-red-500/15 text-red-300 border-red-200' },
-};
-
-const EMPTY_EXP = {
-  category: '',
-  amount: '',
-  currency: 'NGN',
-  payment_method: '',
-  description: '',
-  staff_responsible: '',
-  approval_status: 'approved',
-  expense_date: new Date().toISOString().slice(0, 10),
-  document_url: '',
-  notes: '',
-  expense_source_type: 'controlled_exception',
-  controlled_exception_type: '',
-  controlled_exception_reason: '',
-};
-
-const EMPTY_EXPENSE_REQUEST = {
-  expense_category: '',
-  purpose: '',
-  description: '',
-  supplier_name: '',
-  supplier_email: '',
-  beneficiary_name: '',
-  amount_requested: '',
-  amount_approved: '',
-  currency: 'NGN',
-  required_date: '',
-};
-
-const EMPTY_EXPENSE_PAYMENT = {
-  amount_paid: '',
-  payment_method: '',
-  payment_reference: '',
-  payment_date: new Date().toISOString().slice(0, 10),
-  bank_account_id: 'none',
-  notes: '',
-};
-
-const EXPENSE_REQUEST_STATUS = {
-  draft: { label: 'Draft', color: 'bg-slate-500/15 text-slate-300 border-slate-200' },
-  submitted: { label: 'Submitted', color: 'bg-blue-500/15 text-blue-300 border-blue-200' },
-  pending_approval: { label: 'Pending Approval', color: 'bg-amber-500/15 text-amber-300 border-amber-200' },
-  approved: { label: 'Approved', color: 'bg-green-500/15 text-green-300 border-green-200' },
-  rejected: { label: 'Rejected', color: 'bg-red-500/15 text-red-300 border-red-200' },
-  returned_for_correction: { label: 'Returned', color: 'bg-orange-500/15 text-orange-300 border-orange-200' },
-  pending_finance_review: { label: 'Pending Finance Review', color: 'bg-cyan-500/15 text-cyan-300 border-cyan-200' },
-  approved_for_payment: { label: 'Approved for Payment', color: 'bg-purple-500/15 text-purple-300 border-purple-200' },
-  partially_paid: { label: 'Partially Paid', color: 'bg-indigo-500/15 text-indigo-300 border-indigo-200' },
-  paid: { label: 'Paid', color: 'bg-green-500/15 text-green-300 border-green-200' },
-  cancelled: { label: 'Cancelled', color: 'bg-slate-500/15 text-slate-300 border-slate-200' },
-};
-
-const EXPENSE_EXCEPTION_TYPES = [
-  'Bank Charge',
-  'Depreciation',
-  'Tax Adjustment',
-  'Statutory Charge',
-  'Journal Correction',
-  'Opening Balance',
-  'System Adjustment',
-  'Other Accounting Entry',
-];
-
-const fmt = (n) => '₦' + Number(n || 0).toLocaleString();
-
-const EMPTY_ACCOUNT = {
-  account_code: '',
-  account_name: '',
-  account_type: 'asset',
-  normal_balance: 'debit',
-  parent_account_id: 'none',
-  description: '',
-};
-
-const EMPTY_BANK_ACCOUNT = {
-  account_id: 'none',
-  bank_name: '',
-  account_name: '',
-  account_number: '',
-  currency: 'NGN',
-  opening_balance: '',
-  current_balance: '',
-};
-
-const EMPTY_BUDGET = {
-  department: '',
-  account_id: 'none',
-  period_start: '',
-  period_end: '',
-  budget_amount: '',
-  pending_amount: '',
-  status: 'draft',
-};
-
-const EMPTY_FIXED_ASSET = {
-  asset_code: '',
-  asset_name: '',
-  asset_type: '',
-  serial_number: '',
-  purchase_date: '',
-  purchase_cost: '',
-  account_id: 'none',
-  assigned_department: '',
-  assigned_employee_name: '',
-  current_location: '',
-  warranty_expiry: '',
-  depreciation_rate: '',
-};
-
-const EMPTY_JOURNAL_LINE = {
-  account_id: '',
-  debit: '',
-  credit: '',
-  description: '',
-  department: '',
-};
-
-const EMPTY_JOURNAL = {
-  journal_date: new Date().toISOString().slice(0, 10),
-  narration: '',
-  status: 'draft',
-  lines: [{ ...EMPTY_JOURNAL_LINE }, { ...EMPTY_JOURNAL_LINE }],
-};
-
-const BACKFILL_SOURCE_TABLES = [
-  'invoices',
-  'expenses',
-  'lpos',
-  'inventory_dispatch_fund_requests',
-];
-
-const AGEING_BUCKETS = [
-  { key: 'current', label: 'Current' },
-  { key: 'bucket30', label: '30' },
-  { key: 'bucket60', label: '60' },
-  { key: 'bucket90', label: '90' },
-  { key: 'bucket120', label: '120+' },
-];
-
-const CHART_COLORS = [
-  '#ff5a00',
-  '#ef4444',
-  '#22c55e',
-  '#3b82f6',
-  '#a855f7',
-  '#f97316',
-  '#14b8a6',
-  '#ec4899',
-  '#6366f1',
-  '#84cc16',
-];
-
-const safeDate = (value) => {
-  if (!value) return '';
-
-  const d = new Date(value);
-
-  if (!isValid(d)) return '';
-
-  return format(d, 'MMM d, yyyy');
-};
-
-const normalize = (value) => String(value || '').toLowerCase().trim();
-
-const DISPATCH_FINANCE_STATUS = {
-  APPROVED: 'approved',
-  DISBURSED: 'disbursed',
-  REJECTED: 'rejected',
-};
-
-const hasTimestamp = (value) => {
-  if (!value) return false;
-  const parsed = new Date(value);
-  return !Number.isNaN(parsed.getTime());
-};
-
-const getDispatchFinanceStatus = (request) => normalize(request?.finance_status);
-
-function isPendingDispatchFund(request) {
-  return (
-    !isRejectedDispatchFund(request) &&
-    !isApprovedAwaitingDispatchFundDisbursement(request) &&
-    !isDisbursedDispatchFund(request)
-  );
-}
-
-function isApprovedAwaitingDispatchFundDisbursement(request) {
-  return (
-    getDispatchFinanceStatus(request) === DISPATCH_FINANCE_STATUS.APPROVED &&
-    !hasTimestamp(request?.disbursed_at)
-  );
-}
-
-function isDisbursedDispatchFund(request) {
-  return (
-    getDispatchFinanceStatus(request) === DISPATCH_FINANCE_STATUS.DISBURSED &&
-    hasTimestamp(request?.disbursed_at)
-  );
-}
-
-function isRejectedDispatchFund(request) {
-  return getDispatchFinanceStatus(request) === DISPATCH_FINANCE_STATUS.REJECTED;
-}
-
-function getDispatchRequestedAmount(request) {
-  return Number(request?.requested_amount || 0);
-}
-
-function getDispatchApprovedAmount(request) {
-  return Number(request?.approved_amount || request?.requested_amount || 0);
-}
-
-function isPendingAccountReleaseLpo(lpo) {
-  return normalize(lpo?.status) === 'pending account release';
-}
-
-function getGeneralRequestCategory(request) {
-  const category = normalize(request?.request_category);
-  if (['fund', 'loan', 'float'].includes(category)) return category;
-
-  const type = normalize(`${request?.request_type || ''} ${request?.request_subtype || ''}`);
-  if (type.includes('loan')) return 'loan';
-  if (type.includes('float')) return 'float';
-  return 'fund';
-}
-
-function generalRequestNeedsFinance(request) {
-  return ['fund', 'loan', 'float'].includes(getGeneralRequestCategory(request));
-}
-
-function hasApprovedGeneralRequestWorkflow(request) {
-  return (
-    normalize(request?.hr_status) === 'approved' &&
-    normalize(request?.agm_status) === 'approved' &&
-    normalize(request?.operations_status) === 'approved'
-  );
-}
-
-function isGeneralRequestReadyForFinance(request) {
-  return (
-    generalRequestNeedsFinance(request) &&
-    hasApprovedGeneralRequestWorkflow(request) &&
-    ['ready_for_disbursement', 'partially_paid'].includes(normalize(request?.finance_status)) &&
-    ['approved', 'partially_paid'].includes(normalize(request?.status))
-  );
-}
-
-function isGeneralRequestDisbursed(request) {
-  return (
-    generalRequestNeedsFinance(request) &&
-    normalize(request?.finance_status) === 'disbursed' &&
-    normalize(request?.status) === 'disbursed' &&
-    hasTimestamp(request?.disbursed_at)
-  );
-}
-
-function getGeneralRequestAmount(request) {
-  return Number(request?.amount || request?.approved_amount || 0);
-}
-
-function getFundFinanceStatus(request) {
-  return normalize(request.finance_status || request.status || 'pending_review');
-}
-
-function getFundStatusStyle(request) {
-  const status = getFundFinanceStatus(request);
-  return DISPATCH_FUND_STATUS[status] || DISPATCH_FUND_STATUS.pending_review;
-}
-
-function getFundPartName(request) {
-  return request.part_name || request.item_name || request.part_number || 'Requested Part';
-}
-
-function getFundEngineerName(request) {
-  return request.engineer_name || request.requested_for || 'N/A';
-}
-
-function getFundDestination(request) {
-  return request.destination || request.branch_name || request.location || 'N/A';
-}
-
-function getPOStatusStyle(lpo) {
-  return PO_STATUS[lpo?.status] || PO_STATUS.Draft;
-}
-
-function getPOItems(lpo) {
-  return Array.isArray(lpo?.items) ? lpo.items : [];
-}
-
-function getPOItemsCount(lpo) {
-  return getPOItems(lpo).length;
-}
-
-function getPOTotal(lpo) {
-  return Number(lpo?.total_amount_ngn || 0);
-}
-
-function getPOSupplier(lpo) {
-  return lpo?.supplier_name || 'No supplier';
-}
-
-function getFinanceRole(user) {
-  return normalizeRole(user?.role || user?.user_role || user?.position);
-}
-
-function canViewFullFinance(user) {
-  const role = getFinanceRole(user);
-  return [
-    'system_admin',
-    'admin',
-    'ceo',
-    'agm',
-    'finance',
-    'finance_manager',
-    'head_of_account',
-    'account',
-    'accounts',
-    'accountant',
-  ].includes(role);
-}
-
-function canManageFinance(user) {
-  const role = getFinanceRole(user);
-  return ['admin', 'ceo'].includes(role);
-}
-
-function canAddFinanceRecord(user) {
-  const role = getFinanceRole(user);
-  return ['system_admin', 'admin', 'ceo', 'finance', 'finance_manager', 'head_of_account'].includes(role);
-}
-
-function canProcessDispatchFunds(user) {
-  const role = getFinanceRole(user);
-  return ['system_admin', 'admin', 'ceo', 'agm', 'finance', 'finance_manager', 'head_of_account'].includes(role);
-}
-
-function canSubmitJournal(user) {
-  const role = getFinanceRole(user);
-  return [
-    'system_admin',
-    'admin',
-    'ceo',
-    'agm',
-    'finance',
-    'finance_manager',
-    'head_of_account',
-    'account',
-    'accounts',
-    'accountant',
-  ].includes(role);
-}
-
-function canApproveJournal(user) {
-  const role = getFinanceRole(user);
-  return [
-    'system_admin',
-    'admin',
-    'ceo',
-    'agm',
-    'finance_manager',
-    'head_of_account',
-  ].includes(role);
-}
-
-function canPostJournal(user) {
-  const role = getFinanceRole(user);
-  return [
-    'system_admin',
-    'admin',
-    'ceo',
-    'agm',
-    'finance_manager',
-    'head_of_account',
-  ].includes(role);
-}
-
-function OperationalFundCard({
-  icon: Icon,
-  iconClassName,
-  valueClassName,
-  label,
-  count,
-  amount,
-  loading,
-  error,
-  showAmount = true,
-  onClick,
-}) {
-  const value = loading ? '...' : error ? '!' : count;
-  const detail = loading
-    ? 'Loading live values...'
-    : error
-      ? 'Unable to load live values'
-      : showAmount
-        ? `${label} · ${fmt(amount)}`
-        : label;
-
-  const CardElement = onClick ? 'button' : 'div';
-
-  return (
-    <CardElement
-      type={onClick ? 'button' : undefined}
-      onClick={onClick}
-      className={
-        'w-full rounded-xl border bg-slate-900/50 p-4 text-left ' +
-        (onClick ? 'transition hover:border-primary/60 hover:bg-slate-900' : '')
-      }
-    >
-      <Icon className={`w-5 h-5 mb-2 ${iconClassName}`} />
-      <p className={`text-2xl font-bold ${valueClassName}`}>{value}</p>
-      <p className="text-xs text-muted-foreground">{detail}</p>
-    </CardElement>
-  );
-}
+import FinanceOperationalSummary from '@/components/finance/FinanceOperationalSummary';
+import {
+  INV_STATUS, EMPTY_INV, EXPENSE_CATEGORIES, PAYMENT_METHODS,
+  APPROVAL_STATUS, EMPTY_EXP, EMPTY_EXPENSE_REQUEST, EMPTY_EXPENSE_PAYMENT, EXPENSE_REQUEST_STATUS,
+  EXPENSE_EXCEPTION_TYPES, fmt, EMPTY_ACCOUNT, EMPTY_BANK_ACCOUNT, EMPTY_BUDGET, EMPTY_FIXED_ASSET,
+  EMPTY_JOURNAL_LINE, EMPTY_JOURNAL, BACKFILL_SOURCE_TABLES, AGEING_BUCKETS, CHART_COLORS, safeDate, normalize,
+  isPendingDispatchFund, isApprovedAwaitingDispatchFundDisbursement, isDisbursedDispatchFund,
+  isRejectedDispatchFund, getDispatchRequestedAmount, getDispatchApprovedAmount, isPendingAccountReleaseLpo,
+  getGeneralRequestCategory, generalRequestNeedsFinance,
+  isGeneralRequestReadyForFinance, isGeneralRequestDisbursed, getGeneralRequestAmount, getFundFinanceStatus,
+  getFundStatusStyle, getFundPartName, getFundEngineerName, getFundDestination, getPOStatusStyle, getPOItems,
+  getPOItemsCount, getPOTotal, getPOSupplier, getFinanceRole, canViewFullFinance, canManageFinance,
+  canAddFinanceRecord, canProcessDispatchFunds, canSubmitJournal, canApproveJournal, canPostJournal,
+} from '@/lib/financePortalModel';
 
 export default function FinancePortal() {
   const outlet = useOutletContext() || {};
@@ -654,6 +139,23 @@ export default function FinancePortal() {
   const [assetOpen, setAssetOpen] = useState(false);
   const [assetForm, setAssetForm] = useState(EMPTY_FIXED_ASSET);
   const [savingAsset, setSavingAsset] = useState(false);
+
+  const draftOwner = user?.id || user?.email || user?.user_email;
+  const financeDraftOptions = {
+    userId: draftOwner,
+    storage: 'session',
+    maxAgeMs: 8 * 60 * 60 * 1000,
+  };
+
+  useFormDraft({ key: editingInv?.id ? `finance-invoice-edit:${editingInv.id}` : 'finance-invoice-new', form: invForm, setForm: setInvForm, enabled: invOpen, ...financeDraftOptions });
+  useFormDraft({ key: editingExp?.id ? `finance-expense-edit:${editingExp.id}` : 'finance-expense-new', form: expForm, setForm: setExpForm, enabled: expOpen, ...financeDraftOptions });
+  useFormDraft({ key: editingExpenseRequest?.id ? `finance-expense-request-edit:${editingExpenseRequest.id}` : 'finance-expense-request-new', form: expenseRequestForm, setForm: setExpenseRequestForm, enabled: expenseRequestOpen, ...financeDraftOptions });
+  useFormDraft({ key: `finance-expense-payment:${expenseRequestForPayment?.id || 'new'}`, form: expensePaymentForm, setForm: setExpensePaymentForm, enabled: expenseRequestPaymentOpen, ...financeDraftOptions });
+  useFormDraft({ key: 'finance-account-new', form: accountForm, setForm: setAccountForm, enabled: accountOpen, ...financeDraftOptions });
+  useFormDraft({ key: 'finance-journal-new', form: journalForm, setForm: setJournalForm, enabled: journalOpen, ...financeDraftOptions });
+  useFormDraft({ key: 'finance-bank-account-new', form: bankForm, setForm: setBankForm, enabled: bankOpen, ...financeDraftOptions });
+  useFormDraft({ key: 'finance-budget-new', form: budgetForm, setForm: setBudgetForm, enabled: budgetOpen, ...financeDraftOptions });
+  useFormDraft({ key: 'finance-fixed-asset-new', form: assetForm, setForm: setAssetForm, enabled: assetOpen, ...financeDraftOptions });
 
   const { data: invoices = [], isLoading: loadingInv } = useQuery({
     queryKey: ['invoices'],
@@ -1782,11 +1284,6 @@ export default function FinancePortal() {
       [k]: v,
     }));
 
-  const financeAccountName = (accountId) => {
-    const account = financeAccounts.find((item) => item.id === accountId);
-    return account ? `${account.account_code} - ${account.account_name}` : 'No account';
-  };
-
   const setJournalLine = (index, field, value) => {
     setJournalForm((current) => ({
       ...current,
@@ -1905,44 +1402,19 @@ export default function FinancePortal() {
     try {
       setSavingJournal(true);
 
-      const { data: journalNo, error: noError } = await supabase.rpc(
-        'finance_generate_journal_no',
-        {
-          p_prefix: 'JV',
-          p_journal_date: journalForm.journal_date,
-        }
-      );
-
-      if (noError) throw noError;
-
-      const { data: journal, error: journalError } = await supabase
-        .from('finance_journals')
-        .insert({
-          journal_no: journalNo,
-          journal_date: journalForm.journal_date,
-          status: 'draft',
-          narration: journalForm.narration,
-          created_by: user?.id || null,
-          created_by_name: user?.full_name || user?.name || user?.email || null,
-        })
-        .select('id')
-        .single();
-
-      if (journalError) throw journalError;
-
-      const { error: lineError } = await supabase.from('finance_journal_lines').insert(
-        cleanLines.map((line) => ({
-          journal_id: journal.id,
-          line_no: line.line_no,
+      const { error } = await supabase.rpc('finance_create_journal_transaction', {
+        p_journal_date: journalForm.journal_date,
+        p_narration: journalForm.narration,
+        p_lines: cleanLines.map((line) => ({
           account_id: line.account_id,
           debit: line.debit,
           credit: line.credit,
           description: line.description || null,
           department: line.department || null,
-        }))
-      );
+        })),
+      });
 
-      if (lineError) throw lineError;
+      if (error) throw error;
 
       qc.invalidateQueries({ queryKey: ['finance_journals'] });
       qc.invalidateQueries({ queryKey: ['finance_general_ledger_view'] });
@@ -1958,40 +1430,6 @@ export default function FinancePortal() {
 
   const getActorName = () => user?.full_name || user?.name || user?.email || 'Finance';
 
-  const logJournalAudit = async ({
-    journal,
-    action,
-    previousStatus,
-    newStatus,
-    reason,
-    extra = {},
-  }) => {
-    const timestamp = new Date().toISOString();
-
-    const { error } = await supabase.from('finance_audit_logs').insert({
-      entity_table: 'finance_journals',
-      entity_id: String(journal.id),
-      action,
-      previous_value: {
-        journal_no: journal.journal_no,
-        status: previousStatus,
-        ...extra.previous_value,
-      },
-      new_value: {
-        journal_no: journal.journal_no,
-        status: newStatus,
-        reason: reason || null,
-        timestamp,
-        ...extra.new_value,
-      },
-      changed_by: user?.id || null,
-      changed_by_name: getActorName(),
-      created_at: timestamp,
-    });
-
-    if (error) throw error;
-  };
-
   const refreshJournalQueries = async () => {
     await qc.invalidateQueries({ queryKey: ['finance_journals'] });
     await qc.invalidateQueries({ queryKey: ['finance_general_ledger_view'] });
@@ -1999,28 +1437,23 @@ export default function FinancePortal() {
     await qc.invalidateQueries({ queryKey: ['finance_trial_balance_view'] });
   };
 
-  const updateJournalStatus = async (journal, nextStatus, payload = {}, audit = {}) => {
-    const previousStatus = journal.status;
+  const updateJournalStatus = async (journal, nextStatus, _payload = {}, audit = {}) => {
+    const actionByStatus = {
+      pending_review: 'submit',
+      approved: 'approve',
+      rejected: 'reject',
+      posted: 'post',
+    };
+    const action = actionByStatus[nextStatus];
+    if (!action) throw new Error(`Unsupported journal status transition: ${nextStatus}`);
 
-    const { error } = await supabase
-      .from('finance_journals')
-      .update({
-        ...payload,
-        status: nextStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', journal.id);
+    const { error } = await supabase.rpc('finance_transition_journal', {
+      p_journal_id: journal.id,
+      p_action: action,
+      p_reason: audit.reason || null,
+    });
 
     if (error) throw error;
-
-    await logJournalAudit({
-      journal,
-      action: audit.action,
-      previousStatus,
-      newStatus: nextStatus,
-      reason: audit.reason,
-      extra: audit.extra,
-    });
 
     await refreshJournalQueries();
   };
@@ -2061,6 +1494,11 @@ export default function FinancePortal() {
 
     if (journal.status !== 'pending_review') {
       alert('Only pending review journals can be approved.');
+      return;
+    }
+
+    if (journal.created_by && journal.created_by === user?.id) {
+      alert('The journal creator cannot approve the same journal.');
       return;
     }
 
@@ -2132,15 +1570,13 @@ export default function FinancePortal() {
       return;
     }
 
+    if (journal.created_by && journal.created_by === user?.id) {
+      alert('The journal creator cannot post the same journal.');
+      return;
+    }
+
     try {
       setJournalActionBusy(`${journal.id}:post`);
-
-      const { error: validationError } = await supabase.rpc(
-        'finance_validate_balanced_journal',
-        { p_journal_id: journal.id }
-      );
-
-      if (validationError) throw validationError;
 
       await updateJournalStatus(
         journal,
@@ -2172,6 +1608,11 @@ export default function FinancePortal() {
       return;
     }
 
+    if (journal.created_by && journal.created_by === user?.id) {
+      alert('The journal creator cannot reverse the same journal.');
+      return;
+    }
+
     const reason = window.prompt('Reason for reversal?');
 
     if (!reason || !reason.trim()) return;
@@ -2179,30 +1620,15 @@ export default function FinancePortal() {
     try {
       setJournalActionBusy(`${journal.id}:reverse`);
 
-      const { data: reversalId, error } = await supabase.rpc(
-        'finance_create_reversal_journal',
+      const { error } = await supabase.rpc(
+        'finance_create_reversal_transaction',
         {
           p_original_journal_id: journal.id,
-          p_created_by: user?.id || null,
-          p_created_by_name: getActorName(),
-          p_narration: `Reversal for ${journal.journal_no}: ${reason.trim()}`,
+          p_reason: reason.trim(),
         }
       );
 
       if (error) throw error;
-
-      await logJournalAudit({
-        journal,
-        action: 'journal_reversal_created',
-        previousStatus: journal.status,
-        newStatus: journal.status,
-        reason: reason.trim(),
-        extra: {
-          new_value: {
-            reversal_journal_id: reversalId,
-          },
-        },
-      });
 
       await refreshJournalQueries();
     } catch (err) {
@@ -2226,21 +1652,23 @@ export default function FinancePortal() {
       .find(Boolean);
   };
 
+  const createSourceDraftJournal = async ({ sourceTable, sourceId, journalDate, narration, lines }) => {
+    const { data, error } = await supabase.rpc('finance_create_source_journal_transaction', {
+      p_source_table: sourceTable,
+      p_source_id: String(sourceId),
+      p_journal_date: journalDate,
+      p_narration: narration,
+      p_lines: lines,
+    });
+
+    if (error) throw error;
+    return data;
+  };
+
   const createPaidInvoiceDraftJournal = async (invoice) => {
     const amount = Number(invoice?.amount || 0);
 
     if (!invoice?.id || !Number.isFinite(amount) || amount <= 0) return false;
-
-    const { data: existingJournal, error: existingError } = await supabase
-      .from('finance_journals')
-      .select('id')
-      .eq('source_table', 'invoices')
-      .eq('source_id', String(invoice.id))
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) throw existingError;
-    if (existingJournal?.id) return false;
 
     const paymentText = normalize(`${invoice.payment_mode || ''} ${invoice.payment_source || ''}`);
     const invoiceText = normalize(`${invoice.payment_source || ''} ${invoice.description || ''}`);
@@ -2266,64 +1694,25 @@ export default function FinancePortal() {
     const journalDate =
       invoice.paid_date || new Date().toISOString().slice(0, 10);
 
-    const { data: journalNo, error: noError } = await supabase.rpc(
-      'finance_generate_journal_no',
-      {
-        p_prefix: 'INV',
-        p_journal_date: journalDate,
-      }
-    );
-
-    if (noError) throw noError;
-
-    const { data: journal, error: journalError } = await supabase
-      .from('finance_journals')
-      .insert({
-        journal_no: journalNo,
-        journal_date: journalDate,
-        source_module: 'finance',
-        source_table: 'invoices',
-        source_id: String(invoice.id),
-        status: 'draft',
-        narration: `Paid invoice ${invoice.invoice_number || invoice.id} - ${invoice.client_name || 'Customer'}`,
-        created_by: user?.id || null,
-        created_by_name: user?.full_name || user?.name || user?.email || null,
-      })
-      .select('id')
-      .single();
-
-    if (journalError) throw journalError;
-
-    const { error: lineError } = await supabase.from('finance_journal_lines').insert([
-      {
-        journal_id: journal.id,
-        line_no: 1,
+    const result = await createSourceDraftJournal({
+      sourceTable: 'invoices',
+      sourceId: invoice.id,
+      journalDate,
+      narration: `Paid invoice ${invoice.invoice_number || invoice.id} - ${invoice.client_name || 'Customer'}`,
+      lines: [{
         account_id: debitAccount.id,
         debit: amount,
         credit: 0,
         description: `Payment received for invoice ${invoice.invoice_number || invoice.id}`,
-      },
-      {
-        journal_id: journal.id,
-        line_no: 2,
+      }, {
         account_id: creditAccount.id,
         debit: 0,
         credit: amount,
         description: invoice.description || invoice.payment_source || 'Invoice revenue',
-      },
-    ]);
+      }],
+    });
 
-    if (lineError) {
-      await supabase
-        .from('finance_journals')
-        .delete()
-        .eq('id', journal.id)
-        .eq('status', 'draft');
-
-      throw lineError;
-    }
-
-    return true;
+    return result?.created === true;
   };
 
   const getExpenseAccountCodes = (expense = {}) => {
@@ -2348,17 +1737,6 @@ export default function FinancePortal() {
 
     if (!expense?.id || !Number.isFinite(amount) || amount <= 0) return false;
 
-    const { data: existingJournal, error: existingError } = await supabase
-      .from('finance_journals')
-      .select('id')
-      .eq('source_table', 'expenses')
-      .eq('source_id', String(expense.id))
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) throw existingError;
-    if (existingJournal?.id) return false;
-
     const expenseAccount = await findFinanceAccountByCode(getExpenseAccountCodes(expense));
     const paymentText = normalize(expense.payment_method || '');
     const creditAccount = paymentText.includes('cash')
@@ -2374,80 +1752,25 @@ export default function FinancePortal() {
       expense.approved_date?.slice?.(0, 10) ||
       new Date().toISOString().slice(0, 10);
 
-    const { data: journalNo, error: noError } = await supabase.rpc(
-      'finance_generate_journal_no',
-      {
-        p_prefix: 'EXP',
-        p_journal_date: journalDate,
-      }
-    );
-
-    if (noError) throw noError;
-
-    const { data: journal, error: journalError } = await supabase
-      .from('finance_journals')
-      .insert({
-        journal_no: journalNo,
-        journal_date: journalDate,
-        source_module: 'finance',
-        source_table: 'expenses',
-        source_id: String(expense.id),
-        status: 'draft',
-        narration: `Approved expense ${expense.expense_number || expense.id} - ${expense.category || 'Expense'}`,
-        created_by: user?.id || null,
-        created_by_name: user?.full_name || user?.name || user?.email || null,
-      })
-      .select('id')
-      .single();
-
-    if (journalError) throw journalError;
-
-    const { error: lineError } = await supabase.from('finance_journal_lines').insert([
-      {
-        journal_id: journal.id,
-        line_no: 1,
+    const result = await createSourceDraftJournal({
+      sourceTable: 'expenses',
+      sourceId: expense.id,
+      journalDate,
+      narration: `Approved expense ${expense.expense_number || expense.id} - ${expense.category || 'Expense'}`,
+      lines: [{
         account_id: expenseAccount.id,
         debit: amount,
         credit: 0,
         description: expense.description || expense.category || 'Approved expense',
-      },
-      {
-        journal_id: journal.id,
-        line_no: 2,
+      }, {
         account_id: creditAccount.id,
         debit: 0,
         credit: amount,
         description: `Payment for expense ${expense.expense_number || expense.id}`,
-      },
-    ]);
-
-    if (lineError) {
-      await supabase
-        .from('finance_journals')
-        .delete()
-        .eq('id', journal.id)
-        .eq('status', 'draft');
-
-      throw lineError;
-    }
-
-    return true;
-  };
-
-  const logExpenseRequestHistory = async (request, action, previousStatus, newStatus, comments, metadata = {}) => {
-    const { error } = await supabase.from('finance_expense_request_history').insert({
-      expense_request_id: request.id,
-      actor_user_id: user?.id || null,
-      actor_email: user?.email || user?.user_email || null,
-      actor_name: user?.full_name || user?.name || user?.email || 'User',
-      action,
-      previous_status: previousStatus || null,
-      new_status: newStatus || null,
-      comments: comments || null,
-      metadata,
+      }],
     });
 
-    if (error) console.warn('Expense request history log failed:', error.message);
+    return result?.created === true;
   };
 
   const notifyExpenseRequester = async (request, title, message) => {
@@ -2474,96 +1797,6 @@ export default function FinancePortal() {
       data: { expense_request_id: request.id, request_number: request.request_number },
       sendEmail: false,
     });
-  };
-
-  const createExpenseRequestPaymentDraftJournal = async (request, payment) => {
-    const amount = Number(payment?.amount_paid || 0);
-    if (!request?.id || !payment?.id || !Number.isFinite(amount) || amount <= 0) return false;
-
-    const { data: existingJournal, error: existingError } = await supabase
-      .from('finance_journals')
-      .select('id')
-      .eq('source_table', 'finance_expense_payments')
-      .eq('source_id', String(payment.id))
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) throw existingError;
-    if (existingJournal?.id) return false;
-
-    const expenseAccount = await findFinanceAccountByCode(
-      getExpenseAccountCodes({
-        category: request.expense_category,
-        description: `${request.purpose || ''} ${request.description || ''}`,
-      })
-    );
-    const paymentText = normalize(payment.payment_method || '');
-    const creditAccount = paymentText.includes('cash')
-      ? await findFinanceAccountByCode(['1010'])
-      : await findFinanceAccountByCode(['1020', '1010']);
-
-    if (!expenseAccount || !creditAccount) {
-      throw new Error('Required finance accounts were not found for expense request payment journal.');
-    }
-
-    const journalDate = payment.payment_date || new Date().toISOString().slice(0, 10);
-    const { data: journalNo, error: noError } = await supabase.rpc('finance_generate_journal_no', {
-      p_prefix: 'ERP',
-      p_journal_date: journalDate,
-    });
-
-    if (noError) throw noError;
-
-    const { data: journal, error: journalError } = await supabase
-      .from('finance_journals')
-      .insert({
-        journal_no: journalNo,
-        journal_date: journalDate,
-        source_module: 'finance',
-        source_table: 'finance_expense_payments',
-        source_id: String(payment.id),
-        status: 'draft',
-        narration: `Expense request payment ${request.request_number} - ${request.purpose}`,
-        created_by: user?.id || null,
-        created_by_name: user?.full_name || user?.name || user?.email || null,
-      })
-      .select('id')
-      .single();
-
-    if (journalError) throw journalError;
-
-    const { error: lineError } = await supabase.from('finance_journal_lines').insert([
-      {
-        journal_id: journal.id,
-        line_no: 1,
-        account_id: expenseAccount.id,
-        debit: amount,
-        credit: 0,
-        description: request.purpose || 'Expense request payment',
-        department: request.department || null,
-      },
-      {
-        journal_id: journal.id,
-        line_no: 2,
-        account_id: creditAccount.id,
-        debit: 0,
-        credit: amount,
-        description: payment.payment_reference || `Payment ${payment.payment_number}`,
-        department: request.department || null,
-      },
-    ]);
-
-    if (lineError) {
-      await supabase.from('finance_journals').delete().eq('id', journal.id).eq('status', 'draft');
-      throw lineError;
-    }
-
-    await supabase
-      .from('finance_expense_payments')
-      .update({ journal_id: journal.id })
-      .eq('id', payment.id);
-
-    return journal.id;
   };
 
   const getPOFundReleaseAccountCodes = (lpo = {}) => {
@@ -2605,17 +1838,6 @@ export default function FinancePortal() {
 
     if (!lpo?.id || !Number.isFinite(amount) || amount <= 0) return false;
 
-    const { data: existingJournal, error: existingError } = await supabase
-      .from('finance_journals')
-      .select('id')
-      .eq('source_table', 'lpos')
-      .eq('source_id', String(lpo.id))
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) throw existingError;
-    if (existingJournal?.id) return false;
-
     const debitAccount = await findFinanceAccountByCode(getPOFundReleaseAccountCodes(lpo));
     const paymentText = normalize(`${lpo.payment_method || ''} ${lpo.payment_mode || ''} ${lpo.funding_source || ''}`);
     const creditAccount = paymentText.includes('cash')
@@ -2628,64 +1850,25 @@ export default function FinancePortal() {
 
     const journalDate = new Date().toISOString().slice(0, 10);
 
-    const { data: journalNo, error: noError } = await supabase.rpc(
-      'finance_generate_journal_no',
-      {
-        p_prefix: 'PO',
-        p_journal_date: journalDate,
-      }
-    );
-
-    if (noError) throw noError;
-
-    const { data: journal, error: journalError } = await supabase
-      .from('finance_journals')
-      .insert({
-        journal_no: journalNo,
-        journal_date: journalDate,
-        source_module: 'finance',
-        source_table: 'lpos',
-        source_id: String(lpo.id),
-        status: 'draft',
-        narration: `PO fund release ${lpo.lpo_number || lpo.id} - ${getPOSupplier(lpo)}`,
-        created_by: user?.id || null,
-        created_by_name: user?.full_name || user?.name || user?.email || null,
-      })
-      .select('id')
-      .single();
-
-    if (journalError) throw journalError;
-
-    const { error: lineError } = await supabase.from('finance_journal_lines').insert([
-      {
-        journal_id: journal.id,
-        line_no: 1,
+    const result = await createSourceDraftJournal({
+      sourceTable: 'lpos',
+      sourceId: lpo.id,
+      journalDate,
+      narration: `PO fund release ${lpo.lpo_number || lpo.id} - ${getPOSupplier(lpo)}`,
+      lines: [{
         account_id: debitAccount.id,
         debit: amount,
         credit: 0,
         description: `PO fund release for ${lpo.lpo_number || lpo.id}`,
-      },
-      {
-        journal_id: journal.id,
-        line_no: 2,
+      }, {
         account_id: creditAccount.id,
         debit: 0,
         credit: amount,
         description: `Bank/cash release for ${lpo.lpo_number || lpo.id}`,
-      },
-    ]);
+      }],
+    });
 
-    if (lineError) {
-      await supabase
-        .from('finance_journals')
-        .delete()
-        .eq('id', journal.id)
-        .eq('status', 'draft');
-
-      throw lineError;
-    }
-
-    return true;
+    return result?.created === true;
   };
 
   const getDispatchFundAccountCodes = (fundRequest = {}) => {
@@ -2710,17 +1893,6 @@ export default function FinancePortal() {
 
     if (!fundRequest?.id || !Number.isFinite(amount) || amount <= 0) return false;
 
-    const { data: existingJournal, error: existingError } = await supabase
-      .from('finance_journals')
-      .select('id')
-      .eq('source_table', 'inventory_dispatch_fund_requests')
-      .eq('source_id', String(fundRequest.id))
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) throw existingError;
-    if (existingJournal?.id) return false;
-
     const debitAccount = await findFinanceAccountByCode(getDispatchFundAccountCodes(fundRequest));
     const paymentText = normalize(
       `${fundRequest.payment_method || ''} ${fundRequest.payment_mode || ''} ${fundRequest.funding_source || ''}`
@@ -2739,64 +1911,25 @@ export default function FinancePortal() {
       fundRequest.updated_at?.slice?.(0, 10) ||
       new Date().toISOString().slice(0, 10);
 
-    const { data: journalNo, error: noError } = await supabase.rpc(
-      'finance_generate_journal_no',
-      {
-        p_prefix: 'DF',
-        p_journal_date: journalDate,
-      }
-    );
-
-    if (noError) throw noError;
-
-    const { data: journal, error: journalError } = await supabase
-      .from('finance_journals')
-      .insert({
-        journal_no: journalNo,
-        journal_date: journalDate,
-        source_module: 'finance',
-        source_table: 'inventory_dispatch_fund_requests',
-        source_id: String(fundRequest.id),
-        status: 'draft',
-        narration: `Dispatch fund ${fundRequest.part_name || fundRequest.part_number || fundRequest.id} - ${getFundEngineerName(fundRequest)}`,
-        created_by: user?.id || null,
-        created_by_name: user?.full_name || user?.name || user?.email || null,
-      })
-      .select('id')
-      .single();
-
-    if (journalError) throw journalError;
-
-    const { error: lineError } = await supabase.from('finance_journal_lines').insert([
-      {
-        journal_id: journal.id,
-        line_no: 1,
+    const result = await createSourceDraftJournal({
+      sourceTable: 'inventory_dispatch_fund_requests',
+      sourceId: fundRequest.id,
+      journalDate,
+      narration: `Dispatch fund ${fundRequest.part_name || fundRequest.part_number || fundRequest.id} - ${getFundEngineerName(fundRequest)}`,
+      lines: [{
         account_id: debitAccount.id,
         debit: amount,
         credit: 0,
         description: `Dispatch fund for ${fundRequest.part_name || fundRequest.part_number || fundRequest.id}`,
-      },
-      {
-        journal_id: journal.id,
-        line_no: 2,
+      }, {
         account_id: creditAccount.id,
         debit: 0,
         credit: amount,
         description: `Bank/cash disbursement for dispatch fund ${fundRequest.id}`,
-      },
-    ]);
+      }],
+    });
 
-    if (lineError) {
-      await supabase
-        .from('finance_journals')
-        .delete()
-        .eq('id', journal.id)
-        .eq('status', 'draft');
-
-      throw lineError;
-    }
-
-    return true;
+    return result?.created === true;
   };
 
   const createHistoricalBackfillDraftJournals = async () => {
@@ -3091,8 +2224,7 @@ export default function FinancePortal() {
       setEditingInv(null);
       setInvOpen(false);
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to save invoice');
+      reportError(err, { context: 'finance.invoice.save', userMessage: 'Failed to save invoice.' });
     } finally {
       setSavingInv(false);
     }
@@ -3143,21 +2275,6 @@ export default function FinancePortal() {
     qc.invalidateQueries({ queryKey: ['invoices'] });
   };
 
-  const deleteInvoice = async (id) => {
-    const confirmed = window.confirm('Delete this invoice?');
-
-    if (!confirmed) return;
-
-    const { error } = await supabase.from('invoices').delete().eq('id', id);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    qc.invalidateQueries({ queryKey: ['invoices'] });
-  };
-
   const saveExpenseRequest = async (submit = false) => {
     if (!expenseRequestForm.expense_category || !expenseRequestForm.purpose.trim()) {
       alert('Expense category and purpose are required.');
@@ -3172,26 +2289,7 @@ export default function FinancePortal() {
 
     try {
       setSavingExpenseRequest(true);
-      const nextStatus = submit ? 'submitted' : 'draft';
-      const now = new Date().toISOString();
-
-      let requestNumber = editingExpenseRequest?.request_number;
-      if (!requestNumber) {
-        const { data, error } = await supabase.rpc('finance_generate_expense_request_no', {
-          p_request_date: new Date().toISOString().slice(0, 10),
-        });
-        if (error) throw error;
-        requestNumber = data;
-      }
-
       const payload = {
-        request_number: requestNumber,
-        requester_user_id: editingExpenseRequest?.requester_user_id || user?.id || null,
-        requester_email:
-          editingExpenseRequest?.requester_email || user?.email || user?.user_email || null,
-        requester_name:
-          editingExpenseRequest?.requester_name || user?.full_name || user?.name || user?.email || 'User',
-        department: editingExpenseRequest?.department || user?.department || null,
         expense_category: expenseRequestForm.expense_category,
         purpose: expenseRequestForm.purpose.trim(),
         description: expenseRequestForm.description || null,
@@ -3199,64 +2297,15 @@ export default function FinancePortal() {
         supplier_email: expenseRequestForm.supplier_email || null,
         beneficiary_name: expenseRequestForm.beneficiary_name || null,
         amount_requested: amountRequested,
-        amount_approved: Number(expenseRequestForm.amount_approved || 0),
         currency: expenseRequestForm.currency || 'NGN',
         required_date: expenseRequestForm.required_date || null,
-        status: nextStatus,
-        current_approval_stage: submit ? 'management_review' : 'requester',
-        next_approver_role: submit ? 'manager' : null,
-        submitted_at: submit ? editingExpenseRequest?.submitted_at || now : editingExpenseRequest?.submitted_at || null,
-        updated_by: user?.id || null,
       };
-
-      let savedRequest = null;
-      if (editingExpenseRequest?.id) {
-        if (!['draft', 'returned_for_correction'].includes(editingExpenseRequest.status)) {
-          alert('Only draft or returned requests can be edited.');
-          return;
-        }
-        const { data, error } = await supabase
-          .from('finance_expense_requests')
-          .update(payload)
-          .eq('id', editingExpenseRequest.id)
-          .select('*')
-          .single();
-        if (error) throw error;
-        savedRequest = data;
-      } else {
-        const { data, error } = await supabase
-          .from('finance_expense_requests')
-          .insert({
-            ...payload,
-            created_by: user?.id || null,
-          })
-          .select('*')
-          .single();
-        if (error) throw error;
-        savedRequest = data;
-      }
-
-      await logExpenseRequestHistory(
-        savedRequest,
-        submit ? 'submitted' : editingExpenseRequest ? 'updated' : 'created',
-        editingExpenseRequest?.status,
-        savedRequest.status,
-        submit ? 'Submitted for approval' : 'Saved as draft'
-      );
-
-      if (submit) {
-        await supabase.from('finance_expense_request_approvals').insert({
-          expense_request_id: savedRequest.id,
-          approval_stage: 'requester_submission',
-          approver_user_id: user?.id || null,
-          approver_email: user?.email || user?.user_email || null,
-          approver_name: user?.full_name || user?.name || user?.email || 'User',
-          decision: 'submitted',
-          previous_status: editingExpenseRequest?.status || 'draft',
-          new_status: savedRequest.status,
-          comments: 'Submitted for review',
-        });
-      }
+      const { error } = await supabase.rpc('finance_save_expense_request_transaction', {
+        p_request_id: editingExpenseRequest?.id || null,
+        p_submit: submit,
+        p_payload: payload,
+      });
+      if (error) throw error;
 
       qc.invalidateQueries({ queryKey: ['finance_expense_requests'] });
       setExpenseRequestForm(EMPTY_EXPENSE_REQUEST);
@@ -3264,8 +2313,7 @@ export default function FinancePortal() {
       setExpenseRequestOpen(false);
       alert(submit ? 'Expense request submitted.' : 'Expense request saved as draft.');
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to save expense request.');
+      reportError(err, { context: 'finance.expense_request.save', userMessage: 'Failed to save expense request.' });
     } finally {
       setSavingExpenseRequest(false);
     }
@@ -3278,39 +2326,13 @@ export default function FinancePortal() {
     }
 
     try {
-      const previousStatus = request.status;
-      const { data: updated, error } = await supabase
-        .from('finance_expense_requests')
-        .update({
-          status: 'submitted',
-          current_approval_stage: 'management_review',
-          next_approver_role: 'manager',
-          submitted_at: request.submitted_at || new Date().toISOString(),
-          updated_by: user?.id || null,
-        })
-        .eq('id', request.id)
-        .select('*')
-        .single();
-
-      if (error) throw error;
-
-      await supabase.from('finance_expense_request_approvals').insert({
-        expense_request_id: request.id,
-        approval_stage: 'requester_submission',
-        approver_user_id: user?.id || null,
-        approver_email: user?.email || user?.user_email || null,
-        approver_name: user?.full_name || user?.name || user?.email || 'User',
-        decision: 'submitted',
-        previous_status: previousStatus,
-        new_status: 'submitted',
-        comments: 'Submitted for review',
+      const { error } = await supabase.rpc('finance_submit_expense_request_transaction', {
+        p_request_id: request.id,
       });
-
-      await logExpenseRequestHistory(updated, 'submitted', previousStatus, 'submitted', 'Submitted for review');
+      if (error) throw error;
       qc.invalidateQueries({ queryKey: ['finance_expense_requests'] });
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to submit expense request.');
+      reportError(err, { context: 'finance.expense_request.submit', userMessage: 'Failed to submit expense request.' });
     }
   };
 
@@ -3331,70 +2353,13 @@ export default function FinancePortal() {
     }
 
     try {
-      const previousStatus = request.status;
-      let nextStatus = request.status;
-      let nextStage = request.current_approval_stage;
-      let paymentStatus = request.payment_status || 'unpaid';
-      const payload = { updated_by: user?.id || null };
-
-      if (decision === 'approved') {
-        nextStatus = 'pending_finance_review';
-        nextStage = 'finance_review';
-        payload.amount_approved = Number(request.amount_approved || request.amount_requested || 0);
-        payload.approved_at = new Date().toISOString();
-      }
-
-      if (decision === 'rejected') {
-        nextStatus = 'rejected';
-        nextStage = 'closed';
-        payload.rejected_at = new Date().toISOString();
-      }
-
-      if (decision === 'returned_for_correction') {
-        nextStatus = 'returned_for_correction';
-        nextStage = 'requester';
-        payload.returned_at = new Date().toISOString();
-      }
-
-      if (decision === 'approved_for_payment') {
-        if (!canFinanceReviewExpenseRequest(request)) {
-          alert('Only Finance or authorised management can approve for payment.');
-          return;
-        }
-        nextStatus = 'approved_for_payment';
-        nextStage = 'payment';
-        paymentStatus = 'unpaid';
-        payload.finance_reviewed_at = new Date().toISOString();
-      }
-
-      const { data: updated, error } = await supabase
-        .from('finance_expense_requests')
-        .update({
-          ...payload,
-          status: nextStatus,
-          payment_status: paymentStatus,
-          current_approval_stage: nextStage,
-        })
-        .eq('id', request.id)
-        .select('*')
-        .single();
-
-      if (error) throw error;
-
-      await supabase.from('finance_expense_request_approvals').insert({
-        expense_request_id: request.id,
-        approval_stage: request.current_approval_stage || 'management_review',
-        approver_role: getFinanceRole(user),
-        approver_user_id: user?.id || null,
-        approver_email: user?.email || user?.user_email || null,
-        approver_name: user?.full_name || user?.name || user?.email || 'Approver',
-        decision,
-        comments: comments || null,
-        previous_status: previousStatus,
-        new_status: nextStatus,
+      const { data: updated, error } = await supabase.rpc('finance_decide_expense_request_transaction', {
+        p_request_id: request.id,
+        p_decision: decision,
+        p_comments: comments || null,
       });
-
-      await logExpenseRequestHistory(updated, decision, previousStatus, nextStatus, comments);
+      if (error) throw error;
+      const nextStatus = updated.status;
 
       if (decision === 'approved') await notifyFinanceExpenseRequest(updated);
       if (['rejected', 'returned_for_correction', 'approved_for_payment'].includes(decision)) {
@@ -3407,8 +2372,7 @@ export default function FinancePortal() {
 
       qc.invalidateQueries({ queryKey: ['finance_expense_requests'] });
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to update expense request.');
+      reportError(err, { context: 'finance.expense_request.decide', userMessage: 'Failed to update expense request.' });
     }
   };
 
@@ -3451,104 +2415,33 @@ export default function FinancePortal() {
     try {
       setSavingExpensePayment(true);
       const paymentDate = expensePaymentForm.payment_date || new Date().toISOString().slice(0, 10);
-      const { data: paymentNo, error: noError } = await supabase.rpc('finance_generate_expense_payment_no', {
-        p_payment_date: paymentDate,
-      });
-      if (noError) throw noError;
-
-      const { data: payment, error: paymentError } = await supabase
-        .from('finance_expense_payments')
-        .insert({
-          expense_request_id: request.id,
-          payment_number: paymentNo,
-          amount_paid: amountPaid,
-          payment_method: expensePaymentForm.payment_method,
-          payment_reference: expensePaymentForm.payment_reference || null,
-          bank_account_id:
-            expensePaymentForm.bank_account_id === 'none' ? null : expensePaymentForm.bank_account_id,
-          payment_date: paymentDate,
-          payment_status: 'paid',
-          paid_by: user?.id || null,
-          paid_by_email: user?.email || user?.user_email || null,
-          paid_by_name: user?.full_name || user?.name || user?.email || 'Finance',
-          notes: expensePaymentForm.notes || null,
+      const expenseAccount = await findFinanceAccountByCode(
+        getExpenseAccountCodes({
+          category: request.expense_category,
+          description: `${request.purpose || ''} ${request.description || ''}`,
         })
-        .select('*')
-        .single();
-
-      if (paymentError) throw paymentError;
-
-      const newPaidTotal = getExpenseRequestPaidTotal(request) + amountPaid;
-      const approvedAmount = getExpenseRequestApprovedAmount(request);
-      const paidInFull = newPaidTotal >= approvedAmount;
-      const nextStatus = paidInFull ? 'paid' : 'partially_paid';
-      const nextPaymentStatus = paidInFull ? 'paid' : 'partially_paid';
-
-      let resultingExpenseId = request.resulting_expense_id || null;
-      if (!resultingExpenseId) {
-        const { data: insertedExpense, error: expenseError } = await supabase
-          .from('expenses')
-          .insert({
-            category: request.expense_category,
-            amount: newPaidTotal,
-            currency: request.currency || 'NGN',
-            payment_method: expensePaymentForm.payment_method,
-            description: request.purpose,
-            staff_responsible: request.beneficiary_name || request.requester_name || null,
-            staff_email: request.requester_email || null,
-            approval_status: 'approved',
-            approved_by: user?.email || '',
-            approved_date: new Date().toISOString(),
-            expense_date: paymentDate,
-            notes: request.description || null,
-            expense_number: `EXP-${Date.now().toString().slice(-6)}`,
-            expense_request_id: request.id,
-            expense_source_type: 'request_generated',
-            updated_at: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-          })
-          .select('id')
-          .single();
-
-        if (expenseError) throw expenseError;
-        resultingExpenseId = String(insertedExpense.id);
-      } else {
-        await supabase
-          .from('expenses')
-          .update({
-            amount: newPaidTotal,
-            payment_method: expensePaymentForm.payment_method,
-            expense_date: paymentDate,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', resultingExpenseId);
+      );
+      const paymentText = normalize(expensePaymentForm.payment_method || '');
+      const creditAccount = paymentText.includes('cash')
+        ? await findFinanceAccountByCode(['1010'])
+        : await findFinanceAccountByCode(['1020', '1010']);
+      if (!expenseAccount || !creditAccount) {
+        throw new Error('Required finance accounts were not found for this payment journal.');
       }
 
-      const journalId = await createExpenseRequestPaymentDraftJournal(request, payment);
-
-      const { error: updateError } = await supabase
-        .from('finance_expense_requests')
-        .update({
-          amount_paid: newPaidTotal,
-          payment_status: nextPaymentStatus,
-          status: nextStatus,
-          paid_at: paidInFull ? new Date().toISOString() : request.paid_at || null,
-          resulting_expense_id: resultingExpenseId,
-          resulting_journal_id: request.resulting_journal_id || journalId || null,
-          updated_by: user?.id || null,
-        })
-        .eq('id', request.id);
-
-      if (updateError) throw updateError;
-
-      await logExpenseRequestHistory(
-        request,
-        paidInFull ? 'final_payment_recorded' : 'partial_payment_recorded',
-        request.status,
-        nextStatus,
-        expensePaymentForm.notes,
-        { payment_number: payment.payment_number, amount_paid: amountPaid, journal_id: journalId }
-      );
+      const { error } = await supabase.rpc('finance_record_expense_payment_transaction', {
+        p_request_id: request.id,
+        p_amount: amountPaid,
+        p_payment_method: expensePaymentForm.payment_method,
+        p_payment_reference: expensePaymentForm.payment_reference || null,
+        p_bank_account_id:
+          expensePaymentForm.bank_account_id === 'none' ? null : expensePaymentForm.bank_account_id,
+        p_payment_date: paymentDate,
+        p_notes: expensePaymentForm.notes || null,
+        p_expense_account_id: expenseAccount.id,
+        p_credit_account_id: creditAccount.id,
+      });
+      if (error) throw error;
 
       await notifyExpenseRequester(
         request,
@@ -3566,8 +2459,7 @@ export default function FinancePortal() {
       setExpensePaymentForm(EMPTY_EXPENSE_PAYMENT);
       alert('Expense payment recorded and draft journal created.');
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to record expense payment.');
+      reportError(err, { context: 'finance.expense_payment.record', userMessage: 'Failed to record expense payment.' });
     } finally {
       setSavingExpensePayment(false);
     }
@@ -3692,8 +2584,7 @@ export default function FinancePortal() {
       setEditingExp(null);
       setExpOpen(false);
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to save expense');
+      reportError(err, { context: 'finance.expense.save', userMessage: 'Failed to save expense.' });
     } finally {
       setSavingExp(false);
     }
@@ -3745,47 +2636,6 @@ export default function FinancePortal() {
     qc.invalidateQueries({ queryKey: ['expenses'] });
   };
 
-  const deleteExpense = async (id) => {
-    const confirmed = window.confirm('Delete this expense?');
-
-    if (!confirmed) return;
-
-    const { error } = await supabase.from('expenses').delete().eq('id', id);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    qc.invalidateQueries({ queryKey: ['expenses'] });
-  };
-
-  const updateLinkedPartRequest = async (fundRequest, payload) => {
-    if (!fundRequest.part_request_id) return;
-
-    const { error } = await supabase
-      .from('part_requests')
-      .update({
-        ...payload,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', fundRequest.part_request_id);
-
-    if (error) throw error;
-  };
-
-  const writeFinanceEvent = async (fundRequest, actionText, severity = 'info') => {
-    await supabase.from('operations_events').insert({
-      event_type: 'DISPATCH_FUND_FINANCE_UPDATE',
-      title: `Finance ${actionText}`,
-      description: `Finance ${actionText} for ${getFundPartName(fundRequest)} - ${getFundEngineerName(fundRequest)}`,
-      source_module: 'Finance',
-      entity_type: 'inventory_dispatch_fund_request',
-      entity_id: fundRequest.id,
-      severity,
-    });
-  };
-
   const approveDispatchFund = async (fundRequest) => {
     const approvedAmount = Number(getApprovedAmount(fundRequest) || 0);
 
@@ -3799,29 +2649,14 @@ export default function FinancePortal() {
 
       const financeNote = getFinanceNote(fundRequest);
 
-      const { error } = await supabase
-        .from('inventory_dispatch_fund_requests')
-        .update({
-          approved_amount: approvedAmount,
-          status: 'approved',
-          finance_status: 'approved',
-          finance_note: financeNote || null,
-          approved_by: user?.full_name || user?.name || user?.email || 'Finance',
-          approved_by_email: user?.email || null,
-          approved_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', fundRequest.id);
-
-      if (error) throw error;
-
-      await updateLinkedPartRequest(fundRequest, {
-        finance_status: 'approved',
-        dispatch_status: 'awaiting_disbursement',
-        lifecycle_status: 'dispatch_fund_approved',
+      const { error } = await supabase.rpc('inventory_transition_dispatch_fund', {
+        p_fund_request_id: fundRequest.id,
+        p_action: 'approve',
+        p_approved_amount: approvedAmount,
+        p_finance_note: financeNote || null,
       });
 
-      await writeFinanceEvent(fundRequest, 'approved dispatch fund request');
+      if (error) throw error;
 
       await qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
       await qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
@@ -3830,8 +2665,7 @@ export default function FinancePortal() {
 
       alert(`Dispatch fund approved for ${fmt(approvedAmount)}.`);
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to approve dispatch fund.');
+      reportError(err, { context: 'finance.dispatch_fund.approve', userMessage: 'Failed to approve dispatch fund.' });
     } finally {
       setFundActionBusy(null);
     }
@@ -3846,28 +2680,14 @@ export default function FinancePortal() {
     try {
       setFundActionBusy(fundRequest.id);
 
-      const { error } = await supabase
-        .from('inventory_dispatch_fund_requests')
-        .update({
-          status: 'rejected',
-          finance_status: 'rejected',
-          finance_note: financeNote || 'Rejected by Finance',
-          rejected_by: user?.full_name || user?.name || user?.email || 'Finance',
-          rejected_by_email: user?.email || null,
-          rejected_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', fundRequest.id);
-
-      if (error) throw error;
-
-      await updateLinkedPartRequest(fundRequest, {
-        finance_status: 'rejected',
-        dispatch_status: 'finance_rejected',
-        lifecycle_status: 'dispatch_fund_rejected',
+      const { error } = await supabase.rpc('inventory_transition_dispatch_fund', {
+        p_fund_request_id: fundRequest.id,
+        p_action: 'reject',
+        p_approved_amount: null,
+        p_finance_note: financeNote || 'Rejected by Finance',
       });
 
-      await writeFinanceEvent(fundRequest, 'rejected dispatch fund request', 'warning');
+      if (error) throw error;
 
       qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
       qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
@@ -3875,8 +2695,7 @@ export default function FinancePortal() {
 
       alert('Dispatch fund rejected.');
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to reject dispatch fund.');
+      reportError(err, { context: 'finance.dispatch_fund.reject', userMessage: 'Failed to reject dispatch fund.' });
     } finally {
       setFundActionBusy(null);
     }
@@ -3898,28 +2717,14 @@ export default function FinancePortal() {
     try {
       setFundActionBusy(fundRequest.id);
 
-      const { error } = await supabase
-        .from('inventory_dispatch_fund_requests')
-        .update({
-          approved_amount: approvedAmount,
-          status: 'disbursed',
-          finance_status: 'disbursed',
-          disbursed_by: user?.full_name || user?.name || user?.email || 'Finance',
-          disbursed_by_email: user?.email || null,
-          disbursed_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', fundRequest.id);
-
-      if (error) throw error;
-
-      await updateLinkedPartRequest(fundRequest, {
-        finance_status: 'disbursed',
-        dispatch_status: 'ready_for_dispatch',
-        lifecycle_status: 'dispatch_fund_disbursed',
+      const { error } = await supabase.rpc('inventory_transition_dispatch_fund', {
+        p_fund_request_id: fundRequest.id,
+        p_action: 'disburse',
+        p_approved_amount: null,
+        p_finance_note: getFinanceNote(fundRequest) || null,
       });
 
-      await writeFinanceEvent(fundRequest, 'disbursed dispatch fund');
+      if (error) throw error;
 
       await qc.invalidateQueries({ queryKey: ['inventory_dispatch_fund_requests'] });
       await qc.invalidateQueries({ queryKey: ['inventory_part_requests'] });
@@ -3928,8 +2733,7 @@ export default function FinancePortal() {
 
       alert(`Dispatch fund marked as disbursed for ${fmt(approvedAmount)}. Inventory can now dispatch.`);
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to mark fund as disbursed.');
+      reportError(err, { context: 'finance.dispatch_fund.disburse', userMessage: 'Failed to mark fund as disbursed.' });
     } finally {
       setFundActionBusy(null);
     }
@@ -3999,8 +2803,7 @@ export default function FinancePortal() {
 
       alert('PO funds released. Procurement can now issue the PO.');
     } catch (err) {
-      console.error(err);
-      alert(err.message || 'Failed to release PO funds.');
+      reportError(err, { context: 'finance.purchase_order.release_funds', userMessage: 'Failed to release PO funds.' });
     } finally {
       setPoActionBusy(null);
     }
@@ -4106,182 +2909,18 @@ export default function FinancePortal() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <OperationalFundCard
-          icon={Wallet}
-          iconClassName="text-amber-500"
-          valueClassName="text-amber-500"
-          label="Pending Dispatch Funds"
-          count={dispatchFundStats.pendingCount}
-          amount={dispatchFundStats.pendingAmount}
-          loading={loadingDispatchFunds}
-          error={dispatchFundsLoadFailed}
-          onClick={() => {
-            setActiveFinanceTab('dispatch-funds');
-            setFundFilter('pending_review');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={CheckCircle2}
-          iconClassName="text-blue-500"
-          valueClassName="text-blue-500"
-          label="Approved Awaiting Disbursement"
-          count={dispatchFundStats.approvedCount}
-          amount={dispatchFundStats.approvedAmount}
-          loading={loadingDispatchFunds}
-          error={dispatchFundsLoadFailed}
-          onClick={() => {
-            setActiveFinanceTab('dispatch-funds');
-            setFundFilter('approved');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={PackageCheck}
-          iconClassName="text-green-500"
-          valueClassName="text-green-600"
-          label="Disbursed"
-          count={dispatchFundStats.disbursedCount}
-          amount={dispatchFundStats.disbursedAmount}
-          loading={loadingDispatchFunds}
-          error={dispatchFundsLoadFailed}
-          onClick={() => {
-            setActiveFinanceTab('dispatch-funds');
-            setFundFilter('disbursed');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={XCircle}
-          iconClassName="text-red-500"
-          valueClassName="text-red-600"
-          label="Rejected Dispatch Funds"
-          count={dispatchFundStats.rejectedCount}
-          amount={dispatchFundStats.rejectedAmount}
-          loading={loadingDispatchFunds}
-          error={dispatchFundsLoadFailed}
-          onClick={() => {
-            setActiveFinanceTab('dispatch-funds');
-            setFundFilter('rejected');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={ShoppingCart}
-          iconClassName="text-cyan-500"
-          valueClassName="text-cyan-500"
-          label="PO Funds To Release"
-          count={purchaseOrderStats.pendingReleaseCount}
-          amount={purchaseOrderStats.pendingReleaseAmount}
-          loading={loadingPurchaseOrders}
-          error={purchaseOrdersLoadFailed}
-          onClick={() => {
-            setActiveFinanceTab('purchase-orders');
-            setPoFilter('Pending Account Release');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={FileText}
-          iconClassName="text-purple-400"
-          valueClassName="text-purple-300"
-          label="General Requests Awaiting Finance"
-          count={generalRequestStats.awaitingFinanceCount}
-          amount={generalRequestStats.awaitingFinanceAmount}
-          loading={loadingGeneralRequests}
-          error={generalRequestsLoadFailed}
-          onClick={() => {
-            setActiveFinanceTab('general-requests');
-            setGeneralRequestFilter('ready_for_disbursement');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={PackageCheck}
-          iconClassName="text-emerald-400"
-          valueClassName="text-emerald-300"
-          label="Historical Disbursed General Requests"
-          count={generalRequestStats.disbursedCount}
-          amount={generalRequestStats.disbursedAmount}
-          loading={loadingGeneralRequests}
-          error={generalRequestsLoadFailed}
-          onClick={() => {
-            setActiveFinanceTab('general-requests');
-            setGeneralRequestFilter('disbursed');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={Clock}
-          iconClassName="text-amber-400"
-          valueClassName="text-amber-300"
-          label="Expense Requests Pending Approval"
-          count={expenseRequestStats.pendingApproval + expenseRequestStats.pendingFinance}
-          amount={expenseRequests
-            .filter((request) =>
-              ['submitted', 'pending_approval', 'pending_finance_review'].includes(request.status)
-            )
-            .reduce((sum, request) => sum + Number(request.amount_requested || 0), 0)}
-          loading={loadingExpenseRequests}
-          error={Boolean(expenseRequestsError)}
-          onClick={() => {
-            setActiveFinanceTab('expense-requests');
-            setExpenseRequestFilter('pending');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={CheckCircle2}
-          iconClassName="text-indigo-400"
-          valueClassName="text-indigo-300"
-          label="Approved for Payment"
-          count={expenseRequestStats.approvedForPayment}
-          amount={expenseRequests
-            .filter((request) => request.status === 'approved_for_payment')
-            .reduce((sum, request) => sum + getExpenseRequestApprovedAmount(request), 0)}
-          loading={loadingExpenseRequests}
-          error={Boolean(expenseRequestsError)}
-          onClick={() => {
-            setActiveFinanceTab('expense-requests');
-            setExpenseRequestFilter('approved_for_payment');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={Wallet}
-          iconClassName="text-blue-400"
-          valueClassName="text-blue-300"
-          label="Partially Paid"
-          count={expenseRequestStats.partiallyPaid}
-          amount={expenseRequests
-            .filter((request) => request.status === 'partially_paid')
-            .reduce((sum, request) => sum + getExpenseRequestPaidTotal(request), 0)}
-          loading={loadingExpenseRequests}
-          error={Boolean(expenseRequestsError)}
-          onClick={() => {
-            setActiveFinanceTab('expense-requests');
-            setExpenseRequestFilter('partially_paid');
-          }}
-        />
-
-        <OperationalFundCard
-          icon={PackageCheck}
-          iconClassName="text-green-400"
-          valueClassName="text-green-300"
-          label="Paid Expense Requests"
-          count={expenseRequestStats.paid}
-          amount={expenseRequests
-            .filter((request) => request.status === 'paid')
-            .reduce((sum, request) => sum + getExpenseRequestPaidTotal(request), 0)}
-          loading={loadingExpenseRequests}
-          error={Boolean(expenseRequestsError)}
-          onClick={() => {
-            setActiveFinanceTab('expense-requests');
-            setExpenseRequestFilter('paid');
-          }}
-        />
-      </div>
+      <FinanceOperationalSummary
+        dispatchFundStats={dispatchFundStats} purchaseOrderStats={purchaseOrderStats}
+        generalRequestStats={generalRequestStats} expenseRequestStats={expenseRequestStats}
+        expenseRequests={expenseRequests} loadingDispatchFunds={loadingDispatchFunds}
+        loadingPurchaseOrders={loadingPurchaseOrders} loadingGeneralRequests={loadingGeneralRequests}
+        loadingExpenseRequests={loadingExpenseRequests} dispatchFundsLoadFailed={dispatchFundsLoadFailed}
+        purchaseOrdersLoadFailed={purchaseOrdersLoadFailed} generalRequestsLoadFailed={generalRequestsLoadFailed}
+        expenseRequestsError={expenseRequestsError} getExpenseRequestApprovedAmount={getExpenseRequestApprovedAmount}
+        getExpenseRequestPaidTotal={getExpenseRequestPaidTotal} setActiveFinanceTab={setActiveFinanceTab}
+        setFundFilter={setFundFilter} setPoFilter={setPoFilter} setGeneralRequestFilter={setGeneralRequestFilter}
+        setExpenseRequestFilter={setExpenseRequestFilter}
+      />
 
       {(dispatchFundError || purchaseOrderError || generalRequestError || expenseRequestsError) && (
         <Card className="border-red-500/30 bg-red-500/10 p-4">
@@ -4303,57 +2942,6 @@ export default function FinancePortal() {
         </Card>
       )}
 
-      <div className="hidden">
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <Wallet className="w-5 h-5 text-amber-500 mb-2" />
-          <p className="text-2xl font-bold text-amber-500">
-            {dispatchFundStats.pendingCount}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Pending Dispatch Funds · {fmt(dispatchFundStats.pendingAmount)}
-          </p>
-        </div>
-
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <CheckCircle2 className="w-5 h-5 text-blue-500 mb-2" />
-          <p className="text-2xl font-bold text-blue-500">
-            {dispatchFundStats.approvedCount}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Approved Awaiting Disbursement · {fmt(dispatchFundStats.approvedAmount)}
-          </p>
-        </div>
-
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <PackageCheck className="w-5 h-5 text-green-500 mb-2" />
-          <p className="text-2xl font-bold text-green-600">
-            {dispatchFundStats.disbursedCount}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Disbursed · {fmt(dispatchFundStats.disbursedAmount)}
-          </p>
-        </div>
-
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <XCircle className="w-5 h-5 text-red-500 mb-2" />
-          <p className="text-2xl font-bold text-red-600">
-            {dispatchFundStats.rejectedCount}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Rejected Dispatch Funds
-          </p>
-        </div>
-
-        <div className="rounded-xl border bg-slate-900/50 p-4">
-          <ShoppingCart className="w-5 h-5 text-cyan-500 mb-2" />
-          <p className="text-2xl font-bold text-cyan-500">
-            {purchaseOrderStats.pendingReleaseCount}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            PO Funds To Release · {fmt(purchaseOrderStats.pendingReleaseAmount)}
-          </p>
-        </div>
-      </div>
 
             {canSeeFullFinance && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -5526,16 +4114,9 @@ export default function FinancePortal() {
                                     {exp.expense_date && <span>{safeDate(exp.expense_date)}</span>}
                                   </div>
           
-                                  {exp.document_url && (
-                                    <a
-                                      href={exp.document_url}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-xs text-primary underline mt-1 block"
-                                    >
-                                      View Document
-                                    </a>
-                                  )}
+                                  <PrivateDocumentLink value={exp.document_url} className="text-xs text-primary underline mt-1 block">
+                                    View Document
+                                  </PrivateDocumentLink>
                                 </div>
           
                                 <div className="text-right">
@@ -7137,11 +5718,12 @@ export default function FinancePortal() {
             )}
 
             <div className="space-y-1.5">
-              <Label>Supporting Document URL</Label>
-              <Input
+              <Label>Supporting Document</Label>
+              <PrivateDocumentUpload
                 value={expForm.document_url}
-                onChange={(e) => fe('document_url', e.target.value)}
-                placeholder="https://..."
+                onChange={(value) => fe('document_url', value)}
+                category="finance-expense"
+                retentionYears={7}
               />
             </div>
 

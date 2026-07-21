@@ -2,8 +2,9 @@ import React, { useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,9 +41,7 @@ import {
   Handshake,
   AlertTriangle,
   CheckCircle2,
-  XCircle,
   Search,
-  FileText,
   RefreshCw,
   MessageSquareWarning,
   Star,
@@ -207,6 +206,16 @@ export default function CRMPortal() {
 
   const [saving, setSaving] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+
+  const crmDraftOptions = {
+    userId: user?.id || user?.email,
+    storage: 'session',
+    maxAgeMs: 8 * 60 * 60 * 1000,
+  };
+
+  useFormDraft({ key: editingLead?.id ? `crm-lead-edit:${editingLead.id}` : 'crm-lead-new', form: leadForm, setForm: setLeadForm, enabled: leadOpen, ...crmDraftOptions });
+  useFormDraft({ key: editingClient?.id ? `crm-client-edit:${editingClient.id}` : 'crm-client-new', form: clientForm, setForm: setClientForm, enabled: clientOpen, ...crmDraftOptions });
+  useFormDraft({ key: editingComplaint?.id ? `crm-complaint-edit:${editingComplaint.id}` : 'crm-complaint-new', form: complaintForm, setForm: setComplaintForm, enabled: complaintOpen, ...crmDraftOptions });
 
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
     queryKey: ['leads'],

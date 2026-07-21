@@ -1,86 +1,100 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
 import { HashRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { supabase } from "@/lib/supabaseClient";
 
-import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ProtectedRoute from '@/components/ProtectedRoute';
-import { ROUTE_PERMISSIONS } from '@/lib/roleAccess';
+import { getRoleHome, ROUTE_PERMISSIONS } from '@/lib/roleAccess';
 
-import Welcome from '@/pages/Welcome';
-import AppLayout from '@/components/layout/AppLayout';
-import Dashboard from '@/pages/Dashboard';
-import Tickets from '@/pages/Tickets';
-import TicketDetail from '@/pages/TicketDetail';
-import UserManagement from '@/pages/UserManagement';
-import Departments from '@/pages/Departments';
-import Workflows from '@/pages/Workflows';
-import Reports from '@/pages/Reports';
-import Notifications from '@/pages/Notifications';
-import AuditLogs from '@/pages/AuditLogs';
-import Settings from '@/pages/Settings';
-import Machines from '@/pages/Machines';
-import Assets from '@/pages/Assets';
-import StaffDirectory from '@/pages/StaffDirectory';
-import SiteMonitor from '@/pages/SiteMonitor';
-import EngineerBoard from '@/pages/EngineerBoard';
-import SparePartsInventory from '@/pages/SparePartsInventory';
-import PartsScreen from "@/pages/PartsScreen";
-import FieldOperations from '@/pages/FieldOperations';
-import DeviceManagement from '@/pages/DeviceManagement';
-import HRPortal from '@/pages/HRPortal';
-import FinancePortal from '@/pages/FinancePortal';
-import FundRequests from '@/pages/FundRequests';
-import CRMPortal from '@/pages/CRMPortal';
-import ProcurementPortal from '@/pages/ProcurementPortal';
-import ManagerDashboard from '@/pages/ManagerDashboard';
-import LiveMap from '@/pages/LiveMap';
-import BanksPage from '@/pages/BanksPage';
-import BranchesPage from '@/pages/BranchesPage';
-import BranchDevices from '@/pages/BranchDevices';
-import EngineersPage from '@/pages/EngineersPage';
-import DevicesPage from '@/pages/DevicesPage';
-import DeviceStatusBoard from '@/pages/DeviceStatusBoard';
-import DeviceAssignment from '@/pages/DeviceAssignment';
-import RegionalCoverage from '@/pages/RegionalCoverage';
-import OperationsDashboard from '@/pages/OperationsDashboard';
-import OperationsPartRequests from "@/pages/OperationsPartRequests";
-import OperationsFeed from "@/pages/OperationsFeed";
-import InventoryPartRequests from "@/pages/InventoryPartRequests";
-import RRConsumableRequests from "@/pages/RRConsumableRequests";
-import ArkConnect from '@/pages/ArkConnect';
-import SLAAnalytics from '@/pages/SLAAnalytics';
-import OfficialMailInbox from '@/pages/OfficialMailInbox';
-import ProcurementLPO from '@/pages/ProcurementLPO';
-import ChangePassword from '@/pages/ChangePassword';
-import DataImport from '@/pages/DataImport';
-import RRPartRequests from "@/pages/RRPartRequests";
-import RepairRefurbish from '@/pages/RepairRefurbish';
-import InventoryAnalytics from '@/pages/InventoryAnalytics';
+const PageNotFound = lazy(() => import('./lib/PageNotFound'));
+const Welcome = lazy(() => import('@/pages/Welcome'));
+const AppLayout = lazy(() => import('@/components/layout/AppLayout'));
+const Dashboard = lazy(() => import('@/pages/Dashboard'));
+const Tickets = lazy(() => import('@/pages/Tickets'));
+const TicketDetail = lazy(() => import('@/pages/TicketDetail'));
+const UserManagement = lazy(() => import('@/pages/UserManagement'));
+const Departments = lazy(() => import('@/pages/Departments'));
+const Workflows = lazy(() => import('@/pages/Workflows'));
+const Reports = lazy(() => import('@/pages/Reports'));
+const Notifications = lazy(() => import('@/pages/Notifications'));
+const AuditLogs = lazy(() => import('@/pages/AuditLogs'));
+const Settings = lazy(() => import('@/pages/Settings'));
+const Machines = lazy(() => import('@/pages/Machines'));
+const Assets = lazy(() => import('@/pages/Assets'));
+const StaffDirectory = lazy(() => import('@/pages/StaffDirectory'));
+const SiteMonitor = lazy(() => import('@/pages/SiteMonitor'));
+const EngineerBoard = lazy(() => import('@/pages/EngineerBoard'));
+const SparePartsInventory = lazy(() => import('@/pages/SparePartsInventory'));
+const PartsScreen = lazy(() => import('@/pages/PartsScreen'));
+const FieldOperations = lazy(() => import('@/pages/FieldOperations'));
+const DeviceManagement = lazy(() => import('@/pages/DeviceManagement'));
+const HRPortal = lazy(() => import('@/pages/HRPortal'));
+const FinancePortal = lazy(() => import('@/pages/FinancePortal'));
+const FundRequests = lazy(() => import('@/pages/FundRequests'));
+const CRMPortal = lazy(() => import('@/pages/CRMPortal'));
+const ProcurementPortal = lazy(() => import('@/pages/ProcurementPortal'));
+const ManagerDashboard = lazy(() => import('@/pages/ManagerDashboard'));
+const LiveMap = lazy(() => import('@/pages/LiveMap'));
+const BanksPage = lazy(() => import('@/pages/BanksPage'));
+const BranchesPage = lazy(() => import('@/pages/BranchesPage'));
+const BranchDevices = lazy(() => import('@/pages/BranchDevices'));
+const EngineersPage = lazy(() => import('@/pages/EngineersPage'));
+const DevicesPage = lazy(() => import('@/pages/DevicesPage'));
+const DeviceAssignment = lazy(() => import('@/pages/DeviceAssignment'));
+const RegionalCoverage = lazy(() => import('@/pages/RegionalCoverage'));
+const OperationsDashboard = lazy(() => import('@/pages/OperationsDashboard'));
+const OperationsPartRequests = lazy(() => import('@/pages/OperationsPartRequests'));
+const OperationsFeed = lazy(() => import('@/pages/OperationsFeed'));
+const InventoryPartRequests = lazy(() => import('@/pages/InventoryPartRequests'));
+const RRConsumableRequests = lazy(() => import('@/pages/RRConsumableRequests'));
+const ArkConnect = lazy(() => import('@/pages/ArkConnect'));
+const SLAAnalytics = lazy(() => import('@/pages/SLAAnalytics'));
+const OfficialMailInbox = lazy(() => import('@/pages/OfficialMailInbox'));
+const ProcurementLPO = lazy(() => import('@/pages/ProcurementLPO'));
+const ChangePassword = lazy(() => import('@/pages/ChangePassword'));
+const DataImport = lazy(() => import('@/pages/DataImport'));
+const RRPartRequests = lazy(() => import('@/pages/RRPartRequests'));
+const RepairRefurbish = lazy(() => import('@/pages/RepairRefurbish'));
+const InventoryAnalytics = lazy(() => import('@/pages/InventoryAnalytics'));
+const AdminDiagnostics = lazy(() => import('@/pages/AdminDiagnostics'));
+
+const RouteLoadingFallback = () => (
+  <div className="min-h-[40vh] flex items-center justify-center" role="status" aria-live="polite">
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-9 h-9 border-4 border-[#ff5a00]/20 border-t-[#ff5a00] rounded-full animate-spin" />
+      <span className="text-sm text-slate-500">Loading page…</span>
+    </div>
+  </div>
+);
 
 const updateUserActivity = async (user, online = true, login = false) => {
   if (!user?.email) return;
 
-  const updates = {
-    last_seen: new Date().toISOString(),
-    online_status: online,
-  };
-
-  if (login) updates.last_login = new Date().toISOString();
-
-  await supabase
-    .from("user_profiles")
-    .update(updates)
-    .eq("user_email", user.email);
+  await supabase.rpc("ark_update_user_activity", {
+    p_last_seen: new Date().toISOString(),
+    p_online_status: online ? "online" : "offline",
+    p_record_login: login,
+  });
 };
 
 const SecurePage = ({ path, children }) => (
   <ProtectedRoute permission={ROUTE_PERMISSIONS[path]}>{children}</ProtectedRoute>
 );
+
+const PublicOnlyPage = ({ children }) => {
+  const { user, isAuthenticated, isLoadingAuth } = useAuth();
+
+  if (isLoadingAuth && !user) return <RouteLoadingFallback />;
+  if (isAuthenticated && user) {
+    return <Navigate to={getRoleHome(user.role)} replace />;
+  }
+
+  return children;
+};
 
 const ACCESS_STATE_TYPES = new Set([
   'user_not_registered',
@@ -151,18 +165,19 @@ const AuthenticatedApp = () => {
   }
 
   return (
+    <Suspense fallback={<RouteLoadingFallback />}>
     <Routes>
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="/welcome" element={<Welcome />} />
-      <Route path="/login" element={<Welcome />} />
-      <Route path="/signin" element={<Welcome />} />
-      <Route path="/register" element={<Welcome />} />
-      <Route path="/signup" element={<Welcome />} />
+      <Route path="/welcome" element={<PublicOnlyPage><Welcome /></PublicOnlyPage>} />
+      <Route path="/login" element={<PublicOnlyPage><Welcome /></PublicOnlyPage>} />
+      <Route path="/signin" element={<PublicOnlyPage><Welcome /></PublicOnlyPage>} />
+      <Route path="/register" element={<PublicOnlyPage><Welcome /></PublicOnlyPage>} />
+      <Route path="/signup" element={<PublicOnlyPage><Welcome /></PublicOnlyPage>} />
       <Route path="/create-password" element={<ChangePassword />} />
       <Route path="/reset-password" element={<ChangePassword />} />
       <Route path="/change-password" element={<ChangePassword />} />
 
-      <Route element={<ProtectedRoute />}>
+      <Route element={<ProtectedRoute authenticationOnly />}>
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<SecurePage path="/dashboard"><Dashboard /></SecurePage>} />
           <Route path="/tickets" element={<SecurePage path="/tickets"><Tickets /></SecurePage>} />
@@ -174,6 +189,7 @@ const AuthenticatedApp = () => {
           <Route path="/reports" element={<SecurePage path="/reports"><Reports /></SecurePage>} />
           <Route path="/notifications" element={<SecurePage path="/notifications"><Notifications /></SecurePage>} />
           <Route path="/audit-logs" element={<SecurePage path="/audit-logs"><AuditLogs /></SecurePage>} />
+          <Route path="/admin-diagnostics" element={<SecurePage path="/admin-diagnostics"><AdminDiagnostics /></SecurePage>} />
           <Route path="/settings" element={<SecurePage path="/settings"><Settings /></SecurePage>} />
 
           <Route path="/machines" element={<SecurePage path="/machines"><Machines /></SecurePage>} />
@@ -221,7 +237,7 @@ const AuthenticatedApp = () => {
           <Route path="/branches/:id/devices" element={<SecurePage path="/branches/:id/devices"><BranchDevices /></SecurePage>} />
           <Route path="/engineers-ops" element={<SecurePage path="/engineers-ops"><EngineersPage /></SecurePage>} />
           <Route path="/bank-devices" element={<SecurePage path="/bank-devices"><DevicesPage /></SecurePage>} />
-          <Route path="/device-status" element={<SecurePage path="/device-status"><DeviceStatusBoard /></SecurePage>} />
+          <Route path="/device-status" element={<SecurePage path="/device-status"><DevicesPage /></SecurePage>} />
           <Route path="/device-assignment" element={<SecurePage path="/device-assignment"><DeviceAssignment /></SecurePage>} />
           <Route path="/regional-coverage" element={<SecurePage path="/regional-coverage"><RegionalCoverage /></SecurePage>} />
 
@@ -240,6 +256,7 @@ const AuthenticatedApp = () => {
 
       <Route path="*" element={<PageNotFound />} />
     </Routes>
+    </Suspense>
   );
 };
 

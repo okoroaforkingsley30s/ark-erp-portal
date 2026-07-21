@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { getWelcomeRedirectUrl } from '@/lib/authRedirects';
+import { reportError } from '@/lib/errorReporting';
 
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -21,23 +23,8 @@ import {
 const PASSWORD_RE =
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
-function getDashboardPath(u) {
-  const role = u?.role;
-
-  if (role === 'engineer') return '/ark-connect';
-  if (role === 'hr') return '/hr';
-  if (role === 'finance') return '/finance';
-  if (role === 'inventory' || role === 'procurement') return '/spare-parts';
-  if (role === 'manager' || role === 'agm' || role === 'ceo') return '/manager';
-  if (role === 'helpdesk') return '/tickets';
-
-  return '/dashboard';
-}
-
 export default function ChangePassword() {
   const navigate = useNavigate();
-
-  const [user, setUser] = useState(null);
 
   const [fullName, setFullName] = useState('');
   const [phone, setPhone] = useState('');
@@ -76,10 +63,6 @@ useEffect(() => {
       const errorCode =
         hashParams.get('error_code') ||
         searchParams.get('error_code');
-
-      const errorDescription =
-        hashParams.get('error_description') ||
-        searchParams.get('error_description');
 
       if (errorCode) {
   setError(
@@ -120,9 +103,20 @@ if (accessToken && refreshToken) {
   window.history.replaceState({}, document.title, '/#/create-password');
 }
 
-      const {
+      let {
         data: { session },
       } = await supabase.auth.getSession();
+
+      if (!session?.user && savedCode) {
+        const { data: exchangeData, error: exchangeError } =
+          await supabase.auth.exchangeCodeForSession(savedCode);
+        if (exchangeError) {
+          sessionStorage.removeItem('ark_password_setup_code');
+          throw exchangeError;
+        }
+        session = exchangeData?.session || null;
+        sessionStorage.removeItem('ark_password_setup_code');
+      }
 
       if (!session?.user) {
         setError('Auth session missing. Please open the newest invite email link once, or request a new invite.');
@@ -145,12 +139,11 @@ if (accessToken && refreshToken) {
         role: session.user.user_metadata?.role || null,
       };
 
-      setUser(currentUser);
       setFullName(currentUser?.full_name || '');
       setPhone(currentUser?.phone || '');
       setStaffId(currentUser?.employee_id || '');
     } catch (err) {
-      console.error('Invite/session setup failed:', err);
+      reportError(err, { context: 'auth.invitation.session_setup', notify: false });
       setError(err?.message || 'Invalid or expired invitation link.');
     } finally {
       setLoadingSession(false);
@@ -215,30 +208,27 @@ if (accessToken && refreshToken) {
         throw updateError;
       }
 
-      if (user?.id) {
-        await supabase
-          .from('users')
-          .update({
-            full_name: fullName,
-            phone,
-            employee_id: staffId,
-            must_change_password: false,
-            is_approved: true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', user.id);
-      }
+      const { error: profileError } = await supabase.rpc('ark_complete_password_setup', {
+        p_full_name: fullName,
+        p_phone: phone || null,
+        p_employee_id: staffId || null,
+      });
+
+      if (profileError) throw profileError;
 
       setSuccess(true);
 
 setTimeout(async () => {
   await supabase.auth.signOut();
 
-  window.location.href = `${window.location.origin}/#/welcome`;
+  window.location.href = getWelcomeRedirectUrl();
 }, 2000);
 
     } catch (err) {
-      console.error(err);
+      reportError(err, {
+        context: 'auth.password.complete_setup',
+        userMessage: 'Account setup failed. Check the form and try again.',
+      });
 
       setError(
         err?.message ||
@@ -259,7 +249,7 @@ setTimeout(async () => {
 
   if (success) {
     return (
-      <div className="min-h-[100svh] overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] px-3 py-4 sm:px-4 flex items-start justify-center">
+      <div className="fixed inset-0 overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] px-3 py-4 sm:px-4 flex items-start justify-center">
 
         <Card className="p-8 max-w-sm w-full text-center space-y-4">
 
@@ -280,7 +270,7 @@ setTimeout(async () => {
   }
 
   return (
-    <div className="min-h-[100svh] overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] px-3 py-4 sm:px-4 flex items-start justify-center">
+    <div className="fixed inset-0 overflow-y-auto bg-gradient-to-br from-[#08153d] via-[#0b1f5e] to-[#102969] px-3 py-4 sm:px-4 flex items-start justify-center">
 
       <Card className="w-full max-w-md p-4 sm:p-6 my-2 sm:my-6 space-y-4 border-0 shadow-2xl">
 

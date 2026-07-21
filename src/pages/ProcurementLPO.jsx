@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
 import { useFormDraft } from '@/hooks/useFormDraft';
+import { reportError } from '@/lib/errorReporting';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -55,7 +56,7 @@ const COMPANY = {
   address: 'Lagos, Nigeria',
   email: 'info@arktechnologiesgroup.com',
   logoUrl:
-    'https://fryidzyhqhdenghyxjfp.supabase.co/storage/v1/object/public/public-assets/logo.png',
+    import.meta.env.VITE_PUBLIC_ASSET_LOGO_URL || '/ark-one-logo.png',
 };
 
 const STATUS_COLORS = {
@@ -74,8 +75,10 @@ const STATUS_COLORS = {
 };
 
 const EMPTY_ITEM = {
+  supply_master_id: null,
   description: '',
   part_number: '',
+  unit_of_measure: '',
   quantity_requested: 1,
   unit_price_ngn: 0,
   unit_price_usd: 0,
@@ -86,10 +89,17 @@ const EMPTY_ITEM = {
 
 const EMPTY_LPO = {
   title: '',
+  supplier_master_id: '',
   supplier_name: '',
   supplier_contact: '',
   supplier_email: '',
   supplier_address: '',
+  supplier_tax_identification_number: '',
+  supplier_registration_number: '',
+  supplier_payment_terms: '',
+  supplier_bank_name: '',
+  supplier_bank_account_name: '',
+  supplier_bank_account_number: '',
   currency: 'NGN',
   delivery_expected_date: '',
   notes: '',
@@ -174,6 +184,27 @@ async function fetchInventoryItems() {
   return data || [];
 }
 
+async function fetchPurchaseSupplies() {
+  const { data, error } = await supabase
+    .from('inventory_purchase_supplies')
+    .select('*')
+    .eq('status', 'active')
+    .order('supply_name', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+async function fetchRegisteredSuppliers() {
+  const { data, error } = await supabase
+    .from('inventory_suppliers')
+    .select('*')
+    .eq('status', 'active')
+    .order('supplier_name', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
 export default function ProcurementLPO() {
   const outlet = useOutletContext() || {};
   const user = outlet.user || outlet.profile || outlet.currentUser || {};
@@ -251,6 +282,16 @@ export default function ProcurementLPO() {
   const { data: inventoryItems = [], isLoading: inventoryLoading } = useQuery({
     queryKey: ['inventory-items'],
     queryFn: fetchInventoryItems,
+  });
+
+  const { data: purchaseSupplies = [] } = useQuery({
+    queryKey: ['inventory-purchase-supplies'],
+    queryFn: fetchPurchaseSupplies,
+  });
+
+  const { data: registeredSuppliers = [] } = useQuery({
+    queryKey: ['inventory-suppliers'],
+    queryFn: fetchRegisteredSuppliers,
   });
 
   const lowStockItems = useMemo(
@@ -437,6 +478,43 @@ export default function ProcurementLPO() {
     });
   };
 
+  const selectSupplyItem = (idx, supplyId) => {
+    const selected = purchaseSupplies.find((item) => item.id === supplyId);
+    if (!selected) return;
+
+    setForm((prev) => {
+      const items = [...prev.items];
+      items[idx] = {
+        ...items[idx],
+        supply_master_id: selected.id,
+        description: selected.description || selected.supply_name,
+        part_number: selected.part_number || '',
+        unit_of_measure: selected.unit_of_measure,
+      };
+
+      return { ...prev, items };
+    });
+  };
+
+  const selectSupplier = (supplierId) => {
+    const selected = registeredSuppliers.find((item) => item.id === supplierId);
+    if (!selected) return;
+    setForm((prev) => ({
+      ...prev,
+      supplier_master_id: selected.id,
+      supplier_name: selected.supplier_name || '',
+      supplier_contact: [selected.contact_person, selected.phone].filter(Boolean).join(' — '),
+      supplier_email: selected.email || '',
+      supplier_address: selected.address || '',
+      supplier_tax_identification_number: selected.tax_identification_number || '',
+      supplier_registration_number: selected.registration_number || '',
+      supplier_payment_terms: selected.payment_terms || '',
+      supplier_bank_name: selected.bank_name || '',
+      supplier_bank_account_name: selected.bank_account_name || '',
+      supplier_bank_account_number: selected.bank_account_number || '',
+    }));
+  };
+
   const addItem = () => {
     setForm((prev) => ({
       ...prev,
@@ -594,7 +672,7 @@ export default function ProcurementLPO() {
     return false;
   };
 
-  const buildApprovalPayload = (lpo) => {
+  const buildApprovalPayload = () => {
     const approver = user.full_name || user.name || user.email || 'Approver';
     const now = new Date().toISOString();
 
@@ -660,7 +738,7 @@ export default function ProcurementLPO() {
       return;
     }
 
-    const { payload, message } = buildApprovalPayload(lpo);
+    const { payload, message } = buildApprovalPayload();
     return updateLPOStatus(lpo, payload, message);
   };
 
@@ -738,7 +816,10 @@ export default function ProcurementLPO() {
 
       await navigator.clipboard.writeText(text);
       toast.success('PO summary copied. You can paste and share it.');
-    } catch {
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        reportError(error, { context: 'procurement.purchase_order.share', notify: false, severity: 'warning' });
+      }
       toast.error('Share failed. Please use Print PO instead.');
     }
   };
@@ -747,7 +828,8 @@ export default function ProcurementLPO() {
     try {
       await navigator.clipboard.writeText(buildShareText(lpo));
       toast.success('PO summary copied to clipboard');
-    } catch {
+    } catch (error) {
+      reportError(error, { context: 'procurement.purchase_order.copy', notify: false, severity: 'warning' });
       toast.error('Could not copy PO summary');
     }
   };
@@ -1103,13 +1185,13 @@ export default function ProcurementLPO() {
               </Select>
             </div>
 
-            <div className="space-y-1.5">
-              <Label>Supplier Name *</Label>
-              <Input
-                value={form.supplier_name}
-                onChange={(e) => updateFormField('supplier_name', e.target.value)}
-                className="bg-[#08153d] border-white/10 text-white"
-              />
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Registered Supplier *</Label>
+              <Select value={form.supplier_master_id || undefined} onValueChange={selectSupplier}>
+                <SelectTrigger className="bg-[#08153d] border-white/10 text-white"><SelectValue placeholder="Select a registered supplier" /></SelectTrigger>
+                <SelectContent>{registeredSuppliers.map((supplier) => <SelectItem key={supplier.id} value={supplier.id}>{supplier.supplier_name}{supplier.contact_person ? ` — ${supplier.contact_person}` : ''}</SelectItem>)}</SelectContent>
+              </Select>
+              {registeredSuppliers.length === 0 && <p className="text-xs text-amber-300">No active supplier is registered. Add one under Inventory → Master Data.</p>}
             </div>
 
             <div className="space-y-1.5">
@@ -1148,6 +1230,10 @@ export default function ProcurementLPO() {
                 className="bg-[#08153d] border-white/10 text-white min-h-[70px]"
               />
             </div>
+            <div className="space-y-1.5"><Label>Tax Identification Number</Label><Input value={form.supplier_tax_identification_number || ''} readOnly className="bg-[#08153d] border-white/10 text-white" /></div>
+            <div className="space-y-1.5"><Label>Registration Number</Label><Input value={form.supplier_registration_number || ''} readOnly className="bg-[#08153d] border-white/10 text-white" /></div>
+            <div className="space-y-1.5"><Label>Payment Terms</Label><Input value={form.supplier_payment_terms || ''} readOnly className="bg-[#08153d] border-white/10 text-white" /></div>
+            <div className="space-y-1.5"><Label>Bank</Label><Input value={form.supplier_bank_name || ''} readOnly className="bg-[#08153d] border-white/10 text-white" /></div>
           </div>
 
           <div className="mt-5 rounded-xl border border-white/10 overflow-hidden">
@@ -1165,6 +1251,7 @@ export default function ProcurementLPO() {
                   <tr>
                     <th className="p-2 text-left">S/N</th>
                     <th className="p-2 text-left">Part Number</th>
+                    <th className="p-2 text-left min-w-[240px]">Supply Catalogue</th>
                     <th className="p-2 text-left min-w-[260px]">Description</th>
                     <th className="p-2 text-left">Condition</th>
                     <th className="p-2 text-right">Qty</th>
@@ -1183,6 +1270,23 @@ export default function ProcurementLPO() {
                           onChange={(e) => updateItem(index, 'part_number', e.target.value)}
                           className="bg-[#08153d] border-white/10 text-white"
                         />
+                      </td>
+                      <td className="p-2">
+                        <Select
+                          value={item.supply_master_id || ''}
+                          onValueChange={(value) => selectSupplyItem(index, value)}
+                        >
+                          <SelectTrigger className="bg-[#08153d] border-white/10 text-white">
+                            <SelectValue placeholder="Select supply" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {purchaseSupplies.map((supply) => (
+                              <SelectItem key={supply.id} value={supply.id}>
+                                {supply.supply_name} · {supply.unit_of_measure}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </td>
                       <td className="p-2">
                         <Input

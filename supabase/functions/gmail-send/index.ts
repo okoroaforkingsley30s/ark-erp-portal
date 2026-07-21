@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseEmailList, requireEnv, safeMailHeader } from "../_shared/security.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -68,11 +69,16 @@ async function getAccessToken(supabase: any, connection: any) {
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const env = requireEnv([
+      "SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY",
+      "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
+    ]);
+    const supabaseUrl = env.SUPABASE_URL;
+    const anonKey = env.SUPABASE_ANON_KEY;
+    const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY;
     const authHeader = req.headers.get("Authorization");
 
     if (!authHeader) return jsonResponse({ error: "Missing Authorization header" }, 401);
@@ -84,9 +90,14 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await userClient.auth.getUser();
     if (userError || !user) return jsonResponse({ error: "Invalid session" }, 401);
 
-    const { to, cc = "", bcc = "", subject, body = "" } = await req.json();
+    const requestBody = await req.json();
+    const to = parseEmailList(requestBody.to, true);
+    const cc = parseEmailList(requestBody.cc);
+    const bcc = parseEmailList(requestBody.bcc);
+    const subject = safeMailHeader(requestBody.subject, 300);
+    const body = String(requestBody.body || "");
 
-    if (!to || !subject) return jsonResponse({ error: "To and subject are required" }, 400);
+    if (body.length > 1_000_000) return jsonResponse({ error: "Email body is too large" }, 400);
 
     const supabase = createClient(supabaseUrl, serviceRoleKey);
 
@@ -115,7 +126,7 @@ serve(async (req) => {
     });
 
     const gmailData = await gmailRes.json();
-    if (!gmailRes.ok) return jsonResponse({ error: "Gmail send failed", details: gmailData }, 400);
+    if (!gmailRes.ok) return jsonResponse({ error: "Gmail send failed" }, 400);
 
     const { data: saved, error: saveError } = await supabase
       .from("email_messages")
@@ -143,9 +154,9 @@ serve(async (req) => {
       .select()
       .single();
 
-    if (saveError) return jsonResponse({ error: "Sent but failed to save", details: saveError }, 500);
+    if (saveError) return jsonResponse({ error: "Sent but failed to save" }, 500);
 
-    return jsonResponse({ message: "Email sent", gmail: gmailData, saved });
+    return jsonResponse({ message: "Email sent", message_id: saved.id });
   } catch (err) {
     return jsonResponse({ error: "Unexpected gmail-send failure", details: String(err) }, 500);
   }

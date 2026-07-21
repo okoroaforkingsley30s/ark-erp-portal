@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -28,12 +29,6 @@ import {
   Cpu,
   GitBranch,
   Pencil,
-  Trash2,
-  User,
-  MapPin,
-  AlertCircle,
-  CheckCircle2,
-  Wrench,
   Loader2
 } from 'lucide-react';
 
@@ -67,15 +62,20 @@ const getBankColor = (name) => {
 export default function BanksPage() {
   const { user } = useOutletContext() || {};
 
-  const isAdmin = ['admin', 'super_admin', 'manager'].includes(user?.role);
+  const canManageBanks = [
+    'system_admin',
+    'super_admin',
+    'admin',
+    'admin_head',
+    'manager',
+    'operations',
+  ].includes(user?.role);
 
   const qc = useQueryClient();
 
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [detail, setDetail] = useState(null);
-  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const [form, setForm] = useState({
     bank_name: '',
@@ -83,6 +83,8 @@ export default function BanksPage() {
     contact_email: '',
     notes: '',
   });
+
+  useFormDraft({ key: editing?.id ? `admin-bank-edit:${editing.id}` : 'admin-bank-new', form, setForm, userId: user?.id || user?.email, enabled: showForm, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const { data: banks = [], isLoading } = useQuery({
     queryKey: ['banks'],
@@ -122,22 +124,6 @@ export default function BanksPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('branches')
-        .select('*');
-
-      if (error) {
-        console.error(error);
-        return [];
-      }
-
-      return data || [];
-    },
-  });
-
-  const { data: engineers = [] } = useQuery({
-    queryKey: ['engineers'],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('engineers')
         .select('*');
 
       if (error) {
@@ -218,27 +204,6 @@ export default function BanksPage() {
     },
   });
 
-  const deleteBank = useMutation({
-    mutationFn: async (id) => {
-      const { error } = await supabase
-        .from('banks')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-    },
-
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['banks'] });
-      setDeleteConfirm(null);
-      toast.success('Bank deleted');
-    },
-
-    onError: (e) => {
-      toast.error(e.message);
-    },
-  });
-
   const openEdit = (bank) => {
     setEditing(bank);
 
@@ -250,29 +215,6 @@ export default function BanksPage() {
     });
 
     setShowForm(true);
-  };
-
-  const openDetail = (bank) => {
-    const bankDevices = devices.filter(
-      d => d.bank_name?.toUpperCase() === bank.bank_name?.toUpperCase()
-    );
-
-    const bankBranches = branches.filter(
-      b => b.bank_name?.toUpperCase() === bank.bank_name?.toUpperCase()
-    );
-
-    const bankEngineers = engineers.filter(
-      e => bankDevices.some(
-        d => d.assigned_engineer === e.engineer_name
-      )
-    );
-
-    setDetail({
-      bank,
-      bankDevices,
-      bankBranches,
-      bankEngineers,
-    });
   };
 
   return (
@@ -287,7 +229,7 @@ export default function BanksPage() {
           </p>
         </div>
 
-        {isAdmin && (
+        {canManageBanks && (
           <Button
             onClick={() => {
               setEditing(null);
@@ -336,10 +278,6 @@ export default function BanksPage() {
               b => b.bank_name?.toUpperCase() === bank.bank_name?.toUpperCase()
             );
 
-            const active = bankDevices.filter(
-              d => d.device_status === 'Active'
-            ).length;
-
             const faulty = bankDevices.filter(
               d => ['Faulty', 'Under Maintenance'].includes(d.device_status)
             ).length;
@@ -349,8 +287,7 @@ export default function BanksPage() {
             return (
               <Card
                 key={bank.id}
-                className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer"
-                onClick={() => openDetail(bank)}
+                className="overflow-hidden hover:shadow-lg transition-shadow"
               >
 
                 <div className={`h-2 ${colorClass}`} />
@@ -380,7 +317,7 @@ export default function BanksPage() {
                         {bank.status}
                       </Badge>
 
-                      {isAdmin && !bank._virtual && (
+                      {canManageBanks && !bank._virtual && (
                         <>
                           <Button
                             variant="ghost"
@@ -394,17 +331,6 @@ export default function BanksPage() {
                             <Pencil className="w-3 h-3" />
                           </Button>
 
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive"
-                            onClick={e => {
-                              e.stopPropagation();
-                              setDeleteConfirm(bank);
-                            }}
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </Button>
                         </>
                       )}
 

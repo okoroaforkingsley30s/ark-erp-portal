@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -63,6 +64,8 @@ export default function LeaveModule({
   const [form, setForm] = useState(EMPTY);
   const [saving, setSaving] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
+
+  useFormDraft({ key: 'hr-leave-new', form: { ...form, supporting_document: '' }, setForm, userId: user?.id || user?.email, enabled: open, storage: 'session', maxAgeMs: 30 * 60 * 1000 });
 
   const set = (k, v) =>
     setForm(f => ({

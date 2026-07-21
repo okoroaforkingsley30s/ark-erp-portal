@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import * as XLSX from 'xlsx';
+import { readWorkbookRows } from '@/lib/safeWorkbook';
 import { supabase } from '@/lib/supabaseClient';
 
 import { Button } from '@/components/ui/button';
@@ -316,32 +316,7 @@ export default function DataImport() {
 
     setResult(null);
 
-    const buffer =
-      await file.arrayBuffer();
-
-    const workbook =
-      XLSX.read(buffer, {
-        type: 'array',
-      });
-
-    let allRows = [];
-
-    workbook.SheetNames.forEach(sheetName => {
-
-      const sheet =
-        workbook.Sheets[sheetName];
-
-      const rows =
-        XLSX.utils.sheet_to_json(sheet, {
-          defval: '',
-          raw: false,
-        });
-
-      allRows = [
-        ...allRows,
-        ...rows,
-      ];
-    });
+    const allRows = await readWorkbookRows(file, { allSheets: true });
 
     const cleanedRows =
       allRows.filter(r =>
@@ -477,12 +452,12 @@ export default function DataImport() {
           </p>
 
           <p className="text-xs text-muted-foreground">
-            Supports .xlsx and .xls
+            Supports .xlsx and .xlsm (10 MB maximum)
           </p>
 
           <input
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx,.xlsm"
             className="hidden"
             onChange={handleFile}
           />

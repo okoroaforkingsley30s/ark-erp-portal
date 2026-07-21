@@ -72,14 +72,10 @@ function getUserRole(user) {
 
 function isRRHOD(user) {
   const role = getUserRole(user);
-  return (
-    role.includes("admin") ||
-    role.includes("rr_hod") ||
-    role.includes("repair_head") ||
-    role.includes("repair hod") ||
-    role.includes("hod") ||
-    role.includes("head")
-  );
+  return [
+    "system_admin", "ceo", "agm", "manager", "repair_head",
+    "rr_hod", "repair_hod", "head_of_rr",
+  ].includes(role);
 }
 
 function statusBadgeClass(value) {
@@ -204,7 +200,10 @@ function getAllowedHODActions(item, user) {
   if (!hod) return actions;
 
   if (state === "pending") actions.receive = true;
-  if (state === "received") actions.assign = true;
+  const isUnassigned = !item?.assigned_rr_technician && !item?.assigned_to;
+  if (state === "received" || (isUnassigned && ["assigned", "under_repair", "qa_failed"].includes(state))) {
+    actions.assign = true;
+  }
   if (state === "waiting_qa") {
     actions.qaPass = true;
     actions.qaFail = true;
@@ -224,7 +223,7 @@ function isDirectRepairJob(item) {
 function mapRepairJobState(statusValue) {
   const status = normalize(statusValue);
 
-  if (status === "sent_to_inventory") return "returned_inventory";
+  if (status === "sent_to_inventory" || status === "inventory_received") return "returned_inventory";
   if (status === "scrap" || status === "scrapped") return "scrapped";
   if (status === "ready_for_inventory" || status === "qa_passed") return "qa_passed";
   if (status === "qa_failed") return "qa_failed";
@@ -257,18 +256,6 @@ function normalizeRepairJob(job) {
       rrStatus === "returned_inventory" ? "ready_for_dispatch" : "waiting_rr",
     finance_status: job.finance_status || "waiting",
   };
-}
-
-function filterPayloadByExistingColumns(row, payload) {
-  const safePayload = {};
-
-  Object.entries(payload).forEach(([key, value]) => {
-    if (Object.prototype.hasOwnProperty.call(row, key)) {
-      safePayload[key] = value;
-    }
-  });
-
-  return safePayload;
 }
 
 export default function RRPartRequests() {
@@ -423,322 +410,39 @@ export default function RRPartRequests() {
     return () => supabase.removeChannel(channel);
   }, []);
 
-  const logOIN = async (item, action, payload, severity = "info") => {
-    try {
-      await supabase.from("operations_events").insert({
-        event_type: action,
-        title: `RR HOD ${action}`,
-        description: `${action} completed by RR HOD`,
-        source_module: "Repair & Refurbishment",
-        entity_type: isDirectRepairJob(item) ? "repair_job" : "part_request",
-        entity_id: item._source_id || item.id,
-        severity,
-        metadata: {
-          part_request_id: isDirectRepairJob(item) ? null : item._source_id || item.id,
-          repair_job_id: isDirectRepairJob(item) ? item._source_id || item.id : null,
-          ticket_id: item.ticket_id,
-          ticket_number: item.ticket_number,
-          engineer: getEngineerName(item),
-          previous_rr_status: item.rr_status,
-          previous_lifecycle_status: item.lifecycle_status,
-          new_values: payload,
-        },
-      });
-    } catch (error) {
-      console.warn("OIN log skipped:", error);
-    }
-  };
-
-  const writeLifecycleLog = async (item, payload, note) => {
-    try {
-      await supabase.from("part_lifecycle_logs").insert({
-        part_request_id: item.id,
-        status: payload.lifecycle_status || payload.rr_status || "rr_update",
-        department: "Repair & Refurbishment",
-        note,
-      });
-    } catch (error) {
-      console.warn("Lifecycle log skipped:", error);
-    }
-  };
-
- const updateLinkedRepairJob = async (item, payload, actionLabel = "RR Update") => {
-  try {
-    const now = new Date().toISOString();
-    const rrStatus = normalize(payload.rr_status || item.rr_status);
-    const techId =
-      payload.assigned_rr_technician ||
-      item.assigned_rr_technician ||
-      null;
-
-    const jobStatusMap = {
-      received: "received",
-      assigned: "assigned",
-      under_repair: "under_repair",
-      waiting_qa: "waiting_qa",
-      qa_passed: "ready_for_inventory",
-      qa_failed: "qa_failed",
-      returned_inventory: "sent_to_inventory",
+  const updateRequest = async (item, payload, actionLabel) => {
+    setUpdatingId(item.id);
+    const actionByStatus = {
+      received: "receive",
+      assigned: "assign",
+      qa_passed: "qa_pass",
+      qa_failed: "qa_fail",
+      returned_inventory: "return_inventory",
       scrapped: "scrap",
     };
+    const action = actionByStatus[normalize(payload.rr_status)];
 
-    const jobPayload = {
-      updated_at: now,
-      status: jobStatusMap[rrStatus] || rrStatus || "received",
-      final_remark: actionLabel,
-    };
-
-    if (rrStatus === "received") {
-      jobPayload.received_by = user?.full_name || user?.name || user?.email || "RR HOD";
-      jobPayload.condition_on_arrival = item.condition_on_arrival || "received_from_inventory";
-      jobPayload.action_required = item.action_required || "repair_required";
-      jobPayload.inventory_transfer_status = "not_ready";
-      jobPayload.test_result = "pending";
-    }
-
-    if (rrStatus === "assigned") {
-      jobPayload.assigned_rr_technician = techId;
-      jobPayload.assigned_to = techId;
-      jobPayload.assigned_by = user?.id || user?.auth_id || null;
-      jobPayload.assigned_at = payload.assigned_at || now;
-      jobPayload.action_required = item.action_required || "repair_required";
-      jobPayload.inventory_transfer_status = "not_ready";
-      jobPayload.test_result = "pending";
-    }
-
-    if (rrStatus === "qa_passed") {
-      jobPayload.test_result = "passed";
-      jobPayload.inventory_transfer_status = "ready_to_transfer";
-      jobPayload.good_quantity = item.quantity || item.good_quantity || 1;
-      jobPayload.bad_quantity = item.bad_quantity || 0;
-    }
-
-    if (rrStatus === "qa_failed") {
-      jobPayload.test_result = "failed";
-      jobPayload.inventory_transfer_status = "not_ready";
-      jobPayload.good_quantity = item.good_quantity || 0;
-      jobPayload.bad_quantity = item.quantity || item.bad_quantity || 1;
-    }
-
-    if (rrStatus === "returned_inventory") {
-      jobPayload.test_result = "passed";
-      jobPayload.inventory_transfer_status = "transferred";
-      jobPayload.completed_at = now;
-      jobPayload.good_quantity = item.quantity || item.good_quantity || 1;
-      jobPayload.bad_quantity = item.bad_quantity || 0;
-    }
-
-    if (rrStatus === "scrapped") {
-      jobPayload.test_result = "failed";
-      jobPayload.inventory_transfer_status = "not_ready";
-      jobPayload.completed_at = now;
-      jobPayload.good_quantity = 0;
-      jobPayload.bad_quantity = item.quantity || item.bad_quantity || 1;
-      jobPayload.action_required = "scrapped";
-    }
-
-    const { data: existingJob, error: findError } = await supabase
-      .from("repair_jobs")
-      .select("id")
-      .eq("part_request_id", item.id)
-      .maybeSingle();
-
-    if (findError) throw findError;
-
-    if (existingJob?.id) {
-      const { error: updateError } = await supabase
-        .from("repair_jobs")
-        .update(jobPayload)
-        .eq("id", existingJob.id);
-
-      if (updateError) throw updateError;
-      return existingJob.id;
-    }
-
-    const partName = getPartName(item);
-    const newJob = {
-      part_request_id: item.id,
-      job_number: item.ticket_number
-        ? `RR-${item.ticket_number}-${String(item.id).slice(0, 8)}`
-        : `RR-${String(item.id).slice(0, 8)}`,
-      ticket_id: item.ticket_number || item.ticket_id || null,
-      device_name: item.device_name || partName,
-      terminal_id: item.terminal_id || null,
-      bank_name: item.bank_name || null,
-      branch_name: item.branch_name || null,
-      fault_description:
-        item.reason_note ||
-        item.reason_category ||
-        item.operations_note ||
-        item.inventory_note ||
-        "Created from RR part request",
-      assigned_to: jobPayload.assigned_to || techId,
-      status: jobPayload.status || "received",
-      priority: item.priority || "normal",
-      received_by: jobPayload.received_by || user?.full_name || user?.email || null,
-      created_at: now,
-      updated_at: now,
-      source_type: "part_request",
-      received_from: "Inventory",
-      item_name: partName,
-      part_number: item.part_number || null,
-      machine_brand: item.machine_brand || item.device_brand || null,
-      machine_model: item.machine_model || item.device_model || null,
-      quantity_received: item.quantity || 1,
-      condition_on_arrival:
-        item.condition_on_arrival || "received_from_inventory",
-      action_required: jobPayload.action_required || "repair_required",
-      test_result: jobPayload.test_result || "pending",
-      good_quantity: jobPayload.good_quantity ?? 0,
-      bad_quantity: jobPayload.bad_quantity ?? item.quantity ?? 1,
-      inventory_transfer_status:
-        jobPayload.inventory_transfer_status || "not_ready",
-      final_remark: jobPayload.final_remark || "Created from RR HOD action",
-      assigned_rr_technician: jobPayload.assigned_rr_technician || techId,
-      assigned_by: jobPayload.assigned_by || user?.id || user?.auth_id || null,
-      assigned_at: jobPayload.assigned_at || (techId ? now : null),
-      completed_at: jobPayload.completed_at || null,
-    };
-
-    const { data: createdJob, error: insertError } = await supabase
-      .from("repair_jobs")
-      .insert(newJob)
-      .select("id")
-      .single();
-
-    if (insertError) throw insertError;
-
-    return createdJob?.id || null;
-  } catch (error) {
-    console.error("Linked repair job update failed:", error);
-    toast.error(
-      error.message ||
-        "Part request updated, but repair job could not be created."
-    );
-    return null;
-  }
-};
-
-  const updateRequest = async (item, payload, actionLabel, severity = "info") => {
-    setUpdatingId(item.id);
-    const now = new Date().toISOString();
-
-    if (isDirectRepairJob(item)) {
-      const rrStatus = normalize(payload.rr_status || item.rr_status);
-      const statusMap = {
-        received: "received",
-        assigned: "assigned",
-        under_repair: "under_repair",
-        waiting_qa: "waiting_qa",
-        qa_passed: "ready_for_inventory",
-        qa_failed: "qa_failed",
-        returned_inventory: "sent_to_inventory",
-        scrapped: "scrap",
-      };
-
-      const jobPayload = {
-        status: statusMap[rrStatus] || rrStatus,
-        updated_at: now,
-        final_remark: actionLabel,
-      };
-
-      if (rrStatus === "received") {
-        jobPayload.received_by = user?.full_name || user?.name || user?.email || "RR HOD";
-        jobPayload.condition_on_arrival = item.condition_on_arrival || "received_from_inventory";
-        jobPayload.action_required = item.action_required || "repair_required";
-        jobPayload.test_result = "pending";
-        jobPayload.inventory_transfer_status = "not_ready";
-      }
-
-      if (rrStatus === "assigned") {
-        const techId = payload.assigned_rr_technician || payload.assigned_to || null;
-        jobPayload.assigned_rr_technician = techId;
-        jobPayload.assigned_to = techId;
-        jobPayload.assigned_by = user?.id || user?.auth_id || null;
-        jobPayload.assigned_at = payload.assigned_at || now;
-        jobPayload.test_result = "pending";
-        jobPayload.inventory_transfer_status = "not_ready";
-      }
-
-      if (rrStatus === "qa_passed") {
-        jobPayload.test_result = "passed";
-        jobPayload.inventory_transfer_status = "ready_to_transfer";
-        jobPayload.good_quantity = item.quantity_received || item.quantity || 1;
-        jobPayload.bad_quantity = 0;
-      }
-
-      if (rrStatus === "qa_failed") {
-        jobPayload.test_result = "failed";
-        jobPayload.inventory_transfer_status = "not_ready";
-        jobPayload.good_quantity = 0;
-        jobPayload.bad_quantity = item.quantity_received || item.quantity || 1;
-      }
-
-      if (rrStatus === "returned_inventory") {
-        jobPayload.test_result = "passed";
-        jobPayload.inventory_transfer_status = "transferred";
-        jobPayload.completed_at = now;
-      }
-
-      if (rrStatus === "scrapped") {
-        jobPayload.test_result = "failed";
-        jobPayload.inventory_transfer_status = "not_ready";
-        jobPayload.completed_at = now;
-        jobPayload.good_quantity = 0;
-        jobPayload.bad_quantity = item.quantity_received || item.quantity || 1;
-        jobPayload.action_required = "scrapped";
-      }
-
-      const safeJobPayload = filterPayloadByExistingColumns(item, jobPayload);
-      const { error } = await supabase
-        .from("repair_jobs")
-        .update(safeJobPayload)
-        .eq("id", item._source_id || item.id);
+    if (action) {
+      const { error } = await supabase.rpc("rr_transition_repair_job", {
+        p_record_id: item._source_id || item.id,
+        p_record_type: isDirectRepairJob(item) ? "repair_job" : "part_request",
+        p_action: action,
+        p_technician_id:
+          payload.assigned_rr_technician || payload.assigned_to || null,
+      });
 
       if (error) {
-        console.error("Direct repair job update failed:", error);
-        toast.error(error.message || "Update failed");
-        setUpdatingId(null);
-        return;
+        toast.error(error.message || "RR workflow update failed");
+      } else {
+        toast.success(`${actionLabel} successful`);
+        fetchRequests();
       }
-
-      await logOIN(item, actionLabel, safeJobPayload, severity);
-      toast.success(`${actionLabel} successful`);
-      setUpdatingId(null);
-      fetchRequests();
-      return;
-    }
-
-    const safePayload = filterPayloadByExistingColumns(item, {
-      ...payload,
-      updated_at: now,
-    });
-
-    if (Object.keys(safePayload).length === 0) {
-      toast.error("No matching database columns found for this update.");
       setUpdatingId(null);
       return;
     }
 
-    const { error } = await supabase
-      .from("part_requests")
-      .update(safePayload)
-      .eq("id", item._source_id || item.id);
-
-    if (error) {
-      console.error("RR update failed:", JSON.stringify(error, null, 2));
-      toast.error(error.message || "Update failed");
-      setUpdatingId(null);
-      return;
-    }
-
-    await updateLinkedRepairJob(item, safePayload, actionLabel);
-    await writeLifecycleLog(item, safePayload, `RR HOD ${actionLabel}`);
-    await logOIN(item, actionLabel, safePayload, severity);
-
-    toast.success(`${actionLabel} successful`);
+    toast.error("Unsupported RR workflow transition.");
     setUpdatingId(null);
-    fetchRequests();
   };
 
   const receivePart = async (item) => {
@@ -772,20 +476,17 @@ export default function RRPartRequests() {
       return;
     }
 
-    await updateRequest(
-      item,
-      {
-        rr_status: "assigned",
-        lifecycle_status: "assigned_to_rr_technician",
-        inventory_status: "transferred_rr",
-        dispatch_status: "waiting_rr",
-        assigned_rr_technician: techId,
-        assigned_by: user?.id || user?.auth_id || null,
-        assigned_at: new Date().toISOString(),
-        assigned_to: techId,
-      },
-      "Assign Technician"
-    );
+    setUpdatingId(item.id);
+    const { error } = await supabase.rpc("rr_assign_repair_job", {
+      p_repair_job_id: item._source_id || item.id,
+      p_technician_profile_id: techId,
+    });
+    if (error) toast.error(error.message || "RR technician assignment failed");
+    else {
+      toast.success("Technician assigned successfully");
+      await fetchRequests();
+    }
+    setUpdatingId(null);
   };
 
   const qaPass = async (item) => {

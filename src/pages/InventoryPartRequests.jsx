@@ -2,6 +2,8 @@ import { Fragment, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabaseClient";
+import { reportError } from '@/lib/errorReporting';
+import { useFormDraft } from '@/hooks/useFormDraft';
 import {
   PackageCheck,
   AlertTriangle,
@@ -20,12 +22,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { canAccess } from "@/lib/roleAccess";
 import {
   canDoInventoryAction,
-  canDoConsumableAction,
   getInventoryState,
-  getConsumableState,
   workflowCan,
   INVENTORY_ALLOWED_ACTIONS,
-  RR_CONSUMABLE_ALLOWED_ACTIONS,
 } from "@/lib/workflowRules";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -56,7 +55,8 @@ const repairJobCards = [
   { key: "waiting_qa", title: "Waiting QA", icon: ListChecks, color: "bg-purple-600" },
   { key: "qa_passed", title: "QA Passed", icon: PackageCheck, color: "bg-green-600" },
   { key: "qa_failed", title: "QA Failed", icon: XCircle, color: "bg-red-600" },
-  { key: "completed", title: "Returned Inventory", icon: RotateCcw, color: "bg-slate-700" },
+  { key: "stock_intake", title: "Awaiting Stock Intake", icon: RotateCcw, color: "bg-amber-600" },
+  { key: "completed", title: "Received Into Stock", icon: PackageCheck, color: "bg-slate-700" },
   { key: "all", title: "All Repair Jobs", icon: ListChecks, color: "bg-[#102969]" },
 ];
 
@@ -269,12 +269,16 @@ function matchesRepairJobCard(job, key) {
     return status === "qa_failed" || qaStatus === "failed";
   }
 
+  if (key === "stock_intake") {
+    return (
+      (status === "sent_to_inventory" || status === "returned_inventory") &&
+      normalize(job.stock_intake_status) !== "received"
+    );
+  }
+
   if (key === "completed") {
     return (
-      status === "returned_inventory" ||
-      status === "returned_to_inventory" ||
-      lifecycleStatus === "returned_inventory" ||
-      lifecycleStatus === "returned_to_inventory"
+      status === "inventory_received" || normalize(job.stock_intake_status) === "received"
     );
   }
 
@@ -292,24 +296,32 @@ async function fetchInventoryPartRequests() {
 }
 
 async function fetchRRConsumableRequests() {
-  const { data, error } = await supabase
+  const { data: requests, error } = await supabase
     .from("rr_consumable_requests")
-    .select(`
-      *,
-      repair_jobs (
-        id,
-        job_number,
-        ticket_id,
-        part_request_id,
-        item_name,
-        device_name,
-        status
-      )
-    `)
+    .select("*")
     .order("created_at", { ascending: false });
 
   if (error) throw error;
-  return data || [];
+
+  const rows = requests || [];
+  const repairJobIds = [
+    ...new Set(rows.map((request) => request.repair_job_id).filter(Boolean)),
+  ];
+
+  if (repairJobIds.length === 0) return rows;
+
+  const { data: jobs, error: jobsError } = await supabase
+    .from("repair_jobs")
+    .select("id, job_number, ticket_id, part_request_id, item_name, device_name, status")
+    .in("id", repairJobIds);
+
+  if (jobsError) throw jobsError;
+
+  const jobsById = new Map((jobs || []).map((job) => [String(job.id), job]));
+  return rows.map((request) => ({
+    ...request,
+    repair_jobs: jobsById.get(String(request.repair_job_id)) || null,
+  }));
 }
 
 async function fetchRepairJobs() {
@@ -320,6 +332,39 @@ async function fetchRepairJobs() {
 
   if (error) throw error;
   return data || [];
+}
+
+async function fetchStockMasters() {
+  const { data, error } = await supabase
+    .from("spare_parts")
+    .select("id, part_name, part_number, quantity_available, quantity, warehouse, storage_location, tracking_type")
+    .order("part_name", { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+async function receiveRRReturnIntoStock({ job, form }) {
+  const serialNumbers = String(form.serial_numbers || "")
+    .split(/[\n,]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const { data, error } = await supabase.rpc("inventory_receive_rr_return", {
+    p_repair_job_id: job.id,
+    p_stock_item_id: form.stock_item_id || null,
+    p_part_name: form.part_name || null,
+    p_part_number: form.part_number || null,
+    p_category: form.category || null,
+    p_warehouse: form.warehouse || "Oshodi",
+    p_storage_location: form.storage_location || null,
+    p_unit_cost_ngn: Number(form.unit_cost_ngn || 0),
+    p_stock_condition: form.stock_condition || "refurbished",
+    p_tracking_type: form.tracking_type || "quantity",
+    p_serial_numbers: serialNumbers,
+    p_notes: form.notes || null,
+  });
+  if (error) throw error;
+  return data;
 }
 
 function createJobNumber() {
@@ -344,136 +389,10 @@ function parseSelectedPartNumber(request) {
   return match?.[1]?.trim() || request?.part_number || null;
 }
 
-function getStockQuantityColumn(part) {
-  if (!part) return null;
-
-  if (Object.prototype.hasOwnProperty.call(part, "quantity_available")) {
-    return "quantity_available";
-  }
-
-  if (Object.prototype.hasOwnProperty.call(part, "current_stock")) {
-    return "current_stock";
-  }
-
-  if (Object.prototype.hasOwnProperty.call(part, "stock_quantity")) {
-    return "stock_quantity";
-  }
-
-  if (Object.prototype.hasOwnProperty.call(part, "available_quantity")) {
-    return "available_quantity";
-  }
-
-  if (Object.prototype.hasOwnProperty.call(part, "quantity")) {
-    return "quantity";
-  }
-
-  return null;
-}
-
-async function findInventoryStockForRequest(request) {
-  const partNumber = parseSelectedPartNumber(request);
-  const partName = getPartName(request);
-
-  if (partNumber) {
-    const { data, error } = await supabase
-      .from("spare_parts")
-      .select("*")
-      .ilike("part_number", partNumber)
-      .limit(1)
-      .maybeSingle();
-
-    if (error) throw error;
-    if (data) return data;
-  }
-
-  if (partName) {
-    const { data, error } = await supabase
-      .from("spare_parts")
-      .select("*")
-      .ilike("part_name", `%${partName}%`)
-      .limit(1)
-      .maybeSingle();
-
-    if (error) throw error;
-    if (data) return data;
-  }
-
-  return null;
-}
-
-async function deductInventoryStockForRequest(request) {
-  const requestedQty = Number(request?.quantity || 1);
-
-  if (!requestedQty || requestedQty <= 0) {
-    throw new Error("Invalid requested quantity.");
-  }
-
-  const stockItem = await findInventoryStockForRequest(request);
-
-  if (!stockItem?.id) {
-    throw new Error(
-      `Inventory stock item not found for ${getPartName(request)}. Please confirm the selected stock item before sending to RR.`
-    );
-  }
-
-  const qtyColumn = getStockQuantityColumn(stockItem);
-
-  if (!qtyColumn) {
-    throw new Error(
-      `No supported stock quantity column found for ${getPartName(request)}.`
-    );
-  }
-
-  const currentQty = Number(stockItem[qtyColumn] || 0);
-
-  if (currentQty < requestedQty) {
-    throw new Error(
-      `Insufficient stock for ${getPartName(request)}. Available: ${currentQty}, Requested: ${requestedQty}.`
-    );
-  }
-
-  const { error } = await supabase
-    .from("spare_parts")
-    .update({
-      [qtyColumn]: currentQty - requestedQty,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", stockItem.id);
-
-  if (error) throw error;
-
-  return {
-    stock_item_id: stockItem.id,
-    stock_column: qtyColumn,
-    previous_quantity: currentQty,
-    deducted_quantity: requestedQty,
-    new_quantity: currentQty - requestedQty,
-  };
-}
-
-async function createOrUpdateRepairJobForRR({ request, user = null, deductStock = false, manualForm = null }) {
+async function createOrUpdateRepairJobForRR({ request, manualForm = null }) {
   const now = new Date().toISOString();
   const partRequestId = request?.id || manualForm?.part_request_id || null;
   const partName = manualForm?.part_name || (request ? getPartName(request) : "Inventory Part");
-
-  let existingJob = null;
-
-  if (partRequestId) {
-    const { data, error } = await supabase
-      .from("repair_jobs")
-      .select("id")
-      .eq("part_request_id", partRequestId)
-      .maybeSingle();
-
-    if (error) throw error;
-    existingJob = data;
-  }
-
-  let stockAudit = null;
-
-  if (deductStock && request && !existingJob?.id) {
-    stockAudit = await deductInventoryStockForRequest(request);
-  }
 
   const jobPayload = {
     ticket_id: request?.ticket_number || request?.ticket_id || null,
@@ -508,25 +427,11 @@ async function createOrUpdateRepairJobForRR({ request, user = null, deductStock 
     good_quantity: 0,
     bad_quantity: Number(manualForm?.quantity || request?.quantity || 1),
     inventory_transfer_status: "not_ready",
-    final_remark: stockAudit
-      ? `Created from Inventory. Stock deducted: ${stockAudit.deducted_quantity}. Remaining: ${stockAudit.new_quantity}.`
-      : "Created from Inventory and waiting for RR HOD intake.",
+    final_remark: "Created from Inventory and waiting for RR HOD intake.",
     assigned_rr_technician: null,
     assigned_by: null,
     assigned_at: null,
   };
-
-  if (existingJob?.id) {
-    const { data, error } = await supabase
-      .from("repair_jobs")
-      .update(jobPayload)
-      .eq("id", existingJob.id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  }
 
   const { data, error } = await supabase
     .from("repair_jobs")
@@ -545,29 +450,27 @@ async function createOrUpdateRepairJobForRR({ request, user = null, deductStock 
 }
 
 async function createInventoryRepairJob({ form, user }) {
-  const now = new Date().toISOString();
   const selectedPartRequest = form.selected_part_request || null;
+
+  if (selectedPartRequest?.id) {
+    const { data, error } = await supabase.rpc("inventory_send_part_to_rr", {
+      p_part_request_id: selectedPartRequest.id,
+    });
+    if (error) throw error;
+    const { data: repairJob, error: fetchError } = await supabase
+      .from("repair_jobs")
+      .select("*")
+      .eq("id", data.repair_job_id)
+      .single();
+    if (fetchError) throw fetchError;
+    return repairJob;
+  }
 
   const repairJob = await createOrUpdateRepairJobForRR({
     request: selectedPartRequest,
     user,
-    deductStock: false,
     manualForm: form,
   });
-
-  if (selectedPartRequest?.id) {
-    await supabase
-      .from("part_requests")
-      .update({
-        inventory_status: "transferred_rr",
-        rr_status: "pending_rr",
-        status: "pending_rr",
-        lifecycle_status: "issued_to_rr",
-        dispatch_status: "waiting_rr",
-        updated_at: now,
-      })
-      .eq("id", selectedPartRequest.id);
-  }
 
   await supabase.from("part_lifecycle_logs").insert({
     part_request_id: selectedPartRequest?.id || null,
@@ -764,11 +667,23 @@ async function updateEngineerInventoryStatus({ id, action, fundData = {}, user =
   }
 
   if (action === "rr") {
-    await createOrUpdateRepairJobForRR({
-      request: currentRequest,
-      user,
-      deductStock: true,
+    const { data, error } = await supabase.rpc("inventory_send_part_to_rr", {
+      p_part_request_id: id,
     });
+    if (error) throw error;
+    return data;
+  }
+
+  if (action === "request_fund") {
+    const { data, error } = await supabase.rpc("inventory_request_dispatch_fund", {
+      p_part_request_id: id,
+      p_requested_amount: Number(fundData.requested_amount || 0),
+      p_destination: fundData.destination || getDestination(currentRequest) || null,
+      p_logistics_type: fundData.logistics_type || "waybill",
+      p_reason: fundData.inventory_note || fundData.reason || null,
+    });
+    if (error) throw error;
+    return data;
   }
 
   let data = null;
@@ -988,6 +903,11 @@ export default function InventoryPartRequests() {
     queryFn: fetchInventoryPartRequests,
   });
 
+  const { data: stockMasters = [] } = useQuery({
+    queryKey: ["inventory_stock_masters"],
+    queryFn: fetchStockMasters,
+  });
+
   const {
     data: consumableRequests = [],
     isLoading: consumableLoading,
@@ -1121,8 +1041,7 @@ export default function InventoryPartRequests() {
       alert("Inventory request updated successfully.");
     },
     onError: (err) => {
-      console.error(err);
-      alert(`Update failed: ${err.message}`);
+      reportError(err, { context: 'inventory.part_request.update', userMessage: 'Inventory request update failed.' });
     },
   });
 
@@ -1133,8 +1052,7 @@ export default function InventoryPartRequests() {
       alert("RR consumable request updated successfully.");
     },
     onError: (err) => {
-      console.error(err);
-      alert(`Update failed: ${err.message}`);
+      reportError(err, { context: 'inventory.consumable_request.update', userMessage: 'Consumable request update failed.' });
     },
   });
 
@@ -1148,8 +1066,20 @@ export default function InventoryPartRequests() {
       alert("Repair job created and sent to RR Intake successfully.");
     },
     onError: (err) => {
-      console.error(err);
-      alert(`Repair job failed: ${err.message}`);
+      reportError(err, { context: 'inventory.repair_job.create', userMessage: 'Repair job creation failed.' });
+    },
+  });
+
+  const stockIntakeMutation = useMutation({
+    mutationFn: receiveRRReturnIntoStock,
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["inventory_repair_jobs"] });
+      qc.invalidateQueries({ queryKey: ["inventory_stock_masters"] });
+      qc.invalidateQueries({ queryKey: ["spare_parts_inventory"] });
+      alert(`RR return received into stock. New available quantity: ${result?.new_quantity ?? "updated"}.`);
+    },
+    onError: (err) => {
+      reportError(err, { context: "inventory.rr_return.stock_intake", userMessage: "RR stock intake failed." });
     },
   });
 
@@ -1351,7 +1281,11 @@ export default function InventoryPartRequests() {
             )}
 
             {!isLoading && !error && visibleRows.length > 0 && requestType === "repair_jobs" && (
-              <RepairJobsTable rows={visibleRows} />
+              <RepairJobsTable
+                rows={visibleRows}
+                stockMasters={stockMasters}
+                stockIntakeMutation={stockIntakeMutation}
+              />
             )}
 
             {!isLoading && !error && visibleRows.length > 0 && requestType === "consumable" && (
@@ -1717,6 +1651,26 @@ function CreateRepairJobPanel({ engineerRequests, mutation, user }) {
     reason: "",
   });
 
+  const emptyRepairJobForm = {
+    source: "inventory_stock",
+    part_request_id: "",
+    part_name: "",
+    serial_number: "",
+    quantity: "1",
+    repair_type: "QA Inspection",
+    priority: "Normal",
+    reason: "",
+  };
+
+  const { clearDraft } = useFormDraft({
+    key: 'inventory-create-repair-job',
+    form,
+    setForm,
+    userId: user?.id || user?.email,
+    storage: 'session',
+    maxAgeMs: 8 * 60 * 60 * 1000,
+  });
+
   const selectableRequests = engineerRequests.filter((request) => {
     const status = normalize(request.status);
     const inventoryStatus = normalize(request.inventory_status);
@@ -1754,6 +1708,11 @@ function CreateRepairJobPanel({ engineerRequests, mutation, user }) {
         ...form,
         selected_part_request: selected,
         part_name: partName,
+      },
+    }, {
+      onSuccess: () => {
+        clearDraft();
+        setForm(emptyRepairJobForm);
       },
     });
   };
@@ -1903,7 +1862,117 @@ function CreateRepairJobPanel({ engineerRequests, mutation, user }) {
   );
 }
 
-function RepairJobsTable({ rows }) {
+function RRStockIntakeAction({ job, stockMasters, mutation }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    stock_item_id: "",
+    part_name: getRepairJobPartName(job),
+    part_number: job.part_number || "",
+    category: "",
+    warehouse: "Oshodi",
+    storage_location: "",
+    unit_cost_ngn: "0",
+    stock_condition: "refurbished",
+    tracking_type: "quantity",
+    serial_numbers: "",
+    notes: "",
+  });
+
+  const awaitingIntake = ["sent_to_inventory", "returned_inventory"].includes(normalize(job.status)) &&
+    normalize(job.stock_intake_status) !== "received";
+  if (!awaitingIntake) {
+    return normalize(job.stock_intake_status) === "received"
+      ? <span className="text-emerald-300 font-semibold">Received</span>
+      : <span className="text-blue-100/60">—</span>;
+  }
+
+  const selectedMaster = stockMasters.find((item) => String(item.id) === String(form.stock_item_id));
+  const update = (field, value) => setForm((current) => ({ ...current, [field]: value }));
+  const submit = () => {
+    if (!form.stock_item_id && !form.part_name.trim()) {
+      alert("Select an existing stock item or enter a new stock item name.");
+      return;
+    }
+    const tracking = selectedMaster?.tracking_type || form.tracking_type;
+    const serialCount = String(form.serial_numbers || "").split(/[\n,]+/).map((v) => v.trim()).filter(Boolean).length;
+    if (normalize(tracking) === "serial" && serialCount !== Number(job.good_quantity || 0)) {
+      alert(`Enter exactly ${job.good_quantity || 0} serial number(s) for the passed units.`);
+      return;
+    }
+    mutation.mutate({ job, form: { ...form, tracking_type: tracking } }, { onSuccess: () => setOpen(false) });
+  };
+
+  return (
+    <div className="min-w-[260px] space-y-2">
+      <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setOpen((value) => !value)}>
+        {open ? "Cancel Intake" : "Receive Into Stock"}
+      </Button>
+      {open && (
+        <div className="space-y-2 rounded-lg border border-white/15 bg-[#08153d] p-3">
+          <p className="text-xs text-blue-100">Passed quantity: <strong>{job.good_quantity || 0}</strong></p>
+          <select className="h-9 w-full rounded bg-[#102969] border border-white/20 px-2 text-white"
+            value={form.stock_item_id}
+            onChange={(e) => {
+              const value = e.target.value;
+              const master = stockMasters.find((item) => String(item.id) === String(value));
+              setForm((current) => ({ ...current, stock_item_id: value,
+                warehouse: master?.warehouse || current.warehouse,
+                storage_location: master?.storage_location || current.storage_location,
+                tracking_type: master?.tracking_type || current.tracking_type }));
+            }}>
+            <option value="">Create new stock master</option>
+            {stockMasters.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.part_name || item.part_number} — Stock {item.quantity_available ?? item.quantity ?? 0}
+              </option>
+            ))}
+          </select>
+          {!form.stock_item_id && (
+            <>
+              <Input className="bg-[#102969] border-white/20 text-white" placeholder="Stock item name"
+                value={form.part_name} onChange={(e) => update("part_name", e.target.value)} />
+              <Input className="bg-[#102969] border-white/20 text-white" placeholder="Part number"
+                value={form.part_number} onChange={(e) => update("part_number", e.target.value)} />
+              <Input className="bg-[#102969] border-white/20 text-white" placeholder="Category"
+                value={form.category} onChange={(e) => update("category", e.target.value)} />
+              <select className="h-9 w-full rounded bg-[#102969] border border-white/20 px-2 text-white"
+                value={form.tracking_type} onChange={(e) => update("tracking_type", e.target.value)}>
+                <option value="quantity">Quantity tracked</option>
+                <option value="serial">Serial / physical units</option>
+              </select>
+            </>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <Input className="bg-[#102969] border-white/20 text-white" placeholder="Warehouse"
+              value={form.warehouse} onChange={(e) => update("warehouse", e.target.value)} />
+            <Input className="bg-[#102969] border-white/20 text-white" placeholder="Bin/location"
+              value={form.storage_location} onChange={(e) => update("storage_location", e.target.value)} />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <select className="h-9 rounded bg-[#102969] border border-white/20 px-2 text-white"
+              value={form.stock_condition} onChange={(e) => update("stock_condition", e.target.value)}>
+              <option value="new">New</option><option value="repaired">Repaired</option>
+              <option value="refurbished">Refurbished</option><option value="recovered">Recovered</option>
+            </select>
+            <Input type="number" min="0" className="bg-[#102969] border-white/20 text-white"
+              placeholder="Unit cost NGN" value={form.unit_cost_ngn} onChange={(e) => update("unit_cost_ngn", e.target.value)} />
+          </div>
+          {(normalize(selectedMaster?.tracking_type || form.tracking_type) === "serial") && (
+            <Input className="bg-[#102969] border-white/20 text-white" placeholder="Serials, comma separated"
+              value={form.serial_numbers} onChange={(e) => update("serial_numbers", e.target.value)} />
+          )}
+          <Input className="bg-[#102969] border-white/20 text-white" placeholder="Receipt note"
+            value={form.notes} onChange={(e) => update("notes", e.target.value)} />
+          <Button size="sm" className="w-full bg-[#ff5a00] hover:bg-[#e24f00]" disabled={mutation.isPending} onClick={submit}>
+            {mutation.isPending ? "Receiving…" : "Confirm Stock Receipt"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RepairJobsTable({ rows, stockMasters, stockIntakeMutation }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm border-collapse">
@@ -1918,6 +1987,7 @@ function RepairJobsTable({ rows }) {
             <th className="text-left p-3 border border-white/20">RR</th>
             <th className="text-left p-3 border border-white/20">QA</th>
             <th className="text-left p-3 border border-white/20">Linked Request</th>
+            <th className="text-left p-3 border border-white/20 no-print">Stock Intake</th>
           </tr>
         </thead>
 
@@ -1956,6 +2026,9 @@ function RepairJobsTable({ rows }) {
               <td className="p-3 border border-white/10 print:border-slate-300">
                 {job.part_request_id || job.ticket_id || "N/A"}
               </td>
+              <td className="p-3 border border-white/10 print:border-slate-300 no-print">
+                <RRStockIntakeAction job={job} stockMasters={stockMasters} mutation={stockIntakeMutation} />
+              </td>
             </tr>
           ))}
         </tbody>
@@ -1964,7 +2037,7 @@ function RepairJobsTable({ rows }) {
   );
 }
 
-function ConsumableTable({ rows, mutation, user }) {
+function ConsumableTable({ rows, mutation }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm border-collapse">

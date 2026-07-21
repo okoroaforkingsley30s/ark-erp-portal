@@ -2,6 +2,13 @@ import React, { useState } from 'react';
 import { useParams, useOutletContext, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import {
+  canTicketBeResolvedRemotely,
+  getTicketWorkflowDisplayStatus,
+  isTicketFinallyClosed,
+  isTicketPendingCompletionReview,
+} from '@/lib/ticketWorkflowState';
+import { usePrivateStorageUrl } from '@/hooks/usePrivateStorageUrl';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -34,6 +41,8 @@ import {
   Clock,
   Tag,
   AlertTriangle,
+  CheckCircle,
+  XCircle,
   Image,
   Video,
 } from 'lucide-react';
@@ -77,13 +86,30 @@ async function fetchEngineers() {
 function getFileUrl(item) {
   if (!item) return '';
   if (typeof item === 'string') return item;
-  return item.url || item.publicUrl || item.file_url || '';
+  return item.path ? `storage://${item.bucket || 'ticket-evidence'}/${item.path}` :
+    item.url || item.publicUrl || item.file_url || '';
 }
 
 function getFileName(item, fallback) {
   if (!item) return fallback;
   if (typeof item === 'string') return fallback;
   return item.name || fallback;
+}
+
+function PrivateEvidenceLink({ item, title, index }) {
+  const fileUrl = usePrivateStorageUrl(getFileUrl(item), 'ticket-evidence');
+  const fileName = getFileName(item, `${title} ${index + 1}`);
+  if (!fileUrl) return null;
+  return (
+    <a
+      href={fileUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-xs text-primary hover:underline border rounded-lg px-3 py-2"
+    >
+      {fileName}
+    </a>
+  );
 }
 
 function EvidenceLinks({ title, icon, items }) {
@@ -99,24 +125,9 @@ function EvidenceLinks({ title, icon, items }) {
       </p>
 
       <div className="flex flex-wrap gap-2">
-        {safeItems.map((item, index) => {
-          const fileUrl = getFileUrl(item);
-          const fileName = getFileName(item, `${title} ${index + 1}`);
-
-          if (!fileUrl) return null;
-
-          return (
-            <a
-              key={`${title}-${index}`}
-              href={fileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-primary hover:underline border rounded-lg px-3 py-2"
-            >
-              {fileName}
-            </a>
-          );
-        })}
+        {safeItems.map((item, index) => (
+          <PrivateEvidenceLink key={`${title}-${index}`} item={item} title={title} index={index} />
+        ))}
       </div>
     </div>
   );
@@ -129,12 +140,17 @@ export default function TicketDetail() {
   const queryClient = useQueryClient();
 
   const role = user?.role || 'client';
+  const normalizedRole = String(role).trim().toLowerCase();
 
   const [comment, setComment] = useState('');
   const [isInternal, setIsInternal] = useState(false);
   const [sending, setSending] = useState(false);
   const [rating, setRating] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
+  const [reviewReason, setReviewReason] = useState('');
+  const [reviewing, setReviewing] = useState(false);
+  const [remoteResolutionReport, setRemoteResolutionReport] = useState('');
+  const [resolvingRemotely, setResolvingRemotely] = useState(false);
 
   const { data: ticket, isLoading } = useQuery({
     queryKey: ['ticket', id],
@@ -165,14 +181,11 @@ export default function TicketDetail() {
 
     if (error) throw error;
 
-    const { error: auditError } = await supabase.from('audit_logs').insert({
-      action: 'ticket_updated',
-      entity_type: 'Ticket',
-      entity_id: id,
-      user_email: user?.email,
-      user_name: user?.full_name || user?.name || user?.email,
-      details: JSON.stringify(data),
-      created_at: new Date().toISOString(),
+    const { error: auditError } = await supabase.rpc('ark_write_audit_event', {
+      p_action: 'ticket_updated',
+      p_entity_type: 'Ticket',
+      p_entity_id: id,
+      p_details: data,
     });
 
     if (auditError) {
@@ -239,35 +252,87 @@ export default function TicketDetail() {
     }
   };
 
-  const handleStatusChange = async (newStatus) => {
-    const now = new Date().toISOString();
-    const data = { status: newStatus };
-
-    if (newStatus === 'resolved') {
-      data.resolved_date = now;
+  const handleCompletionReview = async (decision) => {
+    if (reviewing) return;
+    if (decision === 'reject' && reviewReason.trim().length < 3) {
+      alert('Please enter the reason for returning this job to the engineer.');
+      return;
     }
 
-    if (newStatus === 'closed') {
-      data.closed_date = now;
-    }
+    setReviewing(true);
 
-    await updateTicket(data);
-
-    if (newStatus === 'resolved' && ticket.client_email) {
-      const { error } = await supabase.from('notifications').insert({
-        user_email: ticket.client_email,
-        title: 'Ticket Resolved',
-        message: `Your ticket "${ticket.title}" has been resolved.`,
-        type: 'ticket_resolved',
-        related_id: id,
-        related_type: 'ticket',
-        read: false,
-        created_at: now,
+    try {
+      const { data, error } = await supabase.rpc('ark_review_ticket_completion_v2', {
+        p_ticket_id: id,
+        p_decision: decision,
+        p_reason: decision === 'reject' ? reviewReason.trim() : null,
       });
 
-      if (error) {
-        console.warn('Client resolution notification failed:', error.message);
-      }
+      if (error) throw error;
+
+      await Promise.allSettled(
+        (data?.notification_ids || []).map((notificationId) =>
+          supabase.functions.invoke('send-notification-email', {
+            body: { notificationId },
+          })
+        )
+      );
+
+      setReviewReason('');
+      await queryClient.invalidateQueries({ queryKey: ['ticket', id] });
+      await queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+
+      alert(
+        decision === 'approve'
+          ? 'Completion approved and ticket closed consistently.'
+          : 'Completion rejected and returned to the engineer.'
+      );
+    } catch (error) {
+      console.error('Ticket completion review failed:', error);
+      alert(error?.message || 'Ticket completion review failed.');
+    } finally {
+      setReviewing(false);
+    }
+  };
+
+  const handleRemoteResolution = async () => {
+    if (resolvingRemotely) return;
+
+    if (remoteResolutionReport.trim().length < 10) {
+      alert('Enter a clear remote-resolution report of at least 10 characters.');
+      return;
+    }
+
+    setResolvingRemotely(true);
+
+    try {
+      const { data, error } = await supabase.rpc('ark_resolve_ticket_remotely', {
+        p_ticket_id: id,
+        p_completion_report: remoteResolutionReport.trim(),
+      });
+
+      if (error) throw error;
+
+      await Promise.allSettled(
+        (data?.notification_ids || []).map((notificationId) =>
+          supabase.functions.invoke('send-notification-email', {
+            body: { notificationId },
+          })
+        )
+      );
+
+      setRemoteResolutionReport('');
+      await queryClient.invalidateQueries({ queryKey: ['ticket', id] });
+      await queryClient.invalidateQueries({ queryKey: ['tickets'] });
+      await queryClient.invalidateQueries({ queryKey: ['notifications'] });
+
+      alert('Ticket resolved remotely and closed successfully.');
+    } catch (error) {
+      console.error('Remote ticket resolution failed:', error);
+      alert(error?.message || 'Remote ticket resolution failed.');
+    } finally {
+      setResolvingRemotely(false);
     }
   };
 
@@ -342,6 +407,25 @@ export default function TicketDetail() {
     ? ticket.attachments
     : [];
 
+  const canReviewCompletion = [
+    'system_admin',
+    'admin',
+    'admin_head',
+    'manager',
+    'helpdesk',
+    'operations',
+    'operations_manager',
+  ].includes(normalizedRole);
+  const pendingCompletionReview = isTicketPendingCompletionReview(ticket);
+  const finalClosed = isTicketFinallyClosed(ticket);
+  const displayStatus = getTicketWorkflowDisplayStatus(ticket);
+  const canResolveRemotely =
+    canReviewCompletion &&
+    canTicketBeResolvedRemotely(ticket);
+  const inconsistentLegacyClosure =
+    ['closed', 'approved'].includes(String(ticket.status || '').toLowerCase()) &&
+    String(ticket.completion_status || '').toLowerCase() === 'pending';
+
   return (
     <div className="space-y-5 max-w-4xl">
       <Button variant="ghost" size="sm" onClick={() => navigate(-1)}>
@@ -365,9 +449,9 @@ export default function TicketDetail() {
 
             <Badge
               variant="outline"
-              className={`${statusColors[ticket.status]} text-[10px]`}
+              className={`${statusColors[displayStatus]} text-[10px]`}
             >
-              {statusLabels[ticket.status] || ticket.status}
+              {statusLabels[displayStatus] || displayStatus}
             </Badge>
           </div>
 
@@ -559,27 +643,128 @@ export default function TicketDetail() {
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Status</p>
 
-                {role === 'admin' || role === 'helpdesk' || role === 'engineer' ? (
-                  <Select value={ticket.status || ''} onValueChange={handleStatusChange}>
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
+                <Badge variant="outline" className={statusColors[displayStatus]}>
+                  {statusLabels[displayStatus] || displayStatus}
+                </Badge>
 
-                    <SelectContent>
-                      <SelectItem value="new">New</SelectItem>
-                      <SelectItem value="assigned">Assigned</SelectItem>
-                      <SelectItem value="in_progress">In Progress</SelectItem>
-                      <SelectItem value="pending">Pending</SelectItem>
-                      <SelectItem value="resolved">Resolved</SelectItem>
-                      <SelectItem value="closed">Closed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Badge variant="outline" className={statusColors[ticket.status]}>
-                    {statusLabels[ticket.status] || ticket.status}
-                  </Badge>
-                )}
+                <p className="mt-2 text-[11px] text-muted-foreground">
+                  Workflow status changes are performed by the authorized action buttons.
+                </p>
               </div>
+
+              {String(ticket.resolution_mode || '').toLowerCase() === 'remote' && (
+                <div className="rounded-xl border border-green-500/30 bg-green-500/5 p-3">
+                  <p className="text-sm font-semibold text-green-700">Remotely Resolved</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {ticket.remote_resolved_by || ticket.approved_by || 'Authorized reviewer'}
+                    {ticket.remote_resolved_at
+                      ? ` · ${format(new Date(ticket.remote_resolved_at), 'MMM d, yyyy h:mm a')}`
+                      : ''}
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm">
+                    {ticket.completion_note || 'No resolution report recorded.'}
+                  </p>
+                </div>
+              )}
+
+              {canResolveRemotely && (
+                <div className="space-y-3 rounded-xl border border-blue-500/30 bg-blue-500/5 p-3">
+                  <div>
+                    <p className="text-sm font-semibold">Remote Resolution</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Use only when the issue was fixed remotely before field work started. Photo evidence is not required.
+                    </p>
+                  </div>
+
+                  <Textarea
+                    placeholder="Describe the remote checks performed, action taken and confirmed result..."
+                    value={remoteResolutionReport}
+                    onChange={(event) => setRemoteResolutionReport(event.target.value)}
+                    className="min-h-24"
+                    disabled={resolvingRemotely}
+                  />
+
+                  <Button
+                    type="button"
+                    className="w-full"
+                    onClick={handleRemoteResolution}
+                    disabled={resolvingRemotely || remoteResolutionReport.trim().length < 10}
+                  >
+                    {resolvingRemotely ? (
+                      <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="mr-1 h-4 w-4" />
+                    )}
+                    Resolve Remotely / Close
+                  </Button>
+                </div>
+              )}
+
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Completion Status</p>
+                <Badge variant="outline">
+                  {finalClosed
+                    ? 'closed'
+                    : String(ticket.completion_status || 'not submitted').replace(/_/g, ' ')}
+                </Badge>
+              </div>
+
+              {canReviewCompletion && (pendingCompletionReview || inconsistentLegacyClosure) && (
+                <div className="space-y-3 rounded-xl border border-orange-500/30 bg-orange-500/5 p-3">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {inconsistentLegacyClosure
+                        ? 'Finalize Inconsistent Closure'
+                        : 'Completion Review'}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {inconsistentLegacyClosure
+                        ? 'This ticket was closed by the retired status control while its completion remained pending. Finalize it to synchronize every connected view.'
+                        : 'Approve and close the ticket, or return it to the engineer with a reason.'}
+                    </p>
+                  </div>
+
+                  {!inconsistentLegacyClosure && (
+                    <Textarea
+                      placeholder="Reason required only when rejecting..."
+                      value={reviewReason}
+                      onChange={(event) => setReviewReason(event.target.value)}
+                      className="min-h-20"
+                      disabled={reviewing}
+                    />
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {!inconsistentLegacyClosure && (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleCompletionReview('reject')}
+                        disabled={reviewing}
+                      >
+                        <XCircle className="mr-1 h-4 w-4" />
+                        Reject
+                      </Button>
+                    )}
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      className={inconsistentLegacyClosure ? 'col-span-2' : ''}
+                      onClick={() => handleCompletionReview('approve')}
+                      disabled={reviewing}
+                    >
+                      {reviewing ? (
+                        <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                      ) : (
+                        <CheckCircle className="mr-1 h-4 w-4" />
+                      )}
+                      {inconsistentLegacyClosure ? 'Finalize Closure' : 'Approve / Close'}
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Category</p>
@@ -674,7 +859,7 @@ export default function TicketDetail() {
 
               {(role === 'admin' || role === 'helpdesk') &&
                 !ticket.escalated &&
-                ticket.status !== 'closed' && (
+                !finalClosed && (
                   <Button
                     variant="destructive"
                     size="sm"

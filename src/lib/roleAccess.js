@@ -80,6 +80,8 @@ export const PERMISSIONS = {
   DEPARTMENTS: "departments",
   NOTIFICATIONS: "notifications",
   DATA_IMPORT: "data_import",
+  WORKFLOWS: "workflows",
+  ADMIN_DIAGNOSTICS: "admin_diagnostics",
 
   COMMUNICATION: "communication",
   OFFICIAL_MAIL: "official_mail",
@@ -350,6 +352,7 @@ const COMMON_STAFF_ACCESS = [
   PERMISSIONS.DASHBOARD,
   PERMISSIONS.FUND_REQUESTS,
   PERMISSIONS.NOTIFICATIONS,
+  PERMISSIONS.WORKFLOWS,
   PERMISSIONS.COMMUNICATION,
   PERMISSIONS.OFFICIAL_MAIL,
   PERMISSIONS.ARK_CONNECT,
@@ -581,7 +584,6 @@ export const ROLE_ACCESS = {
 
   engineer: [
     ...COMMON_STAFF_ACCESS,
-    PERMISSIONS.TICKETS,
     PERMISSIONS.FIELD_OPS,
     PERMISSIONS.ENGINEERING,
     PERMISSIONS.ASSETS_SECTION,
@@ -728,7 +730,7 @@ export const ROLE_HOME = {
   operations: "/operations/part-requests",
 
   helpdesk: "/tickets",
-  engineer: "/tickets",
+  engineer: "/dashboard",
 
   repair_head: "/rr-part-requests",
   repair_technician: "/repair-jobs",
@@ -872,12 +874,15 @@ export const APPROVAL_HIERARCHY = {
 export const ROUTE_PERMISSIONS = {
   "/dashboard": PERMISSIONS.DASHBOARD,
   "/fund-requests": PERMISSIONS.FUND_REQUESTS,
+  "/workflows": PERMISSIONS.WORKFLOWS,
 
   "/tickets": PERMISSIONS.TICKETS,
   "/tickets/:id": PERMISSIONS.TICKETS,
   "/ticket": PERMISSIONS.TICKETS,
 
   "/operations": PERMISSIONS.OPERATIONS,
+  "/ops-dashboard": PERMISSIONS.OPS_DASHBOARD,
+  "/manager": PERMISSIONS.OPS_DASHBOARD,
   "/operations-feed": PERMISSIONS.OPERATIONS_FEED,
   "/operations/part-requests": PERMISSIONS.OPERATIONS_PART_REQUESTS,
 
@@ -886,6 +891,7 @@ export const ROUTE_PERMISSIONS = {
   "/spare-parts": PERMISSIONS.SPARE_PARTS,
   "/inventory-analytics": PERMISSIONS.INVENTORY_ANALYTICS,
   "/parts": PERMISSIONS.PARTS_REQUEST,
+  "/part-requests": PERMISSIONS.PARTS_REQUEST,
 
   "/rr-part-requests": PERMISSIONS.RR_INTAKE,
   "/repair-jobs": PERMISSIONS.REPAIR_JOBS,
@@ -899,6 +905,7 @@ export const ROUTE_PERMISSIONS = {
   "/hr": PERMISSIONS.HR,
 
   "/reports": PERMISSIONS.REPORTS,
+  "/sla-analytics": PERMISSIONS.SLA_ANALYTICS,
   "/live-map": PERMISSIONS.LIVE_MAP,
   "/sites": PERMISSIONS.SITE_MONITOR,
   "/site-monitor": PERMISSIONS.SITE_MONITOR,
@@ -908,6 +915,7 @@ export const ROUTE_PERMISSIONS = {
   "/branches": PERMISSIONS.BRANCHES,
   "/branches/:id/devices": PERMISSIONS.DEVICES,
   "/devices": PERMISSIONS.DEVICES,
+  "/machines": PERMISSIONS.DEVICES,
   "/bank-devices": PERMISSIONS.DEVICES,
   "/device-status": PERMISSIONS.DEVICE_STATUS,
   "/device-assignment": PERMISSIONS.ASSIGNMENTS,
@@ -926,6 +934,7 @@ export const ROUTE_PERMISSIONS = {
   "/settings": PERMISSIONS.SETTINGS,
   "/notifications": PERMISSIONS.NOTIFICATIONS,
   "/data-import": PERMISSIONS.DATA_IMPORT,
+  "/admin-diagnostics": PERMISSIONS.ADMIN_DIAGNOSTICS,
 
   "/official-mail": PERMISSIONS.OFFICIAL_MAIL,
   "/ark-connect": PERMISSIONS.ARK_CONNECT,
@@ -935,6 +944,7 @@ export function canAccess(role, permission) {
   if (!role || !permission) return false;
 
   const normalizedRole = normalizeRole(role);
+  if (permission === PERMISSIONS.ADMIN_DIAGNOSTICS) return normalizedRole === "system_admin";
   const access = ROLE_ACCESS[normalizedRole];
 
   if (!access) return false;

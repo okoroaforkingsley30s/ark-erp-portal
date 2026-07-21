@@ -3,10 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Bot, Send, X, Loader2, Sparkles } from 'lucide-react';
 
-const SYSTEM = `You are ARK Inventory Assistant, an AI expert for ARK ONE's spare parts inventory system.
-You help engineers and inventory managers find parts, check stock levels, understand categories, troubleshoot ATM/device issues, recommend parts, and interpret inventory data.
-Be concise, professional, and helpful. Use ₦ for naira prices and $ for USD.`;
-
 function generateLocalReply(message, items = []) {
   const q = message.toLowerCase();
 

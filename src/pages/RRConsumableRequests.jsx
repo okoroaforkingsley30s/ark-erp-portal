@@ -11,7 +11,6 @@ import { Label } from "@/components/ui/label";
 import {
   Search,
   Plus,
-  PackageCheck,
   PackagePlus,
   Trash2,
   Loader2,
@@ -20,6 +19,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useFormDraft } from "@/hooks/useFormDraft";
 
 const cardClass =
   "bg-[#102969]/90 border border-[#ff5a00]/20 text-white shadow-sm rounded-xl";
@@ -59,6 +59,19 @@ function isRRHod(user) {
   );
 }
 
+function isInventoryUser(user) {
+  const role = normalize(user?.role || user?.user_role || user?.position);
+  return ["system_admin", "inventory", "inventory_head", "inventory_manager"].includes(role);
+}
+
+function isRRUser(user) {
+  const role = normalize(user?.role || user?.user_role || user?.position);
+  return [
+    "system_admin", "repair_head", "rr_hod", "repair_hod", "head_of_rr",
+    "repair_technician", "rr_technician", "rr_tech",
+  ].includes(role);
+}
+
 function getJobTitle(job) {
   return (
     job?.item_name ||
@@ -67,6 +80,10 @@ function getJobTitle(job) {
     job?.part_type ||
     "R/R Item"
   );
+}
+
+function isSupportEligibleJob(job) {
+  return ["refurbishing", "under_repair", "qa_failed"].includes(normalize(job?.status));
 }
 
 function getStockQty(part) {
@@ -107,20 +124,45 @@ export default function RRConsumableRequests() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  const [profileId, setProfileId] = useState(null);
   const [profileName, setProfileName] = useState("");
+  const [profileId, setProfileId] = useState(null);
+  const [profileResolved, setProfileResolved] = useState(false);
 
   const [items, setItems] = useState([{ ...emptyItem }]);
   const [notes, setNotes] = useState("");
 
   const userEmail = user?.email || user?.user_email || "";
   const userIsRRHod = isRRHod(user);
+  const userIsInventory = isInventoryUser(user);
+  const userIsRR = isRRUser(user);
+
+  const consumableDraft = useMemo(() => ({
+    selectedJob,
+    items,
+    notes,
+  }), [selectedJob, items, notes]);
+
+  const restoreConsumableDraft = (draft) => {
+    setSelectedJob(draft?.selectedJob || null);
+    setItems(Array.isArray(draft?.items) && draft.items.length ? draft.items : [{ ...emptyItem }]);
+    setNotes(draft?.notes || "");
+  };
+
+  useFormDraft({
+    key: `rr-consumable-request:${jobId || 'new'}`,
+    form: consumableDraft,
+    setForm: restoreConsumableDraft,
+    userId: user?.id || userEmail,
+    storage: 'session',
+    maxAgeMs: 8 * 60 * 60 * 1000,
+  });
 
   useEffect(() => {
     const loadProfile = async () => {
+      setProfileResolved(false);
       if (!userEmail) {
-        setProfileId(user?.id || null);
         setProfileName(userEmail || "RR Technician");
+        setProfileResolved(true);
         return;
       }
 
@@ -132,13 +174,14 @@ export default function RRConsumableRequests() {
 
       if (error) {
         console.error(error);
-        setProfileId(user?.id || null);
         setProfileName(userEmail || "RR Technician");
+        setProfileResolved(true);
         return;
       }
 
-      setProfileId(data?.id || user?.id || null);
+      setProfileId(data?.id || null);
       setProfileName(data?.user_email || userEmail || "RR Technician");
+      setProfileResolved(true);
     };
 
     loadProfile();
@@ -175,12 +218,22 @@ export default function RRConsumableRequests() {
       console.error(jobsResult.error);
       toast.error("Failed to load repair jobs");
     } else {
-      const jobs = jobsResult.data || [];
+      const jobs = (jobsResult.data || []).filter((job) =>
+        isSupportEligibleJob(job) && (
+          userIsRRHod ||
+          String(job.assigned_rr_technician || "") === String(profileId || "") ||
+          String(job.assigned_to || "") === String(profileId || "")
+        )
+      );
       setRepairJobs(jobs);
 
       if (jobId) {
         const found = jobs.find((job) => String(job.id) === String(jobId));
         if (found) setSelectedJob(found);
+        else {
+          setSelectedJob(null);
+          toast.error("That repair job is already completed or is not currently eligible for a consumable request.");
+        }
       }
     }
 
@@ -195,8 +248,9 @@ export default function RRConsumableRequests() {
   };
 
   useEffect(() => {
+    if (!profileResolved) return;
     fetchData();
-  }, [jobId]);
+  }, [jobId, profileId, profileResolved]);
 
   const filteredStock = useMemo(() => {
     const q = stockSearch.toLowerCase().trim();
@@ -288,75 +342,37 @@ export default function RRConsumableRequests() {
       return;
     }
 
-    const technicianId =
-      selectedJob.assigned_rr_technician ||
-      selectedJob.assigned_to ||
-      profileId ||
-      null;
-
     setSubmitting(true);
+    try {
+      const { data, error } = await supabase.rpc("rr_create_consumable_request_v2", {
+        p_repair_job_id: selectedJob.id,
+        p_items: cleanItems,
+        p_notes: notes || null,
+      });
+      if (error) throw error;
 
-    const payload = {
-  repair_job_id: selectedJob.id,
-  job_number: selectedJob.job_number || null,
-  failed_part: getJobTitle(selectedJob),
-  requested_by: technicianId,
-  technician_id: technicianId,
-  status: "pending_hod",
-  items: cleanItems,
-  notes,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-
-const { error } = await supabase
-  .from("rr_consumable_requests")
-  .insert(payload);
-
-    if (error) {
+      toast.success(
+        data?.created === false
+          ? "The active consumable request already exists."
+          : "Consumable request submitted to RR HOD"
+      );
+      setItems([{ ...emptyItem }]);
+      setNotes("");
+      fetchData();
+    } catch (error) {
       console.error(error);
       toast.error(error.message || "Failed to create consumable request");
+    } finally {
       setSubmitting(false);
-      return;
     }
-
-    await supabase
-      .from("repair_jobs")
-      .update({
-        status: "awaiting_parts",
-        inventory_transfer_status: "not_ready",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", selectedJob.id);
-
-    const { error: eventError } = await supabase.from("operations_events").insert({
-      event_type: "RR_CONSUMABLE_REQUEST_CREATED",
-      title: "RR consumable request submitted to RR HOD",
-      description: `${selectedJob.job_number || selectedJob.id} requested ${cleanItems.length} consumable item(s)`,
-      source_module: "Repair & Refurbishment",
-      entity_type: "rr_consumable_request",
-      severity: "info",
-    });
-
-    if (eventError) {
-      console.warn("OIN event failed:", eventError);
-    }
-
-    toast.success("Consumable request submitted to RR HOD");
-    setItems([{ ...emptyItem }]);
-    setNotes("");
-    setSubmitting(false);
-    fetchData();
   };
 
-  const updateRequest = async (id, payload, message) => {
-    const { error } = await supabase
-      .from("rr_consumable_requests")
-      .update({
-        ...payload,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", id);
+  const transitionRequest = async (id, action, message) => {
+    const { error } = await supabase.rpc("rr_transition_consumable_request", {
+      p_request_id: id,
+      p_action: action,
+      p_note: null,
+    });
 
     if (error) {
       console.error(error);
@@ -374,11 +390,7 @@ const { error } = await supabase
       return;
     }
 
-    await updateRequest(
-      request.id,
-      { status: "pending_inventory" },
-      "Approved by RR HOD and sent to Inventory"
-    );
+    await transitionRequest(request.id, "hod_approve", "Approved by RR HOD and sent to Inventory");
   };
 
   const rejectByHod = async (request) => {
@@ -387,11 +399,22 @@ const { error } = await supabase
       return;
     }
 
-    await updateRequest(
-      request.id,
-      { status: "rejected_by_hod" },
-      "Request rejected by RR HOD"
-    );
+    await transitionRequest(request.id, "hod_reject", "Request rejected by RR HOD");
+  };
+
+  const releaseFromInventory = async (request) => {
+    if (!userIsInventory) return toast.error("Only Inventory can release consumables");
+    await transitionRequest(request.id, "inventory_release", "Consumables released to RR");
+  };
+
+  const rejectByInventory = async (request) => {
+    if (!userIsInventory) return toast.error("Only Inventory can reject this request");
+    await transitionRequest(request.id, "inventory_reject", "Request returned by Inventory");
+  };
+
+  const confirmUsed = async (request) => {
+    if (!userIsRR) return toast.error("Only RR can confirm use");
+    await transitionRequest(request.id, "confirm_used", "Consumables attached to repair job and marked used");
   };
 
   const filtered = useMemo(() => {
@@ -418,7 +441,7 @@ const { error } = await supabase
     pendingInventory: requests.filter((r) => r.status === "pending_inventory").length,
     released: requests.filter((r) => r.status === "released").length,
     rejected: requests.filter(
-      (r) => r.status === "rejected" || r.status === "rejected_by_hod"
+      (r) => ["rejected", "rejected_by_hod", "rejected_by_inventory"].includes(r.status)
     ).length,
   };
 
@@ -646,8 +669,9 @@ const { error } = await supabase
           ) : (
             <div className="space-y-3">
               {filtered.map((request) => {
-                const requestItems = request.item_name
-                  ? [
+                const requestItems = Array.isArray(request.items)
+                  ? request.items
+                  : request.item_name ? [
                       {
                         item_name: request.item_name,
                         quantity: request.quantity,
@@ -717,21 +741,31 @@ const { error } = await supabase
                         )}
 
                         {request.status === "pending_inventory" && (
-                          <span className="text-xs text-blue-200 uppercase">
-                            Waiting Inventory Release
-                          </span>
+                          userIsInventory ? <>
+                            <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => releaseFromInventory(request)}>
+                              Release From Stock
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => rejectByInventory(request)}>
+                              Reject / Out of Stock
+                            </Button>
+                          </> : <span className="text-xs text-blue-200 uppercase">Waiting Inventory Release</span>
                         )}
 
                         {request.status === "released" && (
-                          <span className="text-xs text-green-300 uppercase">
-                            Released
-                          </span>
+                          userIsRR ? <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => confirmUsed(request)}>
+                            Confirm Received / Used
+                          </Button> : <span className="text-xs text-green-300 uppercase">Released To RR</span>
                         )}
+
+                        {request.status === "used" && <span className="text-xs text-green-300 uppercase">Used On Repair Job</span>}
 
                         {request.status === "rejected_by_hod" && (
                           <span className="text-xs text-red-300 uppercase">
                             Rejected By RR HOD
                           </span>
+                        )}
+                        {request.status === "rejected_by_inventory" && (
+                          <span className="text-xs text-red-300 uppercase">Rejected By Inventory</span>
                         )}
                       </div>
                     </div>

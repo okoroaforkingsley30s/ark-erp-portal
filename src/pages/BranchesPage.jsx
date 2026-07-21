@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -50,7 +51,7 @@ export default function BranchesPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  const canManage = ['admin', 'manager', 'helpdesk', 'operations_manager'].includes(
+  const canManage = ['system_admin', 'super_admin', 'admin', 'admin_head', 'manager', 'operations', 'operations_manager'].includes(
     user?.role
   );
 
@@ -61,6 +62,8 @@ export default function BranchesPage() {
   const [editing, setEditing] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+
+  useFormDraft({ key: editing?.id ? `admin-branch-edit:${editing.id}` : 'admin-branch-new', form, setForm, userId: user?.id || user?.email, enabled: dialogOpen, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const { data: branches = [], isLoading } = useQuery({
     queryKey: ['branches'],

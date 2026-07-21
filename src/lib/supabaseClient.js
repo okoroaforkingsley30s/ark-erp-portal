@@ -1,13 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
+import { resolveFrontendEnvironment } from '@/lib/environment';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const runtimeEnvironment = resolveFrontendEnvironment(import.meta.env);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient(
+  runtimeEnvironment.supabaseUrl,
+  runtimeEnvironment.supabaseAnonKey,
+  {
   auth: {
     flowType: "pkce",
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
   },
-});
+  }
+);
+
+export { runtimeEnvironment };

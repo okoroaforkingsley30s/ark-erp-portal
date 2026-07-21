@@ -41,62 +41,33 @@ export async function createTaxTransactionDraft({
   sourceTable,
   sourceId,
   taxableAmount,
-  taxRate,
-  taxAuthority,
   dueDate,
   currency = "NGN",
   paymentReference,
   notes,
   metadata = {},
-  createdBy,
-  createdByName,
 }) {
-  const taxAmount = calculateTaxAmount(taxableAmount, taxRate);
-
-  const { data: taxTransactionNo, error: noError } = await supabase.rpc(
-    "finance_generate_tax_no",
-    {
-      p_prefix: "TAX",
-      p_tax_date: dueDate || new Date().toISOString().slice(0, 10),
-    }
-  );
-
-  if (noError) throw noError;
-
-  const { data, error } = await supabase
-    .from("finance_tax_transactions")
-    .insert({
-      tax_transaction_no: taxTransactionNo,
-      tax_code_id: taxCodeId,
-      tax_rate_id: taxRateId || null,
-      source_module: sourceModule,
-      source_table: sourceTable,
-      source_id: String(sourceId),
-      taxable_amount: toAmount(taxableAmount),
-      tax_rate: toAmount(taxRate),
-      tax_amount: taxAmount,
-      currency,
-      tax_authority: taxAuthority,
-      due_date: dueDate || null,
-      status: "draft",
-      payment_reference: paymentReference || null,
-      notes: notes || null,
-      metadata,
-      created_by: createdBy || null,
-      created_by_name: createdByName || null,
-    })
-    .select("*")
-    .single();
+  const { data, error } = await supabase.rpc("finance_create_tax_transaction_draft", {
+    p_tax_code_id: taxCodeId,
+    p_tax_rate_id: taxRateId || null,
+    p_source_module: sourceModule,
+    p_source_table: sourceTable,
+    p_source_id: String(sourceId),
+    p_taxable_amount: toAmount(taxableAmount),
+    p_due_date: dueDate || null,
+    p_currency: currency,
+    p_payment_reference: paymentReference || null,
+    p_notes: notes || null,
+    p_metadata: metadata,
+  });
 
   if (error) throw error;
   return data;
 }
 
-export async function createTaxDraftJournal(taxTransactionId, user = {}) {
-  const { data, error } = await supabase.rpc("finance_create_tax_draft_journal", {
+export async function createTaxDraftJournal(taxTransactionId) {
+  const { data, error } = await supabase.rpc("finance_create_tax_draft_journal_secure", {
     p_tax_transaction_id: taxTransactionId,
-    p_created_by: user.id || null,
-    p_created_by_name: user.full_name || user.name || user.email || null,
   });
 
   if (error) throw error;

@@ -26,7 +26,6 @@ export const WORKFLOW_STATUS = {
   TRANSFERRED_RR: "transferred_rr",
   PENDING_RR: "pending_rr",
   RECEIVED_BY_RR: "received_by_rr",
-  ASSIGNED_TO_RR_TECH: "assigned_to_rr_tech",
   ASSIGNED_TO_RR_TECHNICIAN: "assigned_to_rr_technician",
   RR_TESTING: "rr_testing",
 
@@ -64,7 +63,16 @@ export const WORKFLOW_STATUS = {
 };
 
 export function normalizeStatus(value) {
-  return String(value || "").toLowerCase().trim();
+  const status = String(value || "").toLowerCase().trim();
+  const aliases = {
+    assigned_to_rr_tech: "assigned_to_rr_technician",
+    rr_assigned: "assigned",
+    under_repair: "refurbishing",
+    waiting_qa: "testing",
+    returned_to_inventory: "returned_inventory",
+    scrapped: "scrap",
+  };
+  return aliases[status] || status;
 }
 
 export function firstStatus(...values) {
@@ -94,6 +102,8 @@ export const OPERATION_ALLOWED_ACTIONS = {
     "reject_operations",
   ],
   pending: ["approve", "reject", "approve_operations", "reject_operations"],
+  pending_review: ["approve", "reject", "approve_operations", "reject_operations"],
+  inventory_returned_to_operations: ["approve", "reject", "approve_operations", "reject_operations"],
   waiting: ["approve", "reject", "approve_operations", "reject_operations"],
   requested: ["approve", "reject", "approve_operations", "reject_operations"],
   submitted: ["approve", "reject", "approve_operations", "reject_operations"],
@@ -118,6 +128,15 @@ export function getOperationState(request) {
     request.status,
     request.inventory_status
   );
+
+  if (
+    status === "pending_review" ||
+    status === "pending_operations" ||
+    status === "inventory_returned_to_operations" ||
+    normalizeStatus(request.inventory_status) === "returned_to_operations"
+  ) {
+    return "pending_operations";
+  }
 
   if (status === "rejected_operations" || status === "rejected") {
     return "rejected_operations";
@@ -278,7 +297,6 @@ export const RR_ALLOWED_ACTIONS = {
   received_by_rr: ["assign_technician", "assign", "test_part", "test"],
   received: ["assign_technician", "assign", "test_part", "test"],
 
-  assigned_to_rr_tech: ["start_repair", "test_part", "test"],
   assigned_to_rr_technician: ["start_repair", "test_part", "test"],
   assigned: ["start_repair", "test_part", "test"],
 
@@ -407,3 +425,4 @@ export function canDoConsumableAction(request, action) {
 export function getWorkflowStepLabel(state) {
   return state ? String(state).replaceAll("_", " ").toUpperCase() : "UNKNOWN";
 }
+// @ts-check

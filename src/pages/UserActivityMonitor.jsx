@@ -1,1 +1,0 @@
-<Route path="/user-activity" element={<UserActivityMonitor />} />

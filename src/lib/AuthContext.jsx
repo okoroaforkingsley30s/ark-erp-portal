@@ -1,10 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { clearBrowserDrafts } from "@/hooks/useFormDraft";
 import { normalizeEmail } from "@/lib/identity";
+import { reportError } from '@/lib/errorReporting';
 
 const AuthContext = createContext();
-
-const ADMIN_EMAIL = "iamkizmith@gmail.com";
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -47,14 +47,26 @@ export const AuthProvider = ({ children }) => {
 
       const cleanEmail = normalizeEmail(authUser.email);
 
-      const { data: profile, error } = await supabase
+      let { data: profile, error } = await supabase
         .from("users")
         .select("*")
-        .or(`id.eq.${authUser.id},email.eq.${cleanEmail}`)
+        .or(`id.eq.${authUser.id},auth_user_id.eq.${authUser.id}`)
         .maybeSingle();
 
+      // Legacy profiles may pre-date linking their auth UUID. Email is only a
+      // lookup fallback; it never grants approval or a role.
+      if (!error && !profile && cleanEmail) {
+        const fallback = await supabase
+          .from("users")
+          .select("*")
+          .eq("email", cleanEmail)
+          .maybeSingle();
+        profile = fallback.data;
+        error = fallback.error;
+      }
+
       if (error) {
-        console.error("Profile load failed:", error.message);
+        reportError(error, { context: 'auth.profile.query', notify: false });
         blockAccess(
           "We could not verify your ARK ONE profile. Please try again or contact admin.",
           "profile_load_failed",
@@ -72,11 +84,8 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
-      const isMainAdmin = cleanEmail === ADMIN_EMAIL;
-
       const approvalStatus = profile.approval_status || profile.status;
       const isApproved =
-        isMainAdmin ||
         profile.is_approved === true ||
         approvalStatus === "approved" ||
         approvalStatus === "active";
@@ -122,7 +131,7 @@ export const AuthProvider = ({ children }) => {
           profile.full_name ||
           authUser.user_metadata?.full_name ||
           cleanEmail,
-        role: isMainAdmin ? profile.role || "admin" : profile.role,
+        role: profile.role,
         status: profile.status || "approved",
         approval_status: profile.approval_status || "approved",
         is_approved: true,
@@ -133,7 +142,7 @@ export const AuthProvider = ({ children }) => {
       setIsAuthenticated(true);
       setAuthError(null);
     } catch (error) {
-      console.error("Profile load failed:", error);
+      reportError(error, { context: 'auth.profile.load', notify: false });
       blockAccess(
         "Authentication failed. Please contact admin.",
         "profile_load_failed",
@@ -165,7 +174,7 @@ export const AuthProvider = ({ children }) => {
         setIsLoadingAuth(false);
       }
     } catch (error) {
-      console.error("Auth check failed:", error);
+      reportError(error, { context: 'auth.session.check', notify: false });
       setAuthError({ type: "auth_required", message: error.message });
       setUser(null);
       setIsAuthenticated(false);
@@ -197,7 +206,7 @@ export const AuthProvider = ({ children }) => {
       } catch (error) {
         if (!mounted) return;
 
-        console.error("Initial auth failed:", error);
+        reportError(error, { context: 'auth.session.initialize', notify: false });
         setAuthError({ type: "auth_required", message: error.message });
         setUser(null);
         setIsAuthenticated(false);
@@ -213,6 +222,7 @@ export const AuthProvider = ({ children }) => {
       if (!mounted) return;
 
       if (event === "SIGNED_OUT") {
+        clearBrowserDrafts();
         setUser(null);
         setIsAuthenticated(false);
         setAuthError(null);
@@ -237,6 +247,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = async () => {
     await supabase.auth.signOut();
+    clearBrowserDrafts();
     setUser(null);
     setIsAuthenticated(false);
     setAuthError(null);

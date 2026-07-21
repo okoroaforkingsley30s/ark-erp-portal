@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useOutletContext } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,7 +31,6 @@ import {
   Plus,
   CheckCircle2,
   XCircle,
-  Clock,
   Truck,
   Loader2,
   Package,
@@ -157,6 +157,8 @@ export default function ProcurementPortal() {
     statusFilter,
     setStatusFilter,
   ] = useState('all');
+
+  useFormDraft({ key: 'procurement-purchase-request-new', form, setForm, userId: user?.id || user?.email, enabled: open, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 });
 
   const {
     data: requests = [],

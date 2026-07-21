@@ -62,14 +62,10 @@ function normalize(value) {
 
 function isRRHODOrAdmin(user) {
   const role = normalize(user?.role || user?.user_role || user?.position);
-  return (
-    role.includes('admin') ||
-    role.includes('rr_hod') ||
-    role.includes('repair_head') ||
-    role.includes('repair hod') ||
-    role.includes('hod') ||
-    role.includes('head')
-  );
+  return [
+    'system_admin', 'ceo', 'agm', 'manager', 'repair_head',
+    'rr_hod', 'repair_hod', 'head_of_rr',
+  ].includes(role);
 }
 
 function getJobTitle(job) {
@@ -81,7 +77,7 @@ function getRepairJobState(job) {
   const testResult = normalize(job?.test_result);
   const transferStatus = normalize(job?.inventory_transfer_status);
 
-  if (status === 'sent_to_inventory' || transferStatus === 'transferred') {
+  if (status === 'sent_to_inventory' || status === 'inventory_received' || transferStatus === 'transferred') {
     return 'sent_to_inventory';
   }
 
@@ -126,18 +122,6 @@ function canDoRepairJobAction(job, action) {
   };
 
   return allowed[state]?.includes(action) || false;
-}
-
-function filterPayloadByExistingColumns(row, payload) {
-  const safePayload = {};
-
-  Object.entries(payload).forEach(([key, value]) => {
-    if (Object.prototype.hasOwnProperty.call(row, key)) {
-      safePayload[key] = value;
-    }
-  });
-
-  return safePayload;
 }
 
 function getTerminalMessage(job) {
@@ -247,98 +231,49 @@ export default function RepairRefurbish() {
         .order('created_at', { ascending: false });
 
       if (!canViewAll) {
-        query = query.eq('assigned_rr_technician', profileId);
+        query = query.or(
+          `assigned_rr_technician.eq.${profileId},assigned_to.eq.${profileId}`
+        );
       }
 
       const { data, error } = await query;
 
       if (error) throw error;
 
-      return data || [];
+      return (data || []).filter((job) =>
+        canViewAll ||
+        String(job.assigned_rr_technician || '') === String(profileId) ||
+        String(job.assigned_to || '') === String(profileId)
+      );
     },
   });
 
-  const updateLinkedPartRequest = async (job, payload) => {
-    try {
-      if (!job.part_request_id) return;
-
-      const partPayload = {};
-
-      if (payload.status === 'refurbishing') {
-        partPayload.rr_status = 'under_repair';
-        partPayload.lifecycle_status = 'under_repair';
-        partPayload.inventory_status = 'transferred_rr';
-        partPayload.dispatch_status = 'waiting_rr';
-      }
-
-      if (payload.status === 'awaiting_parts') {
-        partPayload.rr_status = 'under_repair';
-        partPayload.lifecycle_status = 'awaiting_consumables';
-        partPayload.inventory_status = 'transferred_rr';
-        partPayload.dispatch_status = 'waiting_rr';
-      }
-
-      if (payload.status === 'awaiting_fund') {
-        partPayload.rr_status = 'under_repair';
-        partPayload.lifecycle_status = 'awaiting_rr_fund';
-        partPayload.inventory_status = 'transferred_rr';
-        partPayload.dispatch_status = 'waiting_rr';
-      }
-
-      if (payload.status === 'testing') {
-        partPayload.rr_status = 'waiting_qa';
-        partPayload.qa_status = 'pending';
-        partPayload.lifecycle_status = 'waiting_qa';
-        partPayload.inventory_status = 'transferred_rr';
-        partPayload.dispatch_status = 'waiting_rr';
-      }
-
-      const shouldUpdate = Object.keys(partPayload).length > 0;
-      if (!shouldUpdate) return;
-
-      partPayload.updated_at = new Date().toISOString();
-
-      await supabase
-        .from('part_requests')
-        .update(partPayload)
-        .eq('id', job.part_request_id);
-    } catch (error) {
-      console.warn('Linked part request update skipped:', error);
-    }
-  };
-
-  const updateJob = async (job, payload, message) => {
+  const updateJob = async (job, payload) => {
     setUpdatingId(job.id);
 
-    const safePayload = filterPayloadByExistingColumns(job, {
-      ...payload,
-      updated_at: new Date().toISOString(),
-    });
+    const actionByStatus = {
+      refurbishing: 'start_repair',
+      awaiting_parts: 'request_consumables',
+      awaiting_fund: 'request_fund',
+      testing: 'submit_qa',
+    };
+    const action = actionByStatus[normalize(payload.status)];
 
-    const { error } = await supabase
-      .from('repair_jobs')
-      .update(safePayload)
-      .eq('id', job.id);
-
-    if (error) {
-      alert('Status update failed: ' + error.message);
+    if (!action) {
+      alert('Unsupported RR workflow transition.');
       setUpdatingId(null);
       return;
     }
 
-    await updateLinkedPartRequest(job, safePayload);
-
-    await supabase.from('operations_events').insert({
-      event_type: 'RR_TECH_JOB_UPDATE',
-      title: message,
-      description: `${message} for ${job.job_number || job.id}`,
-      source_module: 'Repair & Refurbishment',
-      entity_type: 'repair_job',
-      entity_id: job.id,
-      severity: payload.status === 'qa_failed' ? 'warning' : 'info',
+    const { error } = await supabase.rpc('rr_transition_repair_job', {
+      p_record_id: job.id,
+      p_record_type: 'repair_job',
+      p_action: action,
+      p_technician_id: null,
     });
 
-    qc.invalidateQueries({ queryKey: ['repair-jobs'] });
+    if (error) alert('Status update failed: ' + error.message);
+    else qc.invalidateQueries({ queryKey: ['repair-jobs'] });
     setUpdatingId(null);
   };
 
@@ -365,15 +300,6 @@ export default function RepairRefurbish() {
       return;
     }
 
-    await updateJob(
-      job,
-      {
-        status: 'awaiting_parts',
-        inventory_transfer_status: 'not_ready',
-      },
-      'RR technician requested consumables'
-    );
-
     navigate(`/rr-consumable-requests?job_id=${job.id}`);
   };
 
@@ -383,16 +309,7 @@ export default function RepairRefurbish() {
       return;
     }
 
-    await updateJob(
-      job,
-      {
-        status: 'awaiting_fund',
-        inventory_transfer_status: 'not_ready',
-      },
-      'RR technician requested repair fund'
-    );
-
-    navigate(`/rr-fund-requests?job_id=${job.id}`);
+    navigate(`/fund-requests?job_id=${job.id}`);
   };
 
   const submitQA = (job) => {
