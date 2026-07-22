@@ -28,6 +28,9 @@ describe('role access', () => {
     expect(canAccess('engineer', PERMISSIONS.TICKETS)).toBe(false);
     expect(getRoleHome('engineer')).toBe('/dashboard');
     expect(canAccess('system_admin', PERMISSIONS.ADMIN_DIAGNOSTICS)).toBe(true);
+    expect(canAccess('system_admin', PERMISSIONS.FINANCE)).toBe(false);
+    expect(canAccess('system_admin', PERMISSIONS.FUND_REQUESTS)).toBe(false);
+    expect(canAccess('system_admin', PERMISSIONS.RELEASE_FUND)).toBe(false);
     expect(canAccess('ceo', PERMISSIONS.ADMIN_DIAGNOSTICS)).toBe(false);
     expect(canAccess('admin', PERMISSIONS.ADMIN_DIAGNOSTICS)).toBe(false);
   });

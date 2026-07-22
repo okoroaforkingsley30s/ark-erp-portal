@@ -249,9 +249,9 @@ export default function OfficialMailInbox() {
     window.open(data.authorization_url, '_blank', 'noopener,noreferrer');
   };
 
-  const syncGmail = async () => {
+  const syncGmail = async ({ silent = false } = {}) => {
     if (!gmailConnection?.email) {
-      alert('Please connect Gmail first.');
+      if (!silent) alert('Please connect Gmail first.');
       return;
     }
 
@@ -264,7 +264,7 @@ export default function OfficialMailInbox() {
       } = await supabase.auth.getSession();
 
       if (sessionError || !session?.access_token) {
-        alert('Session expired. Please log out and log in again.');
+        if (!silent) alert('Session expired. Please log out and log in again.');
         return;
       }
 
@@ -275,14 +275,17 @@ export default function OfficialMailInbox() {
       });
 
       if (error) {
-        reportError(error, { context: 'gmail.sync.invoke', userMessage: 'Failed to sync Gmail.' });
+        const message = await functionErrorMessage(error, 'Failed to sync Gmail.');
+        reportError(error, { context: 'gmail.sync.invoke', notify: false });
+        if (!silent) setErrorMessage(message);
         return;
       }
 
       await loadEmails(true);
-      alert(`Gmail sync completed. Synced ${data?.synced ?? 0} email(s).`);
+      if (!silent) alert(`Gmail sync completed. Synced ${data?.synced ?? 0} email(s).`);
     } catch (error) {
-      reportError(error, { context: 'gmail.sync.unexpected', userMessage: 'Failed to sync Gmail.' });
+      reportError(error, { context: 'gmail.sync.unexpected', notify: false });
+      if (!silent) setErrorMessage('Failed to sync Gmail. Please reconnect the mailbox and retry.');
     } finally {
       setSyncing(false);
     }
@@ -292,6 +295,33 @@ export default function OfficialMailInbox() {
     loadGmailConnection();
     loadEmails();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !gmailConnection?.email) return undefined;
+
+    const refreshMailbox = () => {
+      if (document.visibilityState === 'visible') syncGmail({ silent: true });
+    };
+
+    refreshMailbox();
+    const interval = window.setInterval(refreshMailbox, 60_000);
+    document.addEventListener('visibilitychange', refreshMailbox);
+
+    const channel = supabase
+      .channel(`official-mail-${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'email_messages', filter: `created_by=eq.${user.id}` },
+        () => loadEmails(true),
+      )
+      .subscribe();
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshMailbox);
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, gmailConnection?.email]);
 
   const stats = useMemo(() => {
     return {
@@ -531,8 +561,8 @@ export default function OfficialMailInbox() {
   ];
 
   return (
-    <div className="h-[calc(100dvh-96px)] min-h-[560px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#071133] text-white shadow-xl">
-      <div className="grid h-full w-full grid-cols-1 xl:grid-cols-[230px_minmax(360px,470px)_minmax(0,1fr)]">
+    <div className="h-[calc(100dvh-8rem)] min-h-0 w-full overflow-hidden rounded-2xl border border-white/10 bg-[#071133] text-white shadow-xl">
+      <div className="grid h-full min-h-0 w-full grid-cols-1 xl:grid-cols-[230px_minmax(360px,470px)_minmax(0,1fr)]">
         <aside className="hidden border-r border-white/10 bg-[#08153d] p-4 xl:flex xl:flex-col">
           <button
             onClick={() => openComposer('compose')}
@@ -590,7 +620,7 @@ export default function OfficialMailInbox() {
           </div>
         </aside>
 
-        <section className={`${selectedEmail ? 'hidden xl:flex' : 'flex'} min-w-0 flex-col border-r border-white/10 bg-[#0a1744]`}>
+        <section className={`${selectedEmail ? 'hidden xl:flex' : 'flex'} min-h-0 min-w-0 flex-col overflow-hidden border-r border-white/10 bg-[#0a1744]`}>
           <div className="shrink-0 border-b border-white/10 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -668,7 +698,7 @@ export default function OfficialMailInbox() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-scroll overscroll-contain">
             {loading && (
               <div className="p-6 text-center text-sm text-slate-400">
                 Loading your email list...
@@ -789,7 +819,7 @@ export default function OfficialMailInbox() {
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6">
+              <div className="min-h-0 flex-1 touch-pan-y overflow-y-scroll overscroll-contain px-4 py-5 sm:px-6 sm:py-6">
                 <div className="mx-auto max-w-5xl">
                   <div className="flex items-start gap-4 border-b pb-5">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#102969] text-sm font-bold text-white">
