@@ -40,6 +40,7 @@ import {
   Inbox,
   Wallet,
   Search,
+  Route,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -242,6 +243,12 @@ const ALL_MENUS = [
     icon: TrendingUp,
     path: '/crm',
     permission: 'crm',
+  },
+  {
+    label: 'Client Handoffs',
+    icon: Route,
+    path: '/crm-handoffs',
+    permission: 'crm_handoffs',
   },
   {
     label: 'HR Portal',

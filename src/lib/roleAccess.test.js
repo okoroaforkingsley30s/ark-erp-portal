@@ -36,8 +36,16 @@ describe('role access', () => {
   });
 
   it('defines permissions for the security-sensitive routes', () => {
-    for (const route of ['/machines', '/manager', '/ops-dashboard', '/part-requests', '/sla-analytics', '/workflows', '/admin-diagnostics']) {
+    for (const route of ['/machines', '/manager', '/ops-dashboard', '/part-requests', '/sla-analytics', '/workflows', '/admin-diagnostics', '/crm-handoffs']) {
       expect(ROUTE_PERMISSIONS[route], `${route} must be deny-by-default protected`).toBeTruthy();
     }
+  });
+
+  it('routes approved client handoffs only to participating departments', () => {
+    for (const role of ['business_developer', 'head_of_business_development', 'helpdesk', 'operations', 'inventory', 'procurement', 'finance', 'head_of_it']) {
+      expect(canAccess(role, PERMISSIONS.CRM_HANDOFFS), `${role} should receive client handoffs`).toBe(true);
+    }
+    expect(canAccess('engineer', PERMISSIONS.CRM_HANDOFFS)).toBe(false);
+    expect(canAccess('hr', PERMISSIONS.CRM_HANDOFFS)).toBe(false);
   });
 });

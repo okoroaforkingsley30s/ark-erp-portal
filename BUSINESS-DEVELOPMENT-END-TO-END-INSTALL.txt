@@ -1,0 +1,69 @@
+ARK ONE 1.0.16 — BUSINESS DEVELOPMENT END-TO-END REPAIR
+========================================================
+
+This is a general system repair. It does not repair only one lead.
+Existing leads, clients, complaints and tickets are preserved.
+
+WORKFLOW INSTALLED
+------------------
+1. A Business Development Officer captures and owns a lead.
+2. Calls, emails, meetings, visits, outcomes and next actions are logged.
+3. The lead moves through New, Contacted, Qualified, Proposal and Negotiation.
+4. Selecting Won submits the opportunity to the Head of Business Development.
+5. The Head approves or rejects it. Rejection returns it to Negotiation with a reason.
+6. Approval creates/updates the client and creates the required department handoffs:
+   - Operations: service activation and delivery ownership
+   - Helpdesk: support profile and service contacts
+   - Finance & Accounts: commercial, billing and account setup
+   - Inventory: product availability and fulfilment
+   - Procurement: supplier fulfilment for unavailable products
+   - IT: technical integration and implementation
+7. Each receiving department acknowledges, completes or rejects its own handoff.
+8. Business Development sees the onboarding progress and receives the response.
+9. Business Development records a client complaint and submits it to Helpdesk.
+10. Only Helpdesk creates, assigns, manages and finally closes the support ticket.
+11. When Helpdesk closes the ticket, CRM receives it for client follow-up.
+12. Business Development records a 1–5 satisfaction rating and closes only the CRM complaint record.
+    This never reopens, edits or closes the Helpdesk ticket.
+
+NOTIFICATIONS
+-------------
+- Routine pipeline updates remain in-app.
+- Major events use in-app notification plus the configured email outbox:
+  Won approval submission, approval/rejection, departmental handoff,
+  complaint routing, ticket resolution and rejected/complete handoffs.
+- Notification links point only to routes the receiving role can open.
+
+INSTALL AND VERIFY LOCALLY
+--------------------------
+Run from the repository root:
+
+  npm run validate:migrations
+  npm run lint
+  npm run typecheck
+  npm test
+  npx supabase migration up --local
+
+PRODUCTION SAFETY
+-----------------
+Create and verify a production logical backup first. Then use:
+
+  npx supabase db push --linked --dry-run
+
+The dry run must list only:
+
+  202607220007_business_development_end_to_end_workflow.sql
+
+After review and an approved PR, apply it with:
+
+  npx supabase db push --linked
+
+Do not paste production keys, database passwords or Gmail secrets into chat,
+source files, Git commits or screenshots.
+
+ACCEPTANCE TEST
+---------------
+Use test accounts for Business Developer, Head BD, Operations, Helpdesk,
+Finance, Inventory, Procurement and IT. Complete one service lead, one product
+lead and one client complaint from creation to closure. Confirm every receiving
+role sees only its queue and that major email notifications are queued.
