@@ -1,0 +1,54 @@
+ARK ONE 1.0.16 — Department Import, RR HOD Take-Up and BD Registers
+Date: 2026-07-22
+
+WHAT THIS REPAIR ADDS
+
+1. System Administrator Department Data Import Center
+   - Select a department/dataset and download its exact XLSX template.
+   - Preview and validate rows before any database write.
+   - Import modes: Merge, Insert only, Update only and Safe Replace.
+   - Safe Replace deactivates missing imported master records; it does not delete them.
+   - Every batch and row result is audited.
+   - Tickets, fund requests, accounting journals, workflow assignments and repair history cannot be replaced.
+
+2. Business Development Commercial Registers
+   - POC register: client, product, start/end dates, requirements, outcome and status.
+   - LPO / Offer to Supply: client/contact, LPO, product, quantity, value, ARK profit,
+     supplier, supply date, private invoice and delivery-note uploads.
+   - SLA: client/contact, SLA type, product, agreement dates, support fee per product
+     and private agreement upload.
+   - Connected departments receive controlled workflow notifications.
+   - Existing Helpdesk ticket creation, review and closure remain unchanged.
+   - New won-business clients still require AGM approval. Paper-era clients use the
+     Legacy/Existing Client import template.
+
+3. RR HOD Take-Up
+   - RR HOD can take ownership of an unassigned early-stage repair job.
+   - The action does not falsely assign an RR Technician.
+   - The HOD owner and timestamp are retained, and a technician can still be assigned later.
+
+INSTALL AND VALIDATE
+
+  npm run validate:migrations
+  npm run lint
+  npm run typecheck
+  npm test
+  npm run build
+  npx supabase db push --linked --dry-run
+
+PRODUCTION SAFETY
+
+Before applying the migration to production, capture schema and data checkpoints.
+Then apply through the normal reviewed pull-request and Supabase migration process.
+Do not run any ad-hoc DELETE, TRUNCATE or destructive replacement SQL.
+
+ACCEPTANCE TEST
+
+1. Sign in as System Administrator and open Data Import.
+2. Download at least one template, replace its sample row, upload and preview it.
+3. Test Merge first. Confirm the audit result and target department record.
+4. Sign in as Business Development and test POC, LPO/Offer and SLA creation.
+5. Confirm invoice/delivery/SLA files open only for authorized connected roles.
+6. Confirm Helpdesk ticket creation and closure behave exactly as before.
+7. Sign in as RR HOD, open an unassigned repair job, click Take Up Job and confirm
+   no RR Technician assignment is created.
