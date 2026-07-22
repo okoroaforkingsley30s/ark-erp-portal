@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { useFormDraft } from '@/hooks/useFormDraft';
 
@@ -29,7 +29,12 @@ import {
   Plus,
   Star,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  Activity,
+  CheckCircle2,
+  Clock3,
+  RefreshCw,
+  Users
 } from 'lucide-react';
 
 import { addDays } from 'date-fns';
@@ -75,6 +80,25 @@ export default function PerformanceModule({
 
   const [filterCountry, setFilterCountry] =
     useState('all');
+
+  const [performanceDays, setPerformanceDays] = useState(90);
+
+  const {
+    data: workflowPerformance,
+    isLoading: workflowLoading,
+    error: workflowError,
+    refetch: refetchWorkflow,
+    isFetching: workflowFetching,
+  } = useQuery({
+    queryKey: ['hr-workflow-performance', performanceDays],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('ark_hr_workflow_performance_snapshot', {
+        p_days: performanceDays,
+      });
+      if (error) throw error;
+      return data || { people: [], departments: [] };
+    },
+  });
 
   useFormDraft({ key: 'hr-performance-new', form, setForm, enabled: open, storage: 'session', maxAgeMs: 30 * 60 * 1000 });
 
@@ -174,6 +198,65 @@ export default function PerformanceModule({
 
   return (
     <div className="space-y-4">
+
+      <Card className="p-4 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-bold flex items-center gap-2"><Activity className="w-4 h-4 text-primary" />Live Workflow Performance</h3>
+            <p className="text-xs text-muted-foreground mt-1">Evidence from assigned and completed ERP work. Manual reviews remain below as the manager assessment record.</p>
+          </div>
+          <div className="flex gap-2">
+            <select className="h-9 rounded-md border bg-background px-3 text-sm" value={performanceDays} onChange={(event) => setPerformanceDays(Number(event.target.value))}>
+              {[30, 90, 180, 365].map((days) => <option key={days} value={days}>Last {days} days</option>)}
+            </select>
+            <Button variant="outline" size="sm" onClick={() => refetchWorkflow()} disabled={workflowFetching}>
+              <RefreshCw className={`w-4 h-4 mr-1 ${workflowFetching ? 'animate-spin' : ''}`} />Refresh
+            </Button>
+          </div>
+        </div>
+
+        {workflowError && <p className="rounded-lg border border-red-300 bg-red-50 p-3 text-xs text-red-700">Workflow performance could not load: {workflowError.message}</p>}
+        {workflowLoading ? <div className="flex justify-center py-10"><Loader2 className="w-7 h-7 animate-spin text-primary" /></div> : (
+          <>
+            <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+              {(workflowPerformance?.departments || []).map((department) => (
+                <div key={department.department} className="rounded-xl border bg-muted/20 p-3">
+                  <div className="flex items-center justify-between"><p className="font-semibold text-sm">{department.department}</p><Users className="w-4 h-4 text-primary" /></div>
+                  <p className="text-2xl font-bold mt-2">{department.completion_rate || 0}%</p>
+                  <p className="text-xs text-muted-foreground">{department.completed || 0} completed · {department.pending || 0} pending · {department.staff_count || 0} staff</p>
+                  {(department.overdue > 0 || department.rework > 0) && <p className="text-xs text-amber-700 mt-1">{department.overdue || 0} overdue · {department.rework || 0} rework</p>}
+                </div>
+              ))}
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-left text-xs"><tr><th className="p-3">Employee</th><th className="p-3">Department</th><th className="p-3">Assigned</th><th className="p-3">Completed</th><th className="p-3">Pending</th><th className="p-3">Overdue</th><th className="p-3">Rework</th><th className="p-3">Completion</th><th className="p-3">Avg. turnaround</th></tr></thead>
+                <tbody>
+                  {(workflowPerformance?.people || []).map((person) => (
+                    <tr key={person.email} className="border-t">
+                      <td className="p-3"><p className="font-medium">{person.full_name}</p><p className="text-xs text-muted-foreground">{person.email}</p></td>
+                      <td className="p-3">{person.department}</td><td className="p-3">{person.assigned}</td><td className="p-3 text-green-700 font-medium">{person.completed}</td><td className="p-3">{person.pending}</td><td className="p-3 text-amber-700">{person.overdue}</td><td className="p-3 text-red-700">{person.rework}</td><td className="p-3 font-semibold">{person.completion_rate}%</td><td className="p-3">{person.avg_turnaround_hours ? `${person.avg_turnaround_hours}h` : '—'}</td>
+                    </tr>
+                  ))}
+                  {(workflowPerformance?.people || []).length === 0 && <tr><td className="p-8 text-center text-muted-foreground" colSpan={9}>No workflow evidence for this period.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-2 text-xs text-muted-foreground">
+              <p className="flex gap-2"><CheckCircle2 className="w-4 h-4 text-green-600" />Completion rate = completed assigned work ÷ all assigned work.</p>
+              <p className="flex gap-2"><Clock3 className="w-4 h-4 text-blue-600" />Turnaround uses recorded creation and final closure times.</p>
+              <p className="flex gap-2"><AlertTriangle className="w-4 h-4 text-amber-600" />No confidential Finance amounts, journals or payroll are included.</p>
+            </div>
+          </>
+        )}
+      </Card>
+
+      <div className="pt-2">
+        <h3 className="font-bold">Manager Performance Reviews</h3>
+        <p className="text-xs text-muted-foreground">Formal qualitative reviews entered by HR or authorized managers.</p>
+      </div>
 
       {upcoming.length > 0 && (
 

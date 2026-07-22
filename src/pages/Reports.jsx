@@ -1,700 +1,97 @@
-import React from 'react';
-
-import { useOutletContext } from 'react-router-dom';
-
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Activity, Building2, CheckCircle2, Download, Loader2, MonitorCog, Printer, RefreshCw, Ticket, Users, Wrench } from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 import { supabase } from '@/lib/supabaseClient';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+const periods = [30, 90, 180, 365];
 
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-  LineChart,
-  Line,
-} from 'recharts';
-
-import StatCard from '@/components/dashboard/StatCard';
-
-import {
-  Ticket,
-  Clock,
-  CheckCircle2,
-  Star,
-} from 'lucide-react';
-
-import ExportButton from '@/components/ExportButton';
-
-import {
-  format,
-  subDays,
-  differenceInHours,
-  isSameDay,
-} from 'date-fns';
-
-const COLORS = [
-  'hsl(43, 85%, 45%)',
-  '#ef4444',
-  '#3b82f6',
-  '#22c55e',
-  '#8b5cf6',
-  '#f97316',
-];
-
-async function fetchTickets() {
-  const { data, error } =
-    await supabase
-      .from('tickets')
-      .select('*')
-      .order('created_at', {
-        ascending: false,
-      })
-      .limit(500);
-
-  if (error) throw error;
-
-  return data || [];
-}
-
-async function fetchUsers() {
-  const { data, error } =
-    await supabase
-      .from('users')
-      .select('*');
-
-  if (error) throw error;
-
-  return data || [];
+function exportReport(report) {
+  const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `ark-one-operational-report-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function Reports() {
-  useOutletContext();
-
-  const {
-    data: tickets = [],
-  } = useQuery({
-    queryKey: [
-      'tickets-reports',
-    ],
-
-    queryFn: fetchTickets,
+  const [days, setDays] = useState(90);
+  const { data: report, isLoading, error, refetch, isFetching } = useQuery({
+    queryKey: ['system-operational-report', days],
+    queryFn: async () => {
+      const { data, error: rpcError } = await supabase.rpc('ark_system_operational_report', { p_days: days });
+      if (rpcError) throw rpcError;
+      return data || { summary: {}, ticket_trend: [], departments: [] };
+    },
   });
 
-  const {
-    data: users = [],
-  } = useQuery({
-    queryKey: [
-      'users-reports',
-    ],
-
-    queryFn: fetchUsers,
-  });
-
-  const resolvedTickets =
-    tickets.filter(
-      (t) => t.resolved_date
-    );
-
-  const avgResolutionHours =
-    resolvedTickets.length > 0
-      ? Math.round(
-          resolvedTickets.reduce(
-            (sum, t) =>
-              sum +
-              differenceInHours(
-                new Date(
-                  t.resolved_date
-                ),
-                new Date(
-                  t.created_at
-                )
-              ),
-            0
-          ) /
-            resolvedTickets.length
-        )
-      : 0;
-
-  const ratedTickets =
-    tickets.filter(
-      (t) => t.rating
-    );
-
-  const avgRating =
-    ratedTickets.length > 0
-      ? (
-          ratedTickets.reduce(
-            (s, t) =>
-              s + t.rating,
-            0
-          ) /
-          ratedTickets.length
-        ).toFixed(1)
-      : 'N/A';
-
-  // Category distribution
-  const categoryData =
-    Object.entries(
-      tickets.reduce(
-        (acc, t) => {
-          const cat =
-            t.category ||
-            'uncategorized';
-
-          acc[cat] =
-            (acc[cat] || 0) + 1;
-
-          return acc;
-        },
-        {}
-      )
-    ).map(([name, value]) => ({
-      name: name
-        .replace('_', ' ')
-        .replace(
-          /\b\w/g,
-          (l) =>
-            l.toUpperCase()
-        ),
-
-      value,
-    }));
-
-  // Priority distribution
-  const priorityData = [
-    'low',
-    'medium',
-    'high',
-    'critical',
-  ]
-    .map((p) => ({
-      name:
-        p.charAt(0).toUpperCase() +
-        p.slice(1),
-
-      value:
-        tickets.filter(
-          (t) =>
-            t.priority === p
-        ).length,
-    }))
-    .filter((d) => d.value > 0);
-
-  // Engineer performance
-  const engineers =
-    users.filter(
-      (u) =>
-        u.role === 'engineer'
-    );
-
-  const engineerPerf =
-    engineers
-      .map((eng) => {
-        const engTickets =
-          tickets.filter(
-            (t) =>
-              t.assigned_to ===
-              eng.email
-          );
-
-        const resolved =
-          engTickets.filter(
-            (t) =>
-              t.status ===
-                'resolved' ||
-              t.status ===
-                'closed'
-          );
-
-        return {
-          name:
-            eng.full_name
-              ?.split(' ')[0] ||
-            eng.email,
-
-          assigned:
-            engTickets.length,
-
-          resolved:
-            resolved.length,
-        };
-      })
-      .filter(
-        (e) => e.assigned > 0
-      );
-
-  // Daily trend
-  const dailyTrend =
-    Array.from(
-      { length: 14 },
-      (_, i) => {
-        const date =
-          subDays(
-            new Date(),
-            13 - i
-          );
-
-        return {
-          day: format(
-            date,
-            'MMM d'
-          ),
-
-          created:
-            tickets.filter(
-              (t) =>
-                t.created_at &&
-                isSameDay(
-                  new Date(
-                    t.created_at
-                  ),
-                  date
-                )
-            ).length,
-
-          resolved:
-            tickets.filter(
-              (t) =>
-                t.resolved_date &&
-                isSameDay(
-                  new Date(
-                    t.resolved_date
-                  ),
-                  date
-                )
-            ).length,
-        };
-      }
-    );
+  const summary = report?.summary || {};
+  const cards = [
+    ['Tickets', summary.tickets, Ticket],
+    ['Open tickets', summary.open_tickets, Activity],
+    ['Closed tickets', summary.closed_tickets, CheckCircle2],
+    ['Escalations', summary.escalations, RefreshCw],
+    ['RR jobs', summary.repair_jobs, Wrench],
+    ['Active users', summary.active_users, Users],
+    ['Managed devices', summary.devices, MonitorCog],
+    ['Branches', summary.branches, Building2],
+  ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
+    <div className="space-y-6 pb-16">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">
-            Reports & Analytics
-          </h1>
-
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Performance metrics and
-            insights
-          </p>
+          <h1 className="text-2xl font-bold">System Operational Reports</h1>
+          <p className="text-sm text-muted-foreground mt-1">Live non-financial service, people, RR and infrastructure reporting. Confidential Finance records are excluded.</p>
         </div>
-
-        <ExportButton
-          filename="ark-one-reports"
-          label="Export Report"
-          data={{
-            Tickets:
-              tickets.map((t) => ({
-                ID: t.id,
-
-                Title:
-                  t.title || '',
-
-                Status:
-                  t.status || '',
-
-                Priority:
-                  t.priority || '',
-
-                Category:
-                  t.category || '',
-
-                'Assigned To':
-                  t.assigned_to ||
-                  '',
-
-                'Client Email':
-                  t.client_email ||
-                  '',
-
-                'Created Date':
-                  t.created_at
-                    ? new Date(
-                        t.created_at
-                      ).toLocaleDateString()
-                    : '',
-
-                'Resolved Date':
-                  t.resolved_date
-                    ? new Date(
-                        t.resolved_date
-                      ).toLocaleDateString()
-                    : '',
-
-                'Resolution (hrs)':
-                  t.resolved_date
-                    ? Math.round(
-                        (new Date(
-                          t.resolved_date
-                        ) -
-                          new Date(
-                            t.created_at
-                          )) /
-                          3600000
-                      )
-                    : '',
-
-                Rating:
-                  t.rating || '',
-              })),
-
-            'Daily Trend':
-              dailyTrend.map(
-                (d) => ({
-                  Date: d.day,
-
-                  Created:
-                    d.created,
-
-                  Resolved:
-                    d.resolved,
-                })
-              ),
-
-            'By Category':
-              categoryData.map(
-                (c) => ({
-                  Category:
-                    c.name,
-
-                  Count:
-                    c.value,
-                })
-              ),
-
-            'By Priority':
-              priorityData.map(
-                (p) => ({
-                  Priority:
-                    p.name,
-
-                  Count:
-                    p.value,
-                })
-              ),
-
-            'Engineer Performance':
-              engineerPerf.map(
-                (e) => ({
-                  Engineer:
-                    e.name,
-
-                  Assigned:
-                    e.assigned,
-
-                  Resolved:
-                    e.resolved,
-                })
-              ),
-          }}
-        />
+        <div className="flex flex-wrap gap-2">
+          <select className="h-10 rounded-md border bg-background px-3 text-sm" value={days} onChange={(event) => setDays(Number(event.target.value))}>
+            {periods.map((period) => <option key={period} value={period}>Last {period} days</option>)}
+          </select>
+          <Button variant="outline" onClick={() => window.print()}><Printer className="w-4 h-4 mr-2" />Print</Button>
+          <Button variant="outline" disabled={!report} onClick={() => exportReport(report)}><Download className="w-4 h-4 mr-2" />Export</Button>
+          <Button onClick={() => refetch()} disabled={isFetching}><RefreshCw className={`w-4 h-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />Refresh</Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Tickets"
-          value={tickets.length}
-          icon={Ticket}
-        />
+      {error && <Card className="p-4 border-red-400/40 text-red-400">Report could not load: {error.message}</Card>}
+      {isLoading ? <div className="flex justify-center py-20"><Loader2 className="w-9 h-9 animate-spin text-primary" /></div> : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {cards.map(([label, value, Icon]) => (
+              <Card key={label} className="p-4"><div className="flex items-center justify-between"><div><p className="text-xs text-muted-foreground">{label}</p><p className="text-2xl font-bold mt-1">{value || 0}</p></div><Icon className="w-6 h-6 text-primary" /></div></Card>
+            ))}
+          </div>
 
-        <StatCard
-          title="Avg Resolution"
-          value={`${avgResolutionHours}h`}
-          icon={Clock}
-        />
+          <div className="grid xl:grid-cols-2 gap-4">
+            <Card>
+              <CardHeader><CardTitle className="text-base">Ticket activity</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={report?.ticket_trend || []}><CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="day" tick={{ fontSize: 10 }} /><YAxis allowDecimals={false} /><Tooltip /><Legend /><Line type="monotone" dataKey="created" name="Created" stroke="#f97316" strokeWidth={2} /><Line type="monotone" dataKey="closed" name="Closed" stroke="#22c55e" strokeWidth={2} /></LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
 
-        <StatCard
-          title="Resolved"
-          value={
-            resolvedTickets.length
-          }
-          icon={CheckCircle2}
-        />
+            <Card>
+              <CardHeader><CardTitle className="text-base">Users by department</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={report?.departments || []} layout="vertical"><CartesianGrid strokeDasharray="3 3" horizontal={false} /><XAxis type="number" allowDecimals={false} /><YAxis type="category" dataKey="department" width={120} tick={{ fontSize: 10 }} /><Tooltip /><Bar dataKey="users" name="Active records" fill="#3b82f6" radius={[0, 4, 4, 0]} /></BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
 
-        <StatCard
-          title="Avg Rating"
-          value={avgRating}
-          icon={Star}
-        />
-      </div>
-
-      {/* Ticket trend */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold">
-            Ticket Trend (14
-            Days)
-          </CardTitle>
-        </CardHeader>
-
-        <CardContent>
-          <ResponsiveContainer
-            width="100%"
-            height={280}
-          >
-            <LineChart
-              data={dailyTrend}
-            >
-              <CartesianGrid
-                strokeDasharray="3 3"
-                vertical={false}
-                stroke="hsl(var(--border))"
-              />
-
-              <XAxis
-                dataKey="day"
-                tick={{
-                  fontSize: 11,
-                }}
-                axisLine={false}
-                tickLine={false}
-              />
-
-              <YAxis
-                tick={{
-                  fontSize: 11,
-                }}
-                axisLine={false}
-                tickLine={false}
-                allowDecimals={
-                  false
-                }
-              />
-
-              <Tooltip />
-
-              <Legend />
-
-              <Line
-                type="monotone"
-                dataKey="created"
-                stroke="hsl(43, 85%, 45%)"
-                strokeWidth={2}
-                name="Created"
-                dot={false}
-              />
-
-              <Line
-                type="monotone"
-                dataKey="resolved"
-                stroke="#22c55e"
-                strokeWidth={2}
-                name="Resolved"
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
-
-      <div className="grid lg:grid-cols-2 gap-4">
-        {/* Category */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">
-              By Category
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent>
-            <ResponsiveContainer
-              width="100%"
-              height={240}
-            >
-              <PieChart>
-                <Pie
-                  data={
-                    categoryData
-                  }
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={50}
-                  outerRadius={80}
-                  paddingAngle={3}
-                  dataKey="value"
-                >
-                  {categoryData.map(
-                    (_, i) => (
-                      <Cell
-                        key={i}
-                        fill={
-                          COLORS[
-                            i %
-                              COLORS.length
-                          ]
-                        }
-                      />
-                    )
-                  )}
-                </Pie>
-
-                <Tooltip />
-
-                <Legend
-                  iconType="circle"
-                  wrapperStyle={{
-                    fontSize:
-                      '11px',
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Priority */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">
-              By Priority
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent>
-            <ResponsiveContainer
-              width="100%"
-              height={240}
-            >
-              <BarChart
-                data={
-                  priorityData
-                }
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  vertical={false}
-                  stroke="hsl(var(--border))"
-                />
-
-                <XAxis
-                  dataKey="name"
-                  tick={{
-                    fontSize: 12,
-                  }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-
-                <YAxis
-                  tick={{
-                    fontSize: 12,
-                  }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={
-                    false
-                  }
-                />
-
-                <Tooltip />
-
-                <Bar
-                  dataKey="value"
-                  fill="hsl(43, 85%, 45%)"
-                  radius={[
-                    4, 4, 0, 0,
-                  ]}
-                  name="Tickets"
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Engineer performance */}
-      {engineerPerf.length >
-        0 && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold">
-              Engineer
-              Performance
-            </CardTitle>
-          </CardHeader>
-
-          <CardContent>
-            <ResponsiveContainer
-              width="100%"
-              height={280}
-            >
-              <BarChart
-                data={
-                  engineerPerf
-                }
-                layout="vertical"
-              >
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  horizontal={false}
-                  stroke="hsl(var(--border))"
-                />
-
-                <XAxis
-                  type="number"
-                  tick={{
-                    fontSize: 12,
-                  }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={
-                    false
-                  }
-                />
-
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  tick={{
-                    fontSize: 12,
-                  }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={80}
-                />
-
-                <Tooltip />
-
-                <Legend />
-
-                <Bar
-                  dataKey="assigned"
-                  fill="hsl(43, 85%, 45%)"
-                  name="Assigned"
-                  radius={[
-                    0, 4, 4, 0,
-                  ]}
-                />
-
-                <Bar
-                  dataKey="resolved"
-                  fill="#22c55e"
-                  name="Resolved"
-                  radius={[
-                    0, 4, 4, 0,
-                  ]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+          <Card className="p-4">
+            <div className="flex flex-wrap justify-between gap-3 text-sm"><span>Audit events in period: <strong>{summary.audit_events || 0}</strong></span><span>Snapshot generated: <strong>{report?.generated_at ? new Date(report.generated_at).toLocaleString() : '—'}</strong></span><span>Source: <strong>Live production database</strong></span></div>
+          </Card>
+        </>
       )}
     </div>
   );

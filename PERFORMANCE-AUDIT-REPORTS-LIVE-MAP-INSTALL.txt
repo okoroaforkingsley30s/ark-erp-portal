@@ -1,0 +1,59 @@
+ARK ONE 1.0.16 - Performance, Audit, Reports and Live Map Major Repair
+======================================================================
+
+Scope
+-----
+1. Repair & Refurbishment
+   - Live 90-day RR performance summary and technician/HOD breakdown.
+   - Printable job report for every repair job.
+   - Share action using the device share sheet, with clipboard fallback.
+
+2. Human Resources Performance
+   - Evidence-based individual and department performance from Tickets,
+     RR, Part Requests, staff requests and Business Development workflows.
+   - Completion, pending, rework, overdue and turnaround indicators.
+   - Existing formal/manual HR reviews remain available below live metrics.
+   - No payroll, journal, bank account or confidential Finance values exposed.
+
+3. System Administrator Audit
+   - Search by user, action, module, reference and date.
+   - Existing historical ticket/RR records appear even where old audit rows
+     were never written.
+   - Important workflow tables now create future audit events automatically.
+   - Print and CSV export included.
+
+4. System Administrator Reports
+   - Live non-financial operational totals, trends and department headcount.
+   - Print and export included.
+   - Confidential Finance records remain restricted.
+
+5. Live Operations Map
+   - One synchronized database snapshot for engineers, recent visits,
+     branches, sites, devices and open tickets.
+   - Auto-refresh every 15 seconds plus manual refresh.
+   - Locations without coordinates are shown in a correction queue instead
+     of disappearing from the system count.
+
+Safe installation
+-----------------
+1. Verify the ZIP SHA-256 before extraction.
+2. Extract into the ARK ONE repository root with overwrite enabled.
+3. Run:
+
+   npm run validate:migrations
+   npm run lint
+   npm run typecheck
+   npm test
+   npm run build
+   npx supabase db push --linked --dry-run
+
+4. Create a production schema/data checkpoint.
+5. Merge the GitHub pull request only after all six CI checks pass.
+6. Apply migration 202607220009_performance_audit_reports_live_map.sql:
+
+   npx supabase db push --linked
+
+7. Smoke-test each repaired module with the correct role.
+
+This is an additive workflow repair. It does not delete production records and
+does not change Helpdesk ticket creation or closure policy.
