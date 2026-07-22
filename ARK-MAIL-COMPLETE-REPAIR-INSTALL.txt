@@ -1,0 +1,100 @@
+ARK ONE 1.0.16 — COMPLETE ARK MAIL REPAIR
+Date: 2026-07-22
+
+This cumulative repair covers:
+- private per-user mailbox access and hidden Google tokens
+- paginated Gmail sync including Spam and Trash
+- Inbox, Starred, Snoozed, Sent, Drafts, Scheduled, All Mail, Spam and Trash
+- read/unread, star/unstar, archive, snooze, spam, trash, restore and permanent delete
+- correct Reply, Reply All, Forward, CC and BCC handling
+- outgoing and incoming attachment support
+- Google Drafts and scheduled Google delivery
+- automatic OAuth popup return and mailbox refresh
+- one conversation row in the list with the complete thread in the reader
+- Helpdesk-only atomic mail-to-ticket conversion
+- Google-only major notification delivery (no competing Resend path)
+
+COMPANY POLICY PRESERVED
+Only Helpdesk can create service tickets and convert client mail to tickets.
+This repair does not give Business Development, System Admin or another role
+permission to create or close Helpdesk calls.
+
+INSTALL ON A NEW GIT BRANCH
+
+1. Extract this ZIP into the repository root with overwrite enabled.
+
+2. Validate:
+
+  npm run lint
+  npm run typecheck
+  npm test
+  npm run build
+  node scripts/validate-migrations.mjs
+  npx supabase db push --linked --dry-run
+
+The dry run must list only:
+
+  202607220010_ark_mail_complete_mailbox.sql
+
+3. Review, commit, push and open a pull request. Wait for all 6/6 checks before
+merging. Do not add .env files, Supabase temp files or production backups.
+
+PRODUCTION DEPLOYMENT (AFTER MERGE)
+
+4. Capture a fresh production schema and data checkpoint first.
+
+5. Apply the database migration:
+
+  npx supabase db push --linked
+
+6. Deploy the changed/new functions:
+
+  $projectRef="fryidzyhqhdenghyxjfp"
+
+  npx supabase functions deploy gmail-oauth --project-ref $projectRef
+  npx supabase functions deploy gmail-sync --project-ref $projectRef
+  npx supabase functions deploy gmail-send --project-ref $projectRef
+  npx supabase functions deploy gmail-reply --project-ref $projectRef
+  npx supabase functions deploy gmail-action --project-ref $projectRef
+  npx supabase functions deploy gmail-draft --project-ref $projectRef
+  npx supabase functions deploy gmail-schedule --project-ref $projectRef
+  npx supabase functions deploy send-notification-email --project-ref $projectRef
+  npx supabase functions deploy dispatch-notification-outbox --project-ref $projectRef --no-verify-jwt
+
+7. Confirm the existing dispatch-notification-outbox schedule still runs every
+minute. It now delivers both major notifications and due scheduled mail through
+approved connected Google company mailboxes.
+
+REQUIRED PRODUCTION SECRETS
+
+- GOOGLE_CLIENT_ID
+- GOOGLE_CLIENT_SECRET
+- GOOGLE_REDIRECT_URI
+- NOTIFICATION_WORKER_SECRET
+- NOTIFICATION_SENDER_EMAIL=no-reply@arktechnologiesgroup.com
+- PORTAL_URL=https://portal.arktechnologiesgroup.com
+- Supabase-provided URL, anon/publishable and service-role secrets
+
+RESEND_API_KEY is no longer used by notification delivery.
+
+ACCEPTANCE TEST
+
+Use two approved company mailboxes plus Helpdesk:
+
+1. Connect/reconnect Google; popup closes and ARK Mail updates.
+2. Sync repeatedly until no older-page message remains.
+3. Test Inbox, Starred, Snoozed, Sent, Drafts, Scheduled, Spam and Trash.
+4. Test read/unread, star, archive, snooze, spam, trash, restore and delete.
+5. Compose externally with To, CC, BCC and one attachment.
+6. Save a Gmail draft, reopen it, edit it and send it.
+7. Schedule a message at least two minutes ahead; verify Google sends it.
+8. Test Reply, Reply All and Forward. Reply All must not add the signed-in
+mailbox and must preserve CC separately.
+9. Open/download incoming image, PDF, document, spreadsheet and video files.
+10. As Helpdesk, convert a client conversation to a ticket, correct any detected
+fields, complete missing device data, and create it once.
+11. Confirm non-Helpdesk users do not see Convert to ticket or New Ticket.
+12. Trigger a major ticket event and verify the in-app notification plus one
+Google-delivered email (not two competing provider messages).
+
+Do not test permanent delete with business mail; use a disposable test message.

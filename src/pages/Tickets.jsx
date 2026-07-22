@@ -845,10 +845,15 @@ export default function Tickets() {
     const draft = location.state?.createTicketFromEmail;
     if (!draft) return;
 
+    if (normalizedRole !== 'helpdesk') {
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+
     setMailTicketDraft(draft);
     setCreateOpen(true);
     navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, location.state, navigate]);
+  }, [location.pathname, location.state, navigate, normalizedRole]);
 
   const [visibleLimits, setVisibleLimits] = useState({
     open: DEFAULT_GROUP_LIMIT,
@@ -892,7 +897,8 @@ export default function Tickets() {
 
   const canShareTicket = true;
 
-  const canCreateTicket = true;
+  // Company policy: Helpdesk owns service-call creation and closure.
+  const canCreateTicket = normalizedRole === 'helpdesk';
 
   const statusCounts = useMemo(() => {
     return STATUS_FILTERS.reduce((acc, item) => {

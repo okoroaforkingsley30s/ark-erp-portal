@@ -179,7 +179,11 @@ serve(async (req) => {
       <html><body style="font-family:Arial;padding:40px">
         <h2>Gmail Connected Successfully</h2>
         <p>Email: ${escapeHtml(connectedEmail)}</p>
-        <p>You can close this tab and return to ARK ONE.</p>
+        <p>Returning you to ARK ONE…</p>
+        <script>
+          if (window.opener) window.opener.postMessage({ type: 'ark-one-gmail-connected' }, '*');
+          setTimeout(() => window.close(), 800);
+        </script>
       </body></html>`, { headers: { 'Content-Type': 'text/html; charset=utf-8' } })
   } catch (error) {
     console.error('gmail-oauth failure:', error)
