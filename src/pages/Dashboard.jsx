@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Activity, AlertTriangle, Bell, BriefcaseBusiness, Building2, CheckCircle2,
   ClipboardCheck, Clock, DollarSign, Package, ShieldCheck, Ticket,
   UserCheck, Users, Wrench,
+  RefreshCw, Wifi,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { normalizeRole } from '@/lib/roleAccess';
@@ -99,7 +100,9 @@ const ROLE_CARDS = {
 
 const ROLE_ALIASES = {
   finance: 'head_of_account', business_developer: 'head_of_business_development',
-  it: 'head_of_it', admin: 'admin_head',
+  it: 'head_of_it', admin: 'admin_head', operations_manager: 'operations',
+  operational_manager: 'operations', inventory_head: 'inventory', inventory_manager: 'inventory',
+  rr_hod: 'repair_head', rr_technician: 'repair_technician', head_of_hr: 'hr',
 };
 
 const EXECUTIVE_CARDS = [
@@ -117,7 +120,7 @@ const DEFAULT_CARDS = [
 ];
 
 async function fetchDepartmentDashboard() {
-  const { data, error } = await supabase.rpc('ark_department_dashboard_summary');
+  const { data, error } = await supabase.rpc('ark_department_dashboard_live_summary');
   if (error) throw error;
   return data || { cards: {}, recent: [] };
 }
@@ -130,26 +133,50 @@ export default function Dashboard() {
   const isExecutive = ['ceo', 'agm', 'manager'].includes(role);
   const cardConfig = isExecutive ? EXECUTIVE_CARDS : (ROLE_CARDS[configRole] || DEFAULT_CARDS);
 
-  const { data = { cards: {}, recent: [] }, isLoading, error } = useQuery({
+  const { data = { cards: {}, recent: [] }, isLoading, isFetching, error, refetch, dataUpdatedAt } = useQuery({
     queryKey: ['department-dashboard', role, user?.email],
     queryFn: fetchDepartmentDashboard,
     enabled: Boolean(user?.email && role),
     refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
+
+  useEffect(() => {
+    if (!user?.id) return undefined;
+    const channel = supabase
+      .channel(`department-dashboard-${user.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_email=eq.${user.email}` }, () => refetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tickets' }, () => refetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'part_requests' }, () => refetch())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'repair_jobs' }, () => refetch())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [refetch, user?.email, user?.id]);
 
   const greeting = new Date().getHours() < 12 ? 'Good Morning' : new Date().getHours() < 17 ? 'Good Afternoon' : 'Good Evening';
   const openTarget = (target) => navigate(resolveNotificationTarget(user, target));
 
   return (
     <div className="space-y-6 text-white">
-      <header>
-        <h1 className="text-3xl lg:text-4xl font-black tracking-tight">
-          {greeting}, <span className="text-[#ff5a00]">{user?.full_name?.split(' ')[0] || 'User'}</span>
-        </h1>
-        <p className="text-slate-300 mt-2 text-sm">
-          {DEPARTMENT_NAMES[role] || user?.department || 'Your Department'} Activity Dashboard
-        </p>
-        <p className="text-xs text-slate-400 mt-1">Only activity assigned to your role and department is shown here.</p>
+      <header className="overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#102969] via-[#0c2059] to-[#071638] p-5 shadow-2xl sm:p-7">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-orange-300">{DEPARTMENT_NAMES[role] || user?.department || 'Your Department'}</p>
+            <h1 className="mt-2 text-3xl font-black tracking-tight lg:text-4xl">
+              {greeting}, <span className="text-[#ff6a13]">{user?.full_name?.split(' ')[0] || 'User'}</span>
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm text-blue-100/75">Live work assigned to your role and department. Select a card to open its action queue.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-xs text-emerald-100">
+              <span className="flex items-center gap-2"><Wifi className="h-4 w-4" /> Live database</span>
+              <span className="mt-1 block text-[10px] text-emerald-100/60">Updated {data.generated_at ? new Date(data.generated_at).toLocaleTimeString() : dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : '—'}</span>
+            </div>
+            <button type="button" onClick={() => refetch()} disabled={isFetching} className="inline-flex h-11 items-center gap-2 rounded-2xl border border-white/15 bg-white/10 px-4 text-sm font-semibold hover:bg-white/15 disabled:opacity-60">
+              <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} /> Refresh
+            </button>
+          </div>
+        </div>
       </header>
 
       {error && (
@@ -158,24 +185,25 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        {cardConfig.map(([key, title, subtitle, Icon, target]) => (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {cardConfig.map(([key, title, subtitle, Icon, target], index) => (
           <button key={key} type="button" onClick={() => openTarget(target)} className="text-left">
-            <Card className="h-full p-4 border-white/10 bg-[#102969]/90 hover:border-[#ff5a00]/50 transition-colors">
+            <Card className="group h-full overflow-hidden border-white/10 bg-gradient-to-br from-[#102969] to-[#091a4a] p-5 shadow-xl transition hover:-translate-y-0.5 hover:border-[#ff5a00]/60">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs text-slate-300">{title}</p>
-                  <p className="text-3xl font-black mt-2 text-white">{isLoading ? '…' : Number(data.cards?.[key] || 0)}</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-100/70">{title}</p>
+                  <p className="mt-3 text-4xl font-black text-white">{isLoading ? '…' : Number(data.cards?.[key] || 0)}</p>
                 </div>
-                <Icon className="w-6 h-6 text-[#ff5a00]" />
+                <span className={`flex h-11 w-11 items-center justify-center rounded-2xl ${index === 1 ? 'bg-amber-400/15 text-amber-300' : index === 2 ? 'bg-red-400/15 text-red-300' : index === 3 ? 'bg-emerald-400/15 text-emerald-300' : 'bg-orange-400/15 text-orange-300'}`}><Icon className="h-5 w-5" /></span>
               </div>
-              <p className="text-[11px] text-slate-400 mt-3">{subtitle}</p>
+              <p className="mt-4 text-xs leading-5 text-blue-100/60">{subtitle}</p>
+              <p className="mt-3 text-[11px] font-semibold text-orange-300 opacity-80 transition group-hover:opacity-100">Open queue →</p>
             </Card>
           </button>
         ))}
       </div>
 
-      <Card className="p-5 border-white/10 bg-[#102969]/90">
+      <Card className="rounded-3xl border-white/10 bg-gradient-to-br from-[#102969] to-[#091a4a] p-5 shadow-xl sm:p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="font-bold">Your Recent Notifications</h2>

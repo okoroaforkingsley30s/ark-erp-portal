@@ -208,8 +208,6 @@ export default function TicketDetail() {
     }
 
     const engineer = engineers.find((item) => item.email === engineerEmail);
-    const ticketTitle = ticket?.title || ticket?.ticket_id || ticket?.ticket_number || 'Untitled Ticket';
-    const ticketLink = `/tickets/${id}`;
     const now = new Date().toISOString();
 
     try {
@@ -221,27 +219,8 @@ export default function TicketDetail() {
         assigned_at: now,
       });
 
-      const { error: notifyError } = await supabase
-        .from('notifications')
-        .insert({
-          user_email: engineerEmail,
-          title: 'New Ticket Assigned',
-          message: `You have been assigned ticket: ${ticketTitle}`,
-          type: 'ticket_assigned',
-          link: ticketLink,
-          related_id: id,
-          related_type: 'ticket',
-          sound: 'bell',
-          read: false,
-          created_at: now,
-        });
-
-      if (notifyError) {
-        console.warn('Ticket assigned but notification failed:', notifyError.message);
-        alert('Ticket assigned successfully, but notification could not be sent.');
-      } else {
-        alert(`Ticket assigned and notification sent to ${engineerEmail}`);
-      }
+      // Assignment notifications are emitted atomically by the database trigger.
+      alert(`Ticket assigned and notification queued for ${engineerEmail}`);
 
       await queryClient.invalidateQueries({ queryKey: ['notifications'] });
       await queryClient.invalidateQueries({ queryKey: ['ticket', id] });

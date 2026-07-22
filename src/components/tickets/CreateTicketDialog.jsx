@@ -349,23 +349,6 @@ export default function CreateTicketDialog({ open, onOpenChange, user, initialDr
         return;
       }
 
-      if (form.assigned_to) {
-        await createNotification({
-          userEmail: form.assigned_to,
-          title: 'New Ticket Assigned',
-          message: `You have been assigned ticket ${ticketNumber}.`,
-          type: 'ticket_assigned',
-          link: `/tickets/${insertedTicket.id}`,
-          sound: 'bell',
-          data: {
-            ticket_id: insertedTicket?.id,
-            ticket_number: ticketNumber,
-            bank_name: form.bank_name,
-            branch_name: form.branch_name,
-          },
-        });
-      }
-
       await createNotification({
         userEmail: user.email,
         title: 'Ticket Created',
@@ -377,6 +360,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user, initialDr
           ticket_id: insertedTicket?.id,
           ticket_number: ticketNumber,
         },
+        sendEmail: false,
       });
 
       queryClient.invalidateQueries({ queryKey: ['tickets'] });
