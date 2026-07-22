@@ -359,7 +359,7 @@ begin
   with ticket_rows as (
     select * from public.tickets where created_at::timestamptz >= since_at
   ), trend as (
-    select date_trunc('day', created_at::timestamptz)::date day,
+    select date_trunc('day', created_at::timestamptz)::date as report_date,
       count(*) created,
       count(*) filter (where public.ark_ticket_status_is_final(status, completion_status)) closed
     from ticket_rows group by date_trunc('day', created_at::timestamptz)::date
@@ -380,7 +380,12 @@ begin
       'branches', (select count(*) from public.branches),
       'audit_events', (select count(*) from public.audit_logs where created_at >= since_at)
     ),
-    'ticket_trend', coalesce((select jsonb_agg(to_jsonb(trend) order by day) from trend), '[]'::jsonb),
+    'ticket_trend', coalesce((
+      select jsonb_agg(
+        jsonb_build_object('day', report_date, 'created', created, 'closed', closed)
+        order by report_date
+      ) from trend
+    ), '[]'::jsonb),
     'departments', coalesce((select jsonb_agg(to_jsonb(departments) order by department) from departments), '[]'::jsonb)
   ) into result;
   return result;
