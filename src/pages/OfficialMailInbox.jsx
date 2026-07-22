@@ -15,28 +15,29 @@ import {
   ChevronDown,
   Inbox,
   FileText,
+  ArrowLeft,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 import { reportError } from '@/lib/errorReporting';
 import { Button } from '@/components/ui/button';
+import { normalizeMailBody, splitMailThread } from '@/lib/mailThread';
 
 function cleanBody(text = '') {
-  return String(text)
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<\/div>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
+  return normalizeMailBody(text);
+}
+
+async function functionErrorMessage(error, fallback) {
+  try {
+    const response = error?.context;
+    if (response?.clone) {
+      const payload = await response.clone().json();
+      return payload?.details || payload?.error || fallback;
+    }
+  } catch {
+    // Fall back to the stable UI message below.
+  }
+  return error?.message || fallback;
 }
 
 function stripEmailAddress(value = '') {
@@ -335,9 +336,9 @@ export default function OfficialMailInbox() {
     });
   }, [folderEmails, search]);
 
-  const selectedBody = useMemo(() => {
-    if (!selectedEmail) return '';
-    return cleanBody(selectedEmail.message_body || selectedEmail.snippet || '');
+  const selectedThread = useMemo(() => {
+    if (!selectedEmail) return { current: '', quoted: '' };
+    return splitMailThread(selectedEmail.message_body || selectedEmail.snippet || '');
   }, [selectedEmail]);
 
   const changeFolder = (folder) => {
@@ -388,7 +389,7 @@ export default function OfficialMailInbox() {
       selectedEmail.received_at
         ? new Date(selectedEmail.received_at).toLocaleString()
         : 'an earlier date'
-    }, ${selectedEmail.sender_name || selectedEmail.sender_email || 'sender'} wrote:\n\n${selectedBody}`;
+    }, ${selectedEmail.sender_name || selectedEmail.sender_email || 'sender'} wrote:\n\n${normalizeMailBody(selectedEmail.message_body || selectedEmail.snippet || '')}`;
 
     if (mode === 'forward') {
       setComposer({
@@ -485,7 +486,7 @@ export default function OfficialMailInbox() {
 
       if (error) {
         reportError(error, { context: `gmail.message.${isReply ? 'reply' : 'send'}`, notify: false });
-        setComposerError(error.message || 'Unable to send email.');
+        setComposerError(await functionErrorMessage(error, 'Unable to send email.'));
         return;
       }
 
@@ -501,7 +502,11 @@ export default function OfficialMailInbox() {
 
       closeComposer();
       await loadEmails(true);
-      alert(isReply ? 'Reply sent successfully.' : 'Email sent successfully.');
+      alert(
+        isReply
+          ? 'Reply accepted by Google and saved in Sent Mail.'
+          : 'Email accepted by Google and saved in Sent Mail.',
+      );
     } catch (error) {
       reportError(error, { context: 'gmail.message.send.unexpected', notify: false });
       setComposerError('Unable to send email. Please try again.');
@@ -526,7 +531,7 @@ export default function OfficialMailInbox() {
   ];
 
   return (
-    <div className="h-[calc(100vh-96px)] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#071133] text-white shadow-xl">
+    <div className="h-[calc(100dvh-96px)] min-h-[560px] w-full overflow-hidden rounded-2xl border border-white/10 bg-[#071133] text-white shadow-xl">
       <div className="grid h-full w-full grid-cols-1 xl:grid-cols-[230px_minmax(360px,470px)_minmax(0,1fr)]">
         <aside className="hidden border-r border-white/10 bg-[#08153d] p-4 xl:flex xl:flex-col">
           <button
@@ -585,7 +590,7 @@ export default function OfficialMailInbox() {
           </div>
         </aside>
 
-        <section className="flex min-w-0 flex-col border-r border-white/10 bg-[#0a1744]">
+        <section className={`${selectedEmail ? 'hidden xl:flex' : 'flex'} min-w-0 flex-col border-r border-white/10 bg-[#0a1744]`}>
           <div className="shrink-0 border-b border-white/10 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -723,7 +728,7 @@ export default function OfficialMailInbox() {
           </div>
         </section>
 
-        <main className="min-w-0 bg-white text-slate-800">
+        <main className={`${selectedEmail ? 'flex' : 'hidden xl:flex'} min-h-0 min-w-0 flex-col bg-white text-slate-800`}>
           {!selectedEmail ? (
             <div className="flex h-full items-center justify-center p-8 text-center">
               <div>
@@ -736,7 +741,15 @@ export default function OfficialMailInbox() {
             </div>
           ) : (
             <div className="flex h-full flex-col overflow-hidden">
-              <div className="shrink-0 border-b bg-white px-6 py-5">
+              <div className="shrink-0 border-b bg-white px-4 py-4 sm:px-6 sm:py-5">
+                <button
+                  type="button"
+                  onClick={() => setSelectedEmail(null)}
+                  className="mb-3 inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-[#102969] hover:bg-slate-100 xl:hidden"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                  Back to mail list
+                </button>
                 <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
                   <h2 className="max-w-4xl text-2xl font-bold leading-tight text-slate-950">
                     {selectedEmail.subject || '(No subject)'}
@@ -776,7 +789,7 @@ export default function OfficialMailInbox() {
                 </div>
               </div>
 
-              <div className="flex-1 overflow-y-auto px-6 py-6">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6 sm:py-6">
                 <div className="mx-auto max-w-5xl">
                   <div className="flex items-start gap-4 border-b pb-5">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#102969] text-sm font-bold text-white">
@@ -828,13 +841,28 @@ export default function OfficialMailInbox() {
                     )}
                   </div>
 
-                  <div className="mt-8 whitespace-pre-wrap break-words text-[15px] leading-8 text-slate-900">
-                    {selectedBody || (
+                  <article className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+                    <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-slate-900">
+                    {selectedThread.current || (
                       <span className="italic text-slate-500">
                         No message body available.
                       </span>
                     )}
-                  </div>
+                    </div>
+                  </article>
+
+                  {selectedThread.quoted && (
+                    <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50">
+                      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-[#102969] hover:bg-slate-100">
+                        Show previous conversation
+                      </summary>
+                      <div className="max-h-[45vh] overflow-y-auto border-t border-slate-200 p-4">
+                        <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-600">
+                          {selectedThread.quoted}
+                        </pre>
+                      </div>
+                    </details>
+                  )}
                 </div>
               </div>
             </div>

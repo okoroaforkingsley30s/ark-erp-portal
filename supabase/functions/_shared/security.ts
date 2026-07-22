@@ -27,3 +27,21 @@ export function parseEmailList(value: unknown, required = false) {
   }
   return emails.join(', ')
 }
+
+export function encodeMimeHeader(value: unknown) {
+  const text = safeMailHeader(value, 300)
+  const bytes = new TextEncoder().encode(text)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return `=?UTF-8?B?${btoa(binary)}?=`
+}
+
+export function htmlMailDocument(value: unknown) {
+  const body = String(value || '')
+  return `<!doctype html><html><head><meta charset="UTF-8"></head><body>${body}</body></html>`
+}
+
+export function googleApiError(payload: unknown, fallback: string) {
+  const candidate = payload as { error?: { message?: string }; message?: string }
+  return String(candidate?.error?.message || candidate?.message || fallback).slice(0, 500)
+}

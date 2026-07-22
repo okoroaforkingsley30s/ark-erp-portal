@@ -1,11 +1,12 @@
 import { supabase } from "@/lib/supabaseClient";
 import { reportError } from '@/lib/errorReporting';
 
-export async function sendNotificationEmail({ to, name, title, message, link }) {
+export async function sendNotificationEmail({ notificationId, to, name, title, message, link }) {
   if (!to || !title || !message) return;
 
   const { error } = await supabase.functions.invoke("send-notification-email", {
     body: {
+      notificationId,
       to,
       name,
       title,
