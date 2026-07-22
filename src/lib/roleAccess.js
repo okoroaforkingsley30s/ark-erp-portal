@@ -372,7 +372,21 @@ const EXECUTIVE_REPORT_ACCESS = [
 ];
 
 export const ROLE_ACCESS = {
-  system_admin: ["*"],
+  system_admin: [
+    PERMISSIONS.DASHBOARD,
+    PERMISSIONS.NOTIFICATIONS,
+    PERMISSIONS.COMMUNICATION,
+    PERMISSIONS.OFFICIAL_MAIL,
+    PERMISSIONS.ARK_CONNECT,
+    PERMISSIONS.USERS,
+    PERMISSIONS.USER_MANAGEMENT,
+    PERMISSIONS.STAFF_DIRECTORY,
+    PERMISSIONS.DEPARTMENTS,
+    PERMISSIONS.SETTINGS,
+    PERMISSIONS.DATA_IMPORT,
+    PERMISSIONS.AUDIT_LOGS,
+    PERMISSIONS.ADMIN_DIAGNOSTICS,
+  ],
 
   ceo: ["*"],
 
@@ -1016,7 +1030,7 @@ export function isDepartmentHod(userOrRole, department) {
   const role =
     typeof userOrRole === "string" ? normalizeRole(userOrRole) : getUserRole(userOrRole);
 
-  if (["system_admin", "admin", "ceo", "agm"].includes(role)) return true;
+  if (["admin", "ceo", "agm"].includes(role)) return true;
 
   return getDepartmentHodRoles(department).includes(role);
 }
@@ -1044,7 +1058,7 @@ export function canApproveForDepartment(userOrRole, department) {
   const role =
     typeof userOrRole === "string" ? normalizeRole(userOrRole) : getUserRole(userOrRole);
 
-  if (["system_admin", "admin", "ceo", "agm"].includes(role)) return true;
+  if (["admin", "ceo", "agm"].includes(role)) return true;
 
   return getApprovalOwners({ department }).includes(role);
 }
@@ -1058,7 +1072,7 @@ export function isAdmin(role) {
 }
 
 export function isExecutive(role) {
-  return ["system_admin", "ceo", "agm", "manager"].includes(normalizeRole(role));
+  return ["ceo", "agm", "manager"].includes(normalizeRole(role));
 }
 
 export function isExecutiveRole(role) {
@@ -1067,7 +1081,6 @@ export function isExecutiveRole(role) {
 
 export function isOperationsRole(role) {
   return [
-    "system_admin",
     "ceo",
     "agm",
     "manager",
@@ -1078,7 +1091,6 @@ export function isOperationsRole(role) {
 
 export function isInventoryRole(role) {
   return [
-    "system_admin",
     "ceo",
     "agm",
     "manager",
@@ -1088,7 +1100,6 @@ export function isInventoryRole(role) {
 
 export function isRRHeadRole(role) {
   return [
-    "system_admin",
     "ceo",
     "agm",
     "manager",
@@ -1102,7 +1113,6 @@ export function isRRTechnicianRole(role) {
 
 export function isFinanceRole(role) {
   return [
-    "system_admin",
     "ceo",
     "agm",
     "manager",
@@ -1117,7 +1127,6 @@ export function isITRole(role) {
 
 export function isBusinessDevelopmentRole(role) {
   return [
-    "system_admin",
     "ceo",
     "agm",
     "head_of_business_development",

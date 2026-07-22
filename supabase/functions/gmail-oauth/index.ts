@@ -87,6 +87,10 @@ serve(async (req) => {
       })
       const { data: { user }, error } = await userClient.auth.getUser()
       if (error || !user) return jsonResponse({ error: 'Invalid session' }, 401)
+      const signedInEmail = String(user.email || '').trim().toLowerCase()
+      if (!signedInEmail.endsWith(ALLOWED_DOMAIN)) {
+        return jsonResponse({ error: 'An approved ARK Technologies account is required' }, 403)
+      }
 
       const state = await createState(user.id, stateSecret)
       const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth')
@@ -131,13 +135,18 @@ serve(async (req) => {
     })
     const profile = await profileResponse.json()
     const connectedEmail = String(profile.email || '').trim().toLowerCase()
-    if (!profileResponse.ok || !profile.verified_email || !connectedEmail.endsWith(ALLOWED_DOMAIN)) {
+    const supabase = createClient(supabaseUrl, serviceRoleKey)
+    const { data: owner, error: ownerError } = await supabase.auth.admin.getUserById(verifiedState.user_id)
+    const ownerEmail = String(owner?.user?.email || '').trim().toLowerCase()
+    if (
+      ownerError || !profileResponse.ok || !profile.verified_email ||
+      !connectedEmail.endsWith(ALLOWED_DOMAIN) || connectedEmail !== ownerEmail
+    ) {
       return new Response('Only a verified ARK Technologies Workspace email can be connected.', {
         status: 403,
       })
     }
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey)
     const expiresAt = new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString()
     const { data: previous } = await supabase
       .from('gmail_connections')

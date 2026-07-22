@@ -145,6 +145,11 @@ serve(async (req) => {
       .maybeSingle();
 
     if (!connection) return jsonResponse({ error: "No Gmail connected" }, 404);
+    const connectedEmail = String(connection.email || "").trim().toLowerCase();
+    const signedInEmail = String(user.email || "").trim().toLowerCase();
+    if (!connectedEmail.endsWith("@arktechnologiesgroup.com") || connectedEmail !== signedInEmail) {
+      return jsonResponse({ error: "Reconnect the same approved ARK Technologies email used to sign in." }, 403);
+    }
 
     const accessToken = await getAccessToken(supabase, connection);
     await verifyMailbox(accessToken, connection.email);
