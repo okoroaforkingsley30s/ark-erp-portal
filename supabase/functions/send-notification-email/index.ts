@@ -85,7 +85,14 @@ serve(async (req) => {
       .eq('id', user.id)
       .maybeSingle()
     const callerRole = String(caller?.role || '').toLowerCase()
-    const mayNotifyOthers = ['system_admin', 'hr', 'helpdesk', 'manager', 'agm', 'ceo'].includes(callerRole)
+    const mayNotifyOthers = [
+      'system_admin', 'admin_head', 'admin', 'it', 'head_of_it',
+      'ceo', 'agm', 'manager', 'operations', 'operations_manager',
+      'helpdesk', 'engineer', 'inventory', 'inventory_head',
+      'repair_head', 'rr_hod', 'repair_technician', 'rr_technician',
+      'head_of_account', 'finance', 'procurement', 'hr', 'head_of_hr',
+      'crm', 'business_developer', 'head_of_business_development',
+    ].includes(callerRole)
     if (!caller || caller.is_approved !== true || String(caller.account_status || 'active').toLowerCase() !== 'active') {
       return jsonResponse({ error: 'Caller is not an active approved user' }, 403)
     }
@@ -94,7 +101,7 @@ serve(async (req) => {
     if (notificationId) {
       const { data: storedNotification, error: storedError } = await supabaseAdmin
         .from('notifications')
-        .select('user_email, recipient_email, title, message, message_body, type, link, data')
+        .select('user_email, recipient_email, title, message, message_body, type, link, data, email_status, email_attempts')
         .eq('id', notificationId)
         .maybeSingle()
 
@@ -114,6 +121,20 @@ serve(async (req) => {
       title = String(storedNotification.title || '').trim()
       message = String(storedNotification.message || storedNotification.message_body || '').trim()
       requestedLink = storedNotification.link
+
+      if (storedNotification.email_status === 'sent') {
+        return jsonResponse({ success: true, already_sent: true })
+      }
+
+      await supabaseAdmin
+        .from('notifications')
+        .update({
+          major_notification: true,
+          email_status: 'processing',
+          email_attempts: Number(storedNotification.email_attempts || 0) + 1,
+          email_last_error: null,
+        })
+        .eq('id', notificationId)
     }
 
     if (!to || !title || !message) {
@@ -166,11 +187,29 @@ serve(async (req) => {
     })
 
     if (!emailResponse.ok) {
-      console.error('Resend request failed:', emailResponse.status, await emailResponse.text())
+      const providerError = `Resend ${emailResponse.status}: ${await emailResponse.text()}`.slice(0, 1000)
+      console.error('Resend request failed:', providerError)
+      if (notificationId) {
+        await supabaseAdmin
+          .from('notifications')
+          .update({ email_status: 'retry', email_last_error: providerError })
+          .eq('id', notificationId)
+      }
       return jsonResponse({ error: 'Notification email could not be sent' }, 502)
     }
 
     const result = await emailResponse.json()
+    if (notificationId) {
+      await supabaseAdmin
+        .from('notifications')
+        .update({
+          major_notification: true,
+          email_status: 'sent',
+          email_sent_at: new Date().toISOString(),
+          email_last_error: null,
+        })
+        .eq('id', notificationId)
+    }
     return jsonResponse({ success: true, id: result.id })
   } catch (error) {
     console.error('send-notification-email failure:', error)

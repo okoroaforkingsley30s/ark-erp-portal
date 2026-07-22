@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useOutletContext } from "react-router-dom";
 import { Search, ShieldCheck, AlertTriangle, CheckCircle2, Database, Package, Wrench, Ticket, Bell, Cpu, History, Printer, FileText } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
@@ -151,6 +151,27 @@ export default function AdminDiagnostics() {
   const [requestedBy, setRequestedBy] = useState("");
   const [reportedIssue, setReportedIssue] = useState("");
   const [result, setResult] = useState(null);
+  const mailHealth = useQuery({
+    queryKey: ["admin-notification-email-health"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("ark_notification_email_delivery_health");
+      if (error) throw error;
+      return data;
+    },
+    retry: false,
+  });
+  const installMailSchedule = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.rpc("ark_install_notification_email_schedule");
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => mailHealth.refetch(),
+    onError: (error) => reportError(error, {
+      context: "admin.notification_email.install_schedule",
+      userMessage: "Notification email schedule could not be installed.",
+    }),
+  });
   const diagnostics = useMutation({
     mutationFn: async (value) => {
       const { data, error } = await supabase.rpc("ark_admin_diagnose", { p_search: value.trim() });
@@ -224,6 +245,41 @@ export default function AdminDiagnostics() {
             <div><label className="text-xs text-blue-100">Requested by / complaint owner</label><Input className="mt-1 border-white/20 bg-[#08153d] text-white" placeholder="Name, department or email" value={requestedBy} onChange={(event) => setRequestedBy(event.target.value)} /></div>
             <div><label className="text-xs text-blue-100">Issue reported</label><Input className="mt-1 border-white/20 bg-[#08153d] text-white" placeholder="What did the user report?" value={reportedIssue} onChange={(event) => setReportedIssue(event.target.value)} /></div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="no-print border-white/10 bg-[#102969] text-white">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Bell className="text-[#ff5a00]" /> Notification Email Delivery</CardTitle>
+          <p className="text-sm text-blue-100">Checks the one-minute email worker and its queued, retry, failed and sent records.</p>
+        </CardHeader>
+        <CardContent>
+          {mailHealth.isLoading ? <p className="text-sm text-blue-100">Checking delivery service…</p> : mailHealth.isError ? (
+            <p className="text-sm text-red-200">Delivery health is unavailable until the mail-reliability migration is applied.</p>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                <div><p className="text-xs text-blue-100/70">Configuration</p><p className="font-semibold">{mailHealth.data?.configuration_ready ? "Ready" : "Missing Vault setup"}</p></div>
+                <div><p className="text-xs text-blue-100/70">Schedule</p><p className="font-semibold">{mailHealth.data?.schedule_installed ? "Active" : "Not installed"}</p></div>
+                <div><p className="text-xs text-blue-100/70">Queued</p><p className="font-semibold">{mailHealth.data?.queued || 0}</p></div>
+                <div><p className="text-xs text-blue-100/70">Retrying</p><p className="font-semibold">{mailHealth.data?.retrying || 0}</p></div>
+                <div><p className="text-xs text-blue-100/70">Failed</p><p className="font-semibold text-orange-300">{mailHealth.data?.failed || 0}</p></div>
+                <div><p className="text-xs text-blue-100/70">Sent</p><p className="font-semibold text-emerald-300">{mailHealth.data?.sent || 0}</p></div>
+              </div>
+              {!mailHealth.data?.schedule_installed && (
+                <Button
+                  className="mt-4 bg-[#ff5a00] hover:bg-[#e24f00]"
+                  disabled={!mailHealth.data?.configuration_ready || installMailSchedule.isPending}
+                  onClick={() => installMailSchedule.mutate()}
+                >
+                  {installMailSchedule.isPending ? "Installing…" : "Install / Repair Email Schedule"}
+                </Button>
+              )}
+              {!mailHealth.data?.configuration_ready && (
+                <p className="mt-3 text-xs text-amber-200">System Administration must configure the two protected Vault entries described in the mail deployment guide.</p>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
 

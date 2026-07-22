@@ -18,6 +18,7 @@ function normalizePortalLink(link) {
 }
 
 export async function sendNotificationEmail({
+  notificationId,
   to,
   name,
   title,
@@ -30,6 +31,7 @@ export async function sendNotificationEmail({
     'send-notification-email',
     {
       body: {
+        notificationId,
         to,
         name,
         title,
@@ -92,9 +94,11 @@ export async function notifyUser({
     created_at: now,
   };
 
-  const { error: notificationError } = await supabase
+  const { data: insertedNotification, error: notificationError } = await supabase
     .from('notifications')
-    .insert(notificationPayload);
+    .insert(notificationPayload)
+    .select('id')
+    .single();
 
   if (notificationError) {
     reportError(notificationError, { context: 'notification.database.insert', notify: false });
@@ -109,6 +113,7 @@ export async function notifyUser({
 
   if (sendEmail) {
     emailResult = await sendNotificationEmail({
+      notificationId: insertedNotification.id,
       to: targetEmail,
       name,
       title,

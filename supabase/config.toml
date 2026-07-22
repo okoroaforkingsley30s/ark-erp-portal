@@ -127,3 +127,8 @@ entrypoint = "./functions/send-notification-email/index.ts"
 # Specifies static files to be bundled with the function. Supports glob patterns.
 # For example, if you want to serve static HTML pages in your function:
 # static_files = [ "./functions/send-notification-email/*.html" ]
+
+[functions.dispatch-notification-outbox]
+enabled = true
+verify_jwt = false
+entrypoint = "./functions/dispatch-notification-outbox/index.ts"

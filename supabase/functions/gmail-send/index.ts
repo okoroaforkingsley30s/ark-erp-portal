@@ -1,6 +1,13 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parseEmailList, requireEnv, safeMailHeader } from "../_shared/security.ts";
+import {
+  encodeMimeHeader,
+  googleApiError,
+  htmlMailDocument,
+  parseEmailList,
+  requireEnv,
+  safeMailHeader,
+} from "../_shared/security.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -20,19 +27,46 @@ function base64Url(input: string) {
 }
 
 function makeEmail({ to, cc, bcc, subject, body, from }: any) {
+  const messageId = `<${crypto.randomUUID()}@arkone.arktechnologiesgroup.com>`;
   const lines = [
     `From: ${from}`,
+    `Reply-To: ${from}`,
     `To: ${to}`,
     cc ? `Cc: ${cc}` : "",
     bcc ? `Bcc: ${bcc}` : "",
-    `Subject: ${subject}`,
+    `Subject: ${encodeMimeHeader(subject)}`,
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: ${messageId}`,
     "MIME-Version: 1.0",
     `Content-Type: text/html; charset="UTF-8"`,
+    "Content-Transfer-Encoding: 8bit",
     "",
-    body || "",
+    htmlMailDocument(body),
   ].filter(Boolean);
 
-  return base64Url(lines.join("\r\n"));
+  return { raw: base64Url(lines.join("\r\n")), messageId };
+}
+
+async function verifyMailbox(accessToken: string, expectedEmail: string) {
+  const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/profile", {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  const profile = await response.json();
+  if (!response.ok) throw new Error(googleApiError(profile, "Unable to verify connected Gmail account"));
+  if (String(profile.emailAddress || "").trim().toLowerCase() !== expectedEmail.trim().toLowerCase()) {
+    throw new Error("Connected Gmail identity does not match the ARK ONE sender. Reconnect Gmail.");
+  }
+}
+
+async function verifySentMessage(accessToken: string, messageId: string) {
+  const response = await fetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}?format=minimal`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  const message = await response.json();
+  if (!response.ok || !Array.isArray(message.labelIds) || !message.labelIds.includes("SENT")) {
+    throw new Error(googleApiError(message, "Google did not confirm the message in Sent Mail"));
+  }
 }
 
 async function getAccessToken(supabase: any, connection: any) {
@@ -113,6 +147,8 @@ serve(async (req) => {
     if (!connection) return jsonResponse({ error: "No Gmail connected" }, 404);
 
     const accessToken = await getAccessToken(supabase, connection);
+    await verifyMailbox(accessToken, connection.email);
+    const encodedMessage = makeEmail({ to, cc, bcc, subject, body, from: connection.email });
 
     const gmailRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
       method: "POST",
@@ -121,12 +157,15 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        raw: makeEmail({ to, cc, bcc, subject, body, from: connection.email }),
+        raw: encodedMessage.raw,
       }),
     });
 
     const gmailData = await gmailRes.json();
-    if (!gmailRes.ok) return jsonResponse({ error: "Gmail send failed" }, 400);
+    if (!gmailRes.ok) {
+      return jsonResponse({ error: "Gmail send failed", details: googleApiError(gmailData, "Google rejected the message") }, 502);
+    }
+    await verifySentMessage(accessToken, gmailData.id);
 
     const { data: saved, error: saveError } = await supabase
       .from("email_messages")
@@ -150,13 +189,20 @@ serve(async (req) => {
         received_at: new Date().toISOString(),
         synced_at: new Date().toISOString(),
         created_by: user.id,
+        raw_headers: [{ name: "Message-ID", value: encodedMessage.messageId }],
       })
       .select()
       .single();
 
     if (saveError) return jsonResponse({ error: "Sent but failed to save" }, 500);
 
-    return jsonResponse({ message: "Email sent", message_id: saved.id });
+    return jsonResponse({
+      message: "Email accepted by Google",
+      message_id: saved.id,
+      gmail_message_id: gmailData.id,
+      gmail_thread_id: gmailData.threadId,
+      delivery_status: "accepted_by_google",
+    });
   } catch (err) {
     return jsonResponse({ error: "Unexpected gmail-send failure", details: String(err) }, 500);
   }
