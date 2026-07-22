@@ -86,7 +86,7 @@ const getAssignedEngineer = (device, engineers) => {
   };
 };
 
-export default function CreateTicketDialog({ open, onOpenChange, user }) {
+export default function CreateTicketDialog({ open, onOpenChange, user, initialDraft, onCreated }) {
   const draftKey = `ark_one_create_ticket_draft_${user?.email || 'guest'}`;
 
   const [form, setForm] = useState(EMPTY_FORM);
@@ -100,6 +100,17 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
 
   useEffect(() => {
     if (!open) return;
+
+    if (initialDraft?.form) {
+      setForm({ ...EMPTY_FORM, ...initialDraft.form });
+      setBranchSearch(initialDraft.form.branch_name || '');
+      setFileNames(
+        Array.isArray(initialDraft.attachments)
+          ? initialDraft.attachments.map((attachment) => attachment.filename || attachment.name).filter(Boolean)
+          : [],
+      );
+      return;
+    }
 
     try {
       localStorage.removeItem(draftKey);
@@ -120,7 +131,7 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
     } catch (error) {
       console.warn('Could not restore ticket draft:', error);
     }
-  }, [open, draftKey]);
+  }, [open, draftKey, initialDraft]);
 
   useEffect(() => {
     if (!open) return;
@@ -281,11 +292,19 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
       const now = new Date().toISOString();
       const ticketNumber = generateTicketId();
 
-      const attachments = files.map((file) => ({
-        name: file.name,
-        type: file.type,
-        size: file.size,
-      }));
+      const attachments = [
+        ...files.map((file) => ({ name: file.name, type: file.type, size: file.size })),
+        ...(Array.isArray(initialDraft?.attachments)
+          ? initialDraft.attachments.map((attachment) => ({
+              name: attachment.filename || attachment.name,
+              type: attachment.mime_type || attachment.type,
+              size: attachment.size || 0,
+              source: 'official_mail',
+              source_email_id: initialDraft.emailId,
+              source_attachment_id: attachment.attachment_id,
+            }))
+          : []),
+      ];
 
       const ticketData = {
         title: form.title.trim(),
@@ -365,6 +384,19 @@ export default function CreateTicketDialog({ open, onOpenChange, user }) {
       queryClient.invalidateQueries({ queryKey: ['tickets-dashboard'] });
 
       alert('Ticket created successfully');
+
+      if (initialDraft?.emailId) {
+        const { error: linkError } = await supabase.rpc('ark_link_email_to_ticket', {
+          p_email_id: initialDraft.emailId,
+          p_ticket_id: insertedTicket.id,
+        });
+
+        if (linkError) {
+          console.warn('Ticket created but email linkage failed:', linkError);
+        }
+      }
+
+      onCreated?.(insertedTicket);
 
       clearDraft();
       onOpenChange(false);
