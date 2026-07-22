@@ -1,644 +1,239 @@
 import React, { useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { readWorkbookRows } from '@/lib/safeWorkbook';
+import { DEPARTMENT_IMPORTS, validateImportRows } from '@/lib/departmentImportContracts';
 import { supabase } from '@/lib/supabaseClient';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
-  Upload,
-  FileSpreadsheet,
-  CheckCircle2,
   AlertTriangle,
+  CheckCircle2,
+  Download,
+  FileCheck2,
+  FileSpreadsheet,
+  History,
+  Loader2,
+  RefreshCw,
+  ShieldCheck,
+  Upload,
 } from 'lucide-react';
 
-const clean = (v) => String(v || '').trim();
-
-const BANKS = [
-  'ACCESS',
-  'ACCESS BANK',
-  'FIDELITY',
-  'FIDELITY BANK',
-  'UNITY',
-  'UNITY BANK',
-  'KEYSTONE',
-  'UBA',
-  'GTB',
-  'ZENITH',
-  'FIRST BANK',
-  'FCMB',
-  'STERLING',
-  'WEMA',
-  'ECOBANK',
-  'POLARIS',
-];
-
-const isTerminal = (v) => /^[0-9A-Z]{7,}$/i.test(clean(v));
-
-const normalizeBank = (bank = '') => {
-  const b = clean(bank).toUpperCase();
-
-  if (b.includes('ACCESS')) return 'ACCESS BANK';
-  if (b.includes('FIDELITY')) return 'FIDELITY BANK';
-  if (b.includes('UNITY')) return 'UNITY BANK';
-  if (b.includes('KEYSTONE')) return 'KEYSTONE BANK';
-  if (b.includes('ZENITH')) return 'ZENITH BANK';
-  if (b.includes('UBA')) return 'UBA';
-  if (b.includes('GTB')) return 'GTBANK';
-
-  return b;
+const IMPORT_MODES = {
+  merge: {
+    label: 'Merge (recommended)',
+    description: 'Insert new records and update matching records with the uploaded values.',
+  },
+  insert_only: {
+    label: 'Insert only',
+    description: 'Insert new records and skip identifiers that already exist.',
+  },
+  update_only: {
+    label: 'Update only',
+    description: 'Update matching records and skip identifiers that do not exist.',
+  },
+  replace: {
+    label: 'Replace active snapshot',
+    description: 'Merge the file and deactivate missing master records. Nothing is permanently deleted.',
+  },
 };
 
-const detectBank = (values) =>
-  values.find(v =>
-    BANKS.some(b =>
-      clean(v).toUpperCase().includes(b)
-    )
-  ) || '';
+const REPLACE_BLOCKED = new Set(['device_assignments', 'repair_intake']);
 
-const emailFromName = (name) => {
-  const slug = clean(name)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '.')
-    .replace(/^\.|\.$/g, '');
+function contractLabel(department, dataset) {
+  return Object.values(DEPARTMENT_IMPORTS).find((item) => (item.department || '') === department && item.dataset === dataset)?.label
+    || Object.values(DEPARTMENT_IMPORTS).find((item) => item.dataset === dataset)?.label
+    || department;
+}
 
-  return `${slug || 'engineer'}@ark.local`;
-};
-
-const parseWorkbook = (rows) => {
-
-  let currentEngineer = '';
-  let currentState = '';
-
-  const devices = [];
-
-  rows.forEach(row => {
-
-    const values = Object
-      .values(row)
-      .map(clean)
-      .filter(Boolean);
-
-    const joined =
-      values.join(' ').toUpperCase();
-
-    if (!values.length) return;
-
-    // Detect location/state/region row
-    if (
-      joined.includes('STATE') ||
-      [
-        'ABUJA',
-        'KADUNA',
-        'KANO',
-        'GOMBE',
-        'SOKOTO',
-        'JOS',
-        'PLATEAU'
-      ].includes(joined)
-    ) {
-      currentState = values[0];
-      return;
-    }
-
-    // Detect engineer row
-    if (
-      joined.includes('MACHINES') ||
-      joined.includes('PHONE') ||
-      joined.includes('EMAIL')
-    ) {
-      const name = values.find(v => {
-        const u = v.toUpperCase();
-
-        return (
-          !u.includes('PHONE') &&
-          !u.includes('EMAIL') &&
-          !u.includes('MACHINES') &&
-          !u.includes('@') &&
-          !/^\d+$/.test(u)
-        );
-      });
-
-      if (name) currentEngineer = name;
-
-      return;
-    }
-
-    // Ignore table header rows
-    if (
-      joined.includes('S/N') ||
-      joined.includes('TERMINAL ID') ||
-      joined.includes('BRANCH BANK')
-    ) {
-      return;
-    }
-
-    const terminal_id =
-      values.find(isTerminal);
-
-    const detectedBank =
-      detectBank(values);
-
-    if (!terminal_id || !detectedBank)
-      return;
-
-    const bank_name =
-      normalizeBank(detectedBank);
-
-    const branch_name =
-      values.find(v => {
-
-        const upper = v.toUpperCase();
-
-        return (
-          v !== terminal_id &&
-          v !== detectedBank &&
-          !isTerminal(v) &&
-          !BANKS.some(b => upper.includes(b)) &&
-          !/^\d+$/.test(v)
-        );
-      }) || '';
-
-    devices.push({
-      terminal_id,
-
-      bank_name,
-
-      branch_name,
-
-      state: currentState,
-
-      location: currentState,
-
-      assigned_engineer_name:
-        currentEngineer,
-
-      assigned_engineer_email:
-        currentEngineer
-          ? emailFromName(currentEngineer)
-          : null,
-
-      status:
-        joined.includes('DOWN') ||
-        joined.includes('DWON')
-          ? 'down'
-          : 'active',
-
-      created_at:
-        new Date().toISOString(),
-
-      updated_at:
-        new Date().toISOString(),
-    });
-  });
-
-  const seen = new Set();
-
-  return devices.filter(d => {
-
-    if (seen.has(d.terminal_id))
-      return false;
-
-    seen.add(d.terminal_id);
-
-    return true;
-  });
-};
+function formatDate(value) {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? String(value) : parsed.toLocaleString();
+}
 
 export default function DataImport() {
+  const qc = useQueryClient();
+  const [department, setDepartment] = useState('business_development');
+  const [mode, setMode] = useState('merge');
+  const [file, setFile] = useState(null);
+  const [parsedRows, setParsedRows] = useState([]);
+  const [reading, setReading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState(null);
 
-  const [devices, setDevices] =
-    useState([]);
+  const contract = DEPARTMENT_IMPORTS[department];
+  const markedRows = useMemo(() => validateImportRows(parsedRows, contract), [parsedRows, contract]);
+  const validCount = markedRows.filter((item) => item.valid).length;
+  const errorCount = markedRows.length - validCount;
 
-  const [rawCount, setRawCount] =
-    useState(0);
+  const historyQuery = useQuery({
+    queryKey: ['department-import-batches'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('ark_department_import_batches')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(20);
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
-  const [importing, setImporting] =
-    useState(false);
-
-  const [result, setResult] =
-    useState(null);
-
-  const banks = useMemo(() => {
-
-    const map = new Map();
-
-    devices.forEach(d => {
-
-      if (!d.bank_name) return;
-
-      map.set(d.bank_name, {
-        bank_name: d.bank_name,
-        name: d.bank_name,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-    });
-
-    return [...map.values()];
-  }, [devices]);
-
-  const branches = useMemo(() => {
-
-    const map = new Map();
-
-    devices.forEach(d => {
-
-      if (!d.branch_name || !d.bank_name)
-        return;
-
-      const key =
-        `${d.bank_name}-${d.branch_name}`;
-
-      map.set(key, {
-        bank_name: d.bank_name,
-        branch_name: d.branch_name,
-        location:
-          d.location || d.state || '',
-        branch_key: key,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-    });
-
-    return [...map.values()];
-  }, [devices]);
-
-  const engineers = useMemo(() => {
-
-    const map = new Map();
-
-    devices.forEach(d => {
-
-      if (!d.assigned_engineer_name)
-        return;
-
-      const name =
-        d.assigned_engineer_name.trim();
-
-      const email =
-        d.assigned_engineer_email ||
-        emailFromName(name);
-
-      map.set(email, {
-        full_name: name,
-        email,
-        role: 'engineer',
-        department: 'Engineering',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      });
-    });
-
-    return [...map.values()];
-  }, [devices]);
-
-  const employees = useMemo(() => {
-
-    return engineers.map(e => ({
-      full_name: e.full_name,
-      email: e.email,
-      role: 'engineer',
-      department: 'Engineering',
-      job_title: 'Field Engineer',
-      employee_status: 'active',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    }));
-  }, [engineers]);
-
-  const handleFile = async (e) => {
-
-    const file =
-      e.target.files?.[0];
-
-    if (!file) return;
-
+  const chooseDepartment = (value) => {
+    setDepartment(value);
+    setMode('merge');
+    setFile(null);
+    setParsedRows([]);
     setResult(null);
-
-    const allRows = await readWorkbookRows(file, { allSheets: true });
-
-    const cleanedRows =
-      allRows.filter(r =>
-        Object.values(r).some(v => clean(v))
-      );
-
-    setRawCount(
-      cleanedRows.length
-    );
-
-    setDevices(
-      parseWorkbook(cleanedRows)
-    );
   };
 
-  const upsert = async (
-    table,
-    rows,
-    conflict
-  ) => {
-
-    if (!rows.length) return;
-
-    const uniqueRows =
-      Array.from(
-        new Map(
-          rows.map(row => [
-            row[conflict],
-            row,
-          ])
-        ).values()
-      );
-
-    const { error } =
-      await supabase
-        .from(table)
-        .upsert(uniqueRows, {
-          onConflict: conflict,
-        });
-
-    if (error)
-      throw new Error(
-        `${table}: ${error.message}`
-      );
-  };
-
-  const handleImport = async () => {
-
+  const handleFile = async (event) => {
+    const selected = event.target.files?.[0];
+    if (!selected) return;
+    setReading(true);
+    setResult(null);
     try {
+      const rows = await readWorkbookRows(selected, { allSheets: false });
+      const nonEmpty = rows.filter((row) => Object.values(row || {}).some((value) => String(value ?? '').trim()));
+      if (!nonEmpty.length) throw new Error('The Data sheet has no records. Keep the template headers in row 1 and add records from row 2.');
+      if (nonEmpty.length > 2000) throw new Error('A single import is limited to 2,000 records. Split this workbook into smaller files.');
+      setFile(selected);
+      setParsedRows(nonEmpty);
+    } catch (error) {
+      setFile(null);
+      setParsedRows([]);
+      setResult({ success: false, message: error.message || 'Workbook could not be read.' });
+    } finally {
+      setReading(false);
+      event.target.value = '';
+    }
+  };
 
-      setImporting(true);
+  const runImport = async () => {
+    if (!file || !markedRows.length) return;
+    if (errorCount) {
+      setResult({ success: false, message: `Correct the ${errorCount} marked row${errorCount === 1 ? '' : 's'} before importing.` });
+      return;
+    }
+    if (mode === 'replace' && REPLACE_BLOCKED.has(contract.dataset)) {
+      setResult({ success: false, message: 'Replace is not allowed for workflow or assignment imports. Use Merge, Insert only or Update only.' });
+      return;
+    }
+    if (mode === 'replace' && !window.confirm(`Replace the active ${contract.label} master snapshot? Records missing from this file will be deactivated, not deleted.`)) return;
 
-      await upsert(
-        'users',
-        engineers,
-        'email'
-      );
-
-      await upsert(
-        'employees',
-        employees,
-        'email'
-      );
-
-      await upsert(
-        'banks',
-        banks,
-        'bank_name'
-      );
-
-      await upsert(
-        'branches',
-        branches,
-        'branch_key'
-      );
-
-      await upsert(
-        'devices',
-        devices,
-        'terminal_id'
-      );
-
+    setImporting(true);
+    setResult(null);
+    try {
+      const { data, error } = await supabase.rpc('ark_admin_import_department_data', {
+        p_department: contract.department || department,
+        p_dataset: contract.dataset,
+        p_filename: file.name,
+        p_rows: markedRows.map((item) => item.row),
+        p_mode: mode,
+      });
+      if (error) throw error;
       setResult({
         success: true,
-        message:
-          `Imported ${engineers.length} engineers, ` +
-          `${employees.length} employees, ` +
-          `${banks.length} banks, ` +
-          `${branches.length} branches and ` +
-          `${devices.length} devices.`,
+        message: `Import completed: ${data?.inserted || 0} inserted, ${data?.updated || 0} updated, ${data?.skipped || 0} skipped, ${data?.errors || 0} errors${data?.deactivated ? `, ${data.deactivated} deactivated` : ''}.`,
+        detail: data,
       });
-
-    } catch (err) {
-
-      setResult({
-        success: false,
-        message:
-          err.message || 'Import failed',
-      });
-
+      qc.invalidateQueries({ queryKey: ['department-import-batches'] });
+    } catch (error) {
+      setResult({ success: false, message: error.message || 'Department import failed.' });
     } finally {
-
       setImporting(false);
     }
   };
 
+  const previewFields = contract.fields.slice(0, 6);
+
   return (
-    <div className="space-y-5">
-
-      <div>
-
-        <h1 className="text-3xl font-bold flex items-center gap-2 text-white">
-
-          <FileSpreadsheet className="w-6 h-6 text-primary" />
-
-          Smart Excel Import Wizard
-        </h1>
-
-        <p className="text-sm text-muted-foreground">
-
-          Upload messy engineer Excel reports. ARK ONE will clean, classify and import engineers, banks, branches and devices.
-        </p>
+    <div className="space-y-6 pb-20">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-3xl font-bold text-white">
+            <FileSpreadsheet className="h-7 w-7 text-[#ff5a00]" />
+            Department Data Import Center
+          </h1>
+          <p className="mt-1 text-sm text-slate-300">
+            System Administrator-controlled templates, validation, import modes and permanent audit history.
+          </p>
+        </div>
+        <Badge className="border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-emerald-200">
+          <ShieldCheck className="mr-2 h-4 w-4" />System Administrator only
+        </Badge>
       </div>
 
-      <Card className="p-5">
+      <Card className="border-white/10 bg-[#102969]/90 p-5">
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div>
+            <p className="mb-2 text-sm font-semibold text-white">1. Select department</p>
+            <Select value={department} onValueChange={chooseDepartment}>
+              <SelectTrigger className="border-white/10 bg-[#08153d] text-white"><SelectValue /></SelectTrigger>
+              <SelectContent>{Object.entries(DEPARTMENT_IMPORTS).map(([key, item]) => <SelectItem key={key} value={key}>{item.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-semibold text-white">2. Select import behavior</p>
+            <Select value={mode} onValueChange={setMode}>
+              <SelectTrigger className="border-white/10 bg-[#08153d] text-white"><SelectValue /></SelectTrigger>
+              <SelectContent>{Object.entries(IMPORT_MODES).map(([key, item]) => <SelectItem key={key} value={key} disabled={key === 'replace' && REPLACE_BLOCKED.has(contract.dataset)}>{item.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-end">
+            <Button asChild className="w-full bg-[#ff5a00] text-white hover:bg-[#ff5a00]/90">
+              <a href={contract.template} download><Download className="mr-2 h-4 w-4" />Download {contract.label} template</a>
+            </Button>
+          </div>
+        </div>
+        <div className="mt-4 rounded-xl border border-blue-400/20 bg-blue-500/10 p-3 text-sm text-blue-100">
+          <b>{contract.dataset.replaceAll('_', ' ')}:</b> {contract.description}
+          <p className="mt-1 text-xs text-blue-200">{IMPORT_MODES[mode].description}</p>
+        </div>
+      </Card>
 
-        <label className="border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-muted/40">
-
-          <Upload className="w-8 h-8 text-muted-foreground mb-2" />
-
-          <p className="font-medium">
-            Click to upload Excel file
-          </p>
-
-          <p className="text-xs text-muted-foreground">
-            Supports .xlsx and .xlsm (10 MB maximum)
-          </p>
-
-          <input
-            type="file"
-            accept=".xlsx,.xlsm"
-            className="hidden"
-            onChange={handleFile}
-          />
+      <Card className="border-white/10 bg-[#102969]/90 p-5">
+        <p className="mb-3 text-sm font-semibold text-white">3. Upload the completed template</p>
+        <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-white/15 p-8 hover:bg-white/5">
+          {reading ? <Loader2 className="mb-2 h-8 w-8 animate-spin text-[#ff5a00]" /> : <Upload className="mb-2 h-8 w-8 text-slate-300" />}
+          <p className="font-medium text-white">{file ? file.name : 'Choose the department XLSX template'}</p>
+          <p className="text-xs text-slate-400">XLSX/XLSM · 10 MB · 2,000 records maximum</p>
+          <input type="file" accept=".xlsx,.xlsm" className="hidden" onChange={handleFile} disabled={reading || importing} />
         </label>
       </Card>
 
-      {rawCount > 0 && (
-
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-
-          <Card className="p-4">
-            <p className="text-2xl font-bold">
-              {rawCount}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Raw Rows Read
-            </p>
-          </Card>
-
-          <Card className="p-4">
-            <p className="text-2xl font-bold">
-              {engineers.length}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Engineers
-            </p>
-          </Card>
-
-          <Card className="p-4">
-            <p className="text-2xl font-bold">
-              {devices.length}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Devices
-            </p>
-          </Card>
-
-          <Card className="p-4">
-            <p className="text-2xl font-bold">
-              {banks.length}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Banks
-            </p>
-          </Card>
-
-          <Card className="p-4">
-            <p className="text-2xl font-bold">
-              {branches.length}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Branches
-            </p>
-          </Card>
-        </div>
-      )}
-
-      {devices.length > 0 && (
-
+      {!!markedRows.length && (
         <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Card className="border-white/10 bg-[#102969] p-4"><p className="text-2xl font-bold text-white">{markedRows.length}</p><p className="text-xs text-slate-300">Rows read</p></Card>
+            <Card className="border-emerald-400/20 bg-emerald-500/10 p-4"><p className="text-2xl font-bold text-emerald-300">{validCount}</p><p className="text-xs text-emerald-100">Ready</p></Card>
+            <Card className={`p-4 ${errorCount ? 'border-red-400/20 bg-red-500/10' : 'border-white/10 bg-[#102969]'}`}><p className={`text-2xl font-bold ${errorCount ? 'text-red-300' : 'text-white'}`}>{errorCount}</p><p className="text-xs text-slate-300">Rows requiring correction</p></Card>
+          </div>
 
-          <Card className="p-4 overflow-x-auto">
-
-            <p className="font-semibold mb-3">
-              Clean Preview
-            </p>
-
-            <table className="w-full text-sm">
-
-              <thead>
-
-                <tr className="border-b text-left">
-
-                  <th className="py-2">
-                    Terminal ID
-                  </th>
-
-                  <th>Bank</th>
-
-                  <th>Branch</th>
-
-                  <th>State</th>
-
-                  <th>Engineer</th>
-
-                  <th>Status</th>
-                </tr>
-              </thead>
-
-              <tbody>
-
-                {devices.slice(0, 100).map((d, i) => (
-
-                  <tr
-                    key={i}
-                    className="border-b"
-                  >
-
-                    <td className="py-2 font-mono">
-                      {d.terminal_id}
-                    </td>
-
-                    <td>{d.bank_name}</td>
-
-                    <td>{d.branch_name}</td>
-
-                    <td>{d.state}</td>
-
-                    <td>{d.assigned_engineer_name}</td>
-
-                    <td>{d.status}</td>
-                  </tr>
-                ))}
-              </tbody>
+          <Card className="overflow-x-auto border-white/10 bg-[#102969]/90 p-4">
+            <div className="mb-3 flex items-center justify-between"><p className="font-semibold text-white">Marked preview</p><p className="text-xs text-slate-400">Showing first 100 rows</p></div>
+            <table className="min-w-full text-left text-xs text-slate-200">
+              <thead><tr className="border-b border-white/10"><th className="p-2">Row</th><th className="p-2">Check</th>{previewFields.map((item) => <th key={item.key} className="p-2">{item.label}</th>)}</tr></thead>
+              <tbody>{markedRows.slice(0, 100).map((item) => <tr key={item.rowNumber} className={`border-b border-white/5 ${item.valid ? '' : 'bg-red-500/10'}`}><td className="p-2 font-mono">{item.rowNumber}</td><td className="p-2">{item.valid ? <Badge className="bg-emerald-500/15 text-emerald-200">Ready</Badge> : <span className="text-red-200">{item.errors.join('; ')}</span>}</td>{previewFields.map((field) => <td key={field.key} className="max-w-52 truncate p-2">{String(item.row[field.key] ?? '')}</td>)}</tr>)}</tbody>
             </table>
-
-            {devices.length > 100 && (
-
-              <p className="text-xs text-muted-foreground mt-2">
-                Showing first 100 devices only.
-              </p>
-            )}
           </Card>
 
-          <Button
-            onClick={handleImport}
-            disabled={importing}
-          >
-
-            {importing
-              ? 'Importing...'
-              : 'Import Clean Data to Supabase'}
+          <Button onClick={runImport} disabled={importing || errorCount > 0} className="bg-emerald-600 text-white hover:bg-emerald-700">
+            {importing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FileCheck2 className="mr-2 h-4 w-4" />}
+            {importing ? 'Importing…' : `Import ${validCount} marked record${validCount === 1 ? '' : 's'}`}
           </Button>
         </>
       )}
 
-      {rawCount > 0 && devices.length === 0 && (
+      {result && <Card className={`p-4 ${result.success ? 'border-emerald-400/30 bg-emerald-500/10' : 'border-red-400/30 bg-red-500/10'}`}><div className="flex gap-2">{result.success ? <CheckCircle2 className="h-5 w-5 text-emerald-300" /> : <AlertTriangle className="h-5 w-5 text-red-300" />}<p className={result.success ? 'text-emerald-100' : 'text-red-100'}>{result.message}</p></div></Card>}
 
-        <Card className="p-4 border-amber-500/30 bg-amber-500/15 text-white">
-
-          <p className="text-amber-700 text-sm">
-
-            Excel was read, but no devices were detected. Send me a screenshot of the first rows and I will tune the parser.
-          </p>
-        </Card>
-      )}
-
-      {result && (
-
-        <Card
-          className={`p-4 ${
-            result.success
-              ? 'border-green-500/30 bg-green-500/15 text-white'
-              : 'border-red-500/30 bg-red-500/15 text-white'
-          }`}
-        >
-
-          <div className="flex items-center gap-2">
-
-            {result.success ? (
-
-              <CheckCircle2 className="w-5 h-5 text-green-600" />
-
-            ) : (
-
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-            )}
-
-            <p
-              className={
-                result.success
-                  ? 'text-green-700'
-                  : 'text-red-700'
-              }
-            >
-
-              {result.message}
-            </p>
-          </div>
-        </Card>
-      )}
+      <Card className="border-white/10 bg-[#102969]/90 p-5">
+        <div className="mb-4 flex items-center justify-between"><div><h2 className="flex items-center gap-2 font-bold text-white"><History className="h-4 w-4 text-[#ff5a00]" />Import audit history</h2><p className="text-xs text-slate-400">Who imported what, when, and the result.</p></div><Button size="sm" variant="outline" onClick={() => historyQuery.refetch()}><RefreshCw className="mr-1 h-3 w-3" />Refresh</Button></div>
+        <div className="space-y-2">{(historyQuery.data || []).map((batch) => <div key={batch.id} className="grid gap-2 rounded-lg border border-white/10 bg-[#08153d]/70 p-3 text-xs text-slate-200 md:grid-cols-6"><div><b>{contractLabel(batch.department, batch.dataset)}</b><p>{batch.dataset?.replaceAll('_', ' ')}</p></div><div><b>{batch.mode?.replaceAll('_', ' ')}</b><p>{batch.filename}</p></div><div><b>{batch.total_rows} rows</b><p>{batch.imported_rows} imported · {batch.skipped_rows} skipped</p></div><div><b className={batch.error_rows ? 'text-red-300' : 'text-emerald-300'}>{batch.error_rows} errors</b><p>{batch.deactivated_rows || 0} deactivated</p></div><div><b>{batch.imported_by_name || batch.imported_by_email}</b><p>{formatDate(batch.created_at)}</p></div><Badge className="h-fit w-fit bg-white/10 text-white">{batch.status}</Badge></div>)}{!historyQuery.isLoading && !(historyQuery.data || []).length && <p className="py-6 text-center text-sm text-slate-400">No department imports have been recorded.</p>}</div>
+      </Card>
     </div>
   );
 }

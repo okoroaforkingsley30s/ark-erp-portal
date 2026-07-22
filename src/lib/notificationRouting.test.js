@@ -16,6 +16,12 @@ describe('notification routing', () => {
     expect(resolveNotificationTarget({ role: 'engineer' }, '/crm-handoffs')).toBe('/field-ops');
   });
 
+  it('routes commercial workflow notifications only to participating departments', () => {
+    expect(resolveNotificationTarget({ role: 'business_developer' }, '/crm-commercial')).toBe('/crm-commercial');
+    expect(resolveNotificationTarget({ role: 'finance' }, '/crm-commercial')).toBe('/crm-commercial');
+    expect(resolveNotificationTarget({ role: 'engineer' }, '/crm-commercial')).toBe('/field-ops');
+  });
+
   it('denies unknown and privileged legacy links', () => {
     expect(resolveNotificationTarget({ role: 'inventory' }, '/users')).toBe('/inventory/part-requests');
     expect(resolveNotificationTarget({ role: 'inventory' }, '/old-missing-module')).toBe('/inventory/part-requests');

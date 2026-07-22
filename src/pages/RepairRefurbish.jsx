@@ -68,6 +68,11 @@ function isRRHODOrAdmin(user) {
   ].includes(role);
 }
 
+function isRRHOD(user) {
+  const role = normalize(user?.role || user?.user_role || user?.position);
+  return ['repair_head', 'rr_hod', 'repair_hod', 'head_of_rr'].includes(role);
+}
+
 function getJobTitle(job) {
   return job.item_name || job.device_name || 'R/R Item';
 }
@@ -180,6 +185,7 @@ export default function RepairRefurbish() {
 
   const userEmail = user?.email || user?.user_email || '';
   const canViewAll = isRRHODOrAdmin(user);
+  const canTakeUp = isRRHOD(user);
 
   const [profileId, setProfileId] = useState(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -275,6 +281,19 @@ export default function RepairRefurbish() {
     if (error) alert('Status update failed: ' + error.message);
     else qc.invalidateQueries({ queryKey: ['repair-jobs'] });
     setUpdatingId(null);
+  };
+
+  const takeUpJob = async (job) => {
+    setUpdatingId(job.id);
+    try {
+      const { error } = await supabase.rpc('rr_hod_take_repair_job', { p_repair_job_id: job.id });
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ['repair-jobs'] });
+    } catch (error) {
+      alert('RR HOD take-up failed: ' + (error.message || 'Unknown error'));
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
   const startRepair = (job) => {
@@ -432,17 +451,17 @@ export default function RepairRefurbish() {
           </h1>
 
           <p className="text-slate-300">
-            RR Technician workspace: repair, request consumables/funds, submit to RR HOD QA, and view completed job history.
+            RR workspace: RR HOD can take ownership without assigning a technician; technicians repair, request support and submit QA.
           </p>
         </div>
       </div>
 
       <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
         <p className="text-sm text-emerald-200 font-semibold">
-          RR Technician page only:
+          Controlled RR workflow:
         </p>
         <p className="text-xs text-emerald-100 mt-1">
-          Active jobs stay here until RR HOD sends them back to Inventory. Completed jobs move into Job History.
+          A HOD-owned job remains unassigned to an RR Technician and can still be assigned later. Completed jobs move into Job History.
         </p>
       </div>
 
@@ -576,6 +595,12 @@ export default function RepairRefurbish() {
                     </p>
                   )}
 
+                  {job.hod_owner_email && (
+                    <p className="mt-2 text-xs text-orange-200">
+                      RR HOD owner: {job.hod_owner_email}
+                    </p>
+                  )}
+
                   {job.completed_at && (
                     <p className="text-xs text-emerald-300 mt-2">
                       Completed: {new Date(job.completed_at).toLocaleString()}
@@ -583,7 +608,22 @@ export default function RepairRefurbish() {
                   )}
 
                   <div className="flex flex-wrap gap-2 mt-4">
-                    {canDoRepairJobAction(job, 'start_rr_repair') && (
+                    {canTakeUp &&
+                      !job.hod_owner_profile_id &&
+                      !job.assigned_rr_technician &&
+                      !job.assigned_to &&
+                      ['pending_rr', 'received', 'assigned', ''].includes(normalize(job.status)) && (
+                        <Button
+                          size="sm"
+                          disabled={updatingId === job.id}
+                          onClick={() => takeUpJob(job)}
+                          className="bg-[#ff5a00] text-white hover:bg-[#ff5a00]/90"
+                        >
+                          <Wrench className="mr-1 h-4 w-4" />
+                          Take Up Job
+                        </Button>
+                      )}
+                    {!canViewAll && canDoRepairJobAction(job, 'start_rr_repair') && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -600,7 +640,7 @@ export default function RepairRefurbish() {
                       </Button>
                     )}
 
-                    {canDoRepairJobAction(job, 'request_consumable') && (
+                    {!canViewAll && canDoRepairJobAction(job, 'request_consumable') && (
                       <Button
                         size="sm"
                         disabled={updatingId === job.id}
@@ -612,7 +652,7 @@ export default function RepairRefurbish() {
                       </Button>
                     )}
 
-                    {canDoRepairJobAction(job, 'request_fund') && (
+                    {!canViewAll && canDoRepairJobAction(job, 'request_fund') && (
                       <Button
                         size="sm"
                         disabled={updatingId === job.id}
@@ -624,7 +664,7 @@ export default function RepairRefurbish() {
                       </Button>
                     )}
 
-                    {canDoRepairJobAction(job, 'submit_rr_qa') && (
+                    {!canViewAll && canDoRepairJobAction(job, 'submit_rr_qa') && (
                       <Button
                         size="sm"
                         disabled={updatingId === job.id}
@@ -636,10 +676,12 @@ export default function RepairRefurbish() {
                       </Button>
                     )}
 
-                    {!canDoRepairJobAction(job, 'start_rr_repair') &&
+                    {(canViewAll || (
+                      !canDoRepairJobAction(job, 'start_rr_repair') &&
                       !canDoRepairJobAction(job, 'request_consumable') &&
                       !canDoRepairJobAction(job, 'request_fund') &&
-                      !canDoRepairJobAction(job, 'submit_rr_qa') && (
+                      !canDoRepairJobAction(job, 'submit_rr_qa')
+                    )) && (
                         <span
                           className={[
                             'inline-flex items-center rounded-md border px-3 py-2 text-xs',

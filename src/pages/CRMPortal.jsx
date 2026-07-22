@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
-  Building2, ClipboardCheck,
+  BriefcaseBusiness, Building2,
   Clock3, History, Loader2, Mail, MessageSquareWarning, Pencil,
   Phone, Plus, Printer, RefreshCw, Route, Search, Star, Target, TrendingUp, Users,
 } from 'lucide-react';
@@ -29,8 +29,7 @@ const STATUS_STYLE = {
   qualified: 'border-violet-400/40 text-violet-200', proposal: 'border-amber-400/40 text-amber-200',
   negotiation: 'border-orange-400/40 text-orange-200', pending_won_approval: 'border-yellow-300 text-yellow-200',
   won: 'border-emerald-400/40 text-emerald-200', lost: 'border-red-400/40 text-red-200',
-  open: 'border-red-400/40 text-red-200', ticket_created: 'border-blue-400/40 text-blue-200',
-  routed_to_helpdesk: 'border-amber-400/40 text-amber-200',
+  open: 'border-red-400/40 text-red-200', in_progress: 'border-amber-400/40 text-amber-200',
   resolved: 'border-emerald-400/40 text-emerald-200', closed: 'border-slate-400/40 text-slate-200',
 };
 const EMPTY_LEAD = {
@@ -40,7 +39,7 @@ const EMPTY_LEAD = {
 };
 const EMPTY_COMPLAINT = {
   client_id: '', client_name: '', contact_name: '', contact_email: '', contact_phone: '', issue_title: '',
-  issue_description: '', priority: 'medium', complaint_type: 'technical_support', routed_department: 'Helpdesk',
+  issue_description: '', priority: 'medium', complaint_type: 'relationship',
   followup_date: '', satisfaction_rating: '', feedback: '',
 };
 const EMPTY_ACTIVITY = {
@@ -61,7 +60,7 @@ export default function CRMPortal() {
   const outlet = useOutletContext() || {};
   const user = outlet.user || outlet.profile || outlet.currentUser || {};
   const role = getUserRole(user);
-  const canReview = ['head_of_business_development', 'ceo', 'agm', 'manager'].includes(role);
+  const canReview = role === 'agm';
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [tab, setTab] = useState('leads');
@@ -113,7 +112,7 @@ export default function CRMPortal() {
     (statusFilter === 'all' || row.status === statusFilter) && matches(row, ['company_name', 'contact_name', 'contact_email', 'industry', 'devices_interested', 'owner_name'])
   ), [leads, search, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
   const filteredClients = useMemo(() => clients.filter((row) => matches(row, ['client_code', 'client_name', 'contact_name', 'contact_email', 'relationship_manager', 'onboarding_status'])), [clients, search]); // eslint-disable-line react-hooks/exhaustive-deps
-  const filteredComplaints = useMemo(() => complaints.filter((row) => matches(row, ['complaint_number', 'client_name', 'issue_title', 'ticket_number', 'routed_department'])), [complaints, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filteredComplaints = useMemo(() => complaints.filter((row) => matches(row, ['complaint_number', 'client_name', 'issue_title', 'complaint_type', 'feedback'])), [complaints, search]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rpc = async (name, args) => {
     const { data, error } = await supabase.rpc(name, args);
@@ -141,7 +140,7 @@ export default function CRMPortal() {
     if (target === 'lost') note = window.prompt('Enter the reason this opportunity was lost:');
     if (target === 'lost' && !note) return;
     run(() => rpc('ark_crm_transition_lead', { p_lead_id: lead.id, p_target_status: target, p_note: note }),
-      target === 'pending_won_approval' ? 'Won business submitted to Head of Business Development.' : 'Lead stage updated.');
+      target === 'pending_won_approval' ? 'Won business submitted to the AGM.' : 'Lead stage updated.');
   };
   const reviewWon = (lead, decision) => {
     const note = window.prompt(decision === 'reject' ? 'Rejection reason (required):' : 'Approval note (optional):') || '';
@@ -167,10 +166,11 @@ export default function CRMPortal() {
     await rpc('ark_crm_save_complaint', { p_payload: complaintForm, p_complaint_id: editingComplaint?.id || null });
     setComplaintOpen(false); setEditingComplaint(null);
   }, editingComplaint ? 'CRM complaint updated.' : 'CRM complaint logged.');
-  const routeComplaint = (complaint) => run(
-    () => rpc('ark_crm_route_complaint_to_helpdesk', { p_complaint_id: complaint.id }),
-    'Complaint submitted to Helpdesk. Helpdesk will create and own the support ticket.'
-  );
+  const transitionComplaint = (complaint, target) => {
+    const note = target === 'resolved' ? window.prompt('Enter the relationship follow-up resolution summary:') : '';
+    if (target === 'resolved' && !note) return;
+    run(() => rpc('ark_crm_transition_complaint', { p_complaint_id: complaint.id, p_target_status: target, p_note: note }), 'Client relationship follow-up updated.');
+  };
   const closeComplaint = (complaint) => {
     const rating = Number(window.prompt('Enter the client satisfaction rating (1–5):'));
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) return alert('Enter a rating from 1 to 5.');
@@ -181,16 +181,17 @@ export default function CRMPortal() {
   const pipeline = leads.filter((lead) => !['won', 'lost'].includes(lead.status)).reduce((sum, lead) => sum + Number(lead.estimated_value || 0), 0);
   const cards = [
     ['Pipeline', leads.filter((lead) => !['won', 'lost'].includes(lead.status)).length, `${money(pipeline)} open value`],
-    ['Won Approval', leads.filter((lead) => lead.status === 'pending_won_approval').length, 'Head BD action required'],
+    ['Won Approval', leads.filter((lead) => lead.status === 'pending_won_approval').length, 'AGM action required'],
     ['Active Clients', clients.filter((client) => client.status === 'active').length, `${clients.filter((client) => client.onboarding_status === 'in_progress').length} onboarding`],
-    ['Open Complaints', complaints.filter((item) => !['closed'].includes(item.status)).length, `${complaints.filter((item) => item.status === 'resolved').length} need client follow-up`],
+    ['Client Follow-ups', complaints.filter((item) => !['closed'].includes(item.status)).length, `${complaints.filter((item) => item.status === 'resolved').length} ready for rating`],
   ];
 
   return <div className="space-y-5 pb-20 text-slate-100">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><h1 className="flex items-center gap-2 text-3xl font-bold text-white"><TrendingUp className="text-[#ff5a00]" />Business Development & CRM</h1>
-        <p className="text-sm text-slate-400">Lead ownership, Head approval, client onboarding, departmental handoffs and complaint recovery.</p></div>
+        <p className="text-sm text-slate-400">Lead ownership, AGM approval, client onboarding, departmental handoffs and relationship follow-up.</p></div>
       <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button><Button variant="outline" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print CRM Report</Button>
+        <Button variant="outline" onClick={() => navigate('/crm-commercial')}><BriefcaseBusiness className="mr-2 h-4 w-4" />POC, LPO & SLA</Button>
         <Button variant="outline" onClick={() => navigate('/crm-handoffs')}><Route className="mr-2 h-4 w-4" />Department Handoffs</Button>
         <Button className="bg-[#ff5a00]" onClick={() => editLead()}><Plus className="mr-2 h-4 w-4" />Add Lead</Button></div>
     </header>
@@ -199,10 +200,10 @@ export default function CRMPortal() {
       <Card key={title} className="border-[#ff5a00]/20 bg-[#102969]"><CardContent className="p-4"><p className="text-xs uppercase text-slate-400">{title}</p><p className="mt-1 text-3xl font-black text-white">{value}</p><p className="text-xs text-[#ff8a45]">{note}</p></CardContent></Card>)}</section>
 
     <div className="rounded-xl border border-[#ff5a00]/25 bg-[#102969] p-4 text-sm">
-      <b className="text-[#ff8a45]">Controlled workflow:</b> Lead → Qualification → Proposal → Negotiation → Head BD Won Approval → Client → Department Handoffs → Delivery. Complaints route to Helpdesk and return here for client satisfaction closure.
+      <b className="text-[#ff8a45]">Controlled workflow:</b> Lead → Qualification → Proposal → Negotiation → AGM Won Approval → Client → Department Handoffs → Delivery. Helpdesk tickets remain entirely inside the existing Helpdesk workflow.
     </div>
 
-    <div className="flex flex-wrap gap-2">{[['leads','Lead Pipeline'],['clients','Clients & Onboarding'],['complaints','Complaints'],['activities','Activity & Audit']].map(([key,label]) =>
+    <div className="flex flex-wrap gap-2">{[['leads','Lead Pipeline'],['clients','Clients & Onboarding'],['complaints','Relationship Follow-ups'],['activities','Activity & Audit']].map(([key,label]) =>
       <Button key={key} variant={tab === key ? 'default' : 'outline'} className={tab === key ? 'bg-[#ff5a00]' : ''} onClick={() => setTab(key)}>{label}</Button>)}</div>
     <div className="flex gap-2"><div className="relative flex-1"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search CRM records…" /></div>
       {tab === 'leads' && <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All stages</SelectItem>{Object.entries(LEAD_STATUS).map(([key,label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select>}</div>
@@ -222,19 +223,19 @@ export default function CRMPortal() {
         </div>
         <div className="flex flex-wrap gap-2"><Select value={lead.status === 'won' ? 'won' : lead.status} disabled={lead.status === 'won' || lead.status === 'pending_won_approval'} onValueChange={(value) => transitionLead(lead, value)}><SelectTrigger className="h-8 flex-1 text-xs"><SelectValue /></SelectTrigger><SelectContent>{LEAD_FLOW.map((key) => <SelectItem key={key} value={key}>{LEAD_STATUS[key]}</SelectItem>)}</SelectContent></Select>
           <Button size="sm" variant="outline" onClick={() => openActivity(lead)}><Clock3 className="h-3 w-3" /></Button><Button size="sm" variant="outline" onClick={() => editLead(lead)}><Pencil className="h-3 w-3" /></Button></div>
-        {canReview && lead.status === 'pending_won_approval' && <div className="mt-3 grid grid-cols-2 gap-2"><Button size="sm" variant="destructive" onClick={() => reviewWon(lead,'reject')}>Reject</Button><Button size="sm" className="bg-emerald-600" onClick={() => reviewWon(lead,'approve')}>Approve Won</Button></div>}
+        {canReview && lead.status === 'pending_won_approval' && <div className="mt-3 grid grid-cols-2 gap-2"><Button size="sm" variant="destructive" onClick={() => reviewWon(lead,'reject')}>AGM Reject</Button><Button size="sm" className="bg-emerald-600" onClick={() => reviewWon(lead,'approve')}>AGM Approve Won</Button></div>}
       </Card>)}{!filteredLeads.length && <Empty icon={Users} label="No leads found" />}</section>}
 
     {tab === 'clients' && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filteredClients.map((client) =>
       <Card key={client.id} className="border-[#ff5a00]/20 bg-[#102969] p-4"><div className="flex justify-between"><div><b>{client.client_name}</b><p className="font-mono text-xs text-slate-400">{client.client_code || 'Legacy client'}</p></div><Badge variant="outline">{client.onboarding_status || 'pending'}</Badge></div>
         <div className="my-3 space-y-1 text-xs text-slate-300"><p>{client.industry || 'Industry not recorded'}</p><p>{client.contact_name || 'No contact'} · {client.contact_email || 'No email'}</p><p>Relationship manager: {client.relationship_manager || 'Not assigned'}</p><p>Contract: {money(client.contract_value)}</p><p>Created: {when(client.created_at, true)}</p></div>
-        <Button size="sm" className="bg-[#ff5a00]" onClick={() => editComplaint(null, client)}><MessageSquareWarning className="mr-2 h-3 w-3" />Log Complaint</Button>
+        <Button size="sm" className="bg-[#ff5a00]" onClick={() => editComplaint(null, client)}><MessageSquareWarning className="mr-2 h-3 w-3" />Log Relationship Follow-up</Button>
       </Card>)}{!filteredClients.length && <Empty icon={Building2} label="No approved clients found" />}</section>}
 
     {tab === 'complaints' && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filteredComplaints.map((item) =>
       <Card key={item.id} className="border-[#ff5a00]/20 bg-[#102969] p-4"><div className="flex justify-between"><div><p className="font-mono text-xs text-slate-400">{item.complaint_number}</p><b>{item.issue_title}</b><p className="text-xs text-slate-400">{item.client_name}</p></div><Badge variant="outline" className={STATUS_STYLE[item.status]}>{item.status?.replaceAll('_',' ')}</Badge></div>
-        <p className="my-3 line-clamp-3 text-xs text-slate-300">{item.issue_description}</p><div className="space-y-1 text-xs text-slate-400"><p>Type: {item.complaint_type?.replaceAll('_',' ')}</p><p>Route: {item.routed_department || 'Awaiting route'}</p><p>Ticket: {item.ticket_number || 'Not created'}</p>{item.resolution_summary && <p>Resolution: {item.resolution_summary}</p>}{item.satisfaction_rating && <p className="flex gap-1 text-yellow-300"><Star className="h-3 w-3" />{item.satisfaction_rating}/5</p>}</div>
-        <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => editComplaint(item)}><Pencil className="mr-1 h-3 w-3" />Edit</Button>{item.status === 'open' && !item.ticket_id && <Button size="sm" className="bg-[#ff5a00]" onClick={() => routeComplaint(item)}><ClipboardCheck className="mr-1 h-3 w-3" />Submit to Helpdesk</Button>}{item.status === 'routed_to_helpdesk' && <Badge variant="outline" className="border-amber-400/40 text-amber-200">Awaiting Helpdesk ticket</Badge>}{item.status === 'resolved' && <Button size="sm" className="bg-emerald-600" onClick={() => closeComplaint(item)}>Client Follow-up & Close</Button>}</div>
+        <p className="my-3 line-clamp-3 text-xs text-slate-300">{item.issue_description}</p><div className="space-y-1 text-xs text-slate-400"><p>Type: {item.complaint_type?.replaceAll('_',' ')}</p>{item.resolution_summary && <p>Resolution: {item.resolution_summary}</p>}{item.satisfaction_rating && <p className="flex gap-1 text-yellow-300"><Star className="h-3 w-3" />{item.satisfaction_rating}/5</p>}</div>
+        <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => editComplaint(item)}><Pencil className="mr-1 h-3 w-3" />Edit</Button>{item.status === 'open' && <Button size="sm" className="bg-[#ff5a00]" onClick={() => transitionComplaint(item,'in_progress')}>Start Follow-up</Button>}{item.status === 'in_progress' && <Button size="sm" className="bg-emerald-600" onClick={() => transitionComplaint(item,'resolved')}>Mark Resolved</Button>}{item.status === 'resolved' && <Button size="sm" className="bg-emerald-600" onClick={() => closeComplaint(item)}>Record Rating & Close</Button>}</div>
       </Card>)}{!filteredComplaints.length && <Empty icon={MessageSquareWarning} label="No complaints found" />}</section>}
 
     {tab === 'activities' && <section className="grid gap-4 lg:grid-cols-2"><AuditList title="Sales Activities" rows={activities} subject={(row) => row.subject} detail={(row) => `${row.activity_type} · ${row.created_by_name || row.created_by_email} · ${when(row.created_at, true)}`} /><AuditList title="Workflow Audit" rows={history} subject={(row) => row.action?.replaceAll('_',' ')} detail={(row) => `${row.entity_type}: ${row.from_status || 'start'} → ${row.to_status || 'recorded'} · ${row.actor_name || row.actor_email} · ${when(row.created_at, true)}`} /></section>}
@@ -248,12 +249,12 @@ export default function CRMPortal() {
       <Field label="Next follow-up"><Input type="date" value={leadForm.next_followup || ''} onChange={(e) => setLeadForm({...leadForm,next_followup:e.target.value})} /></Field><Field label="Expected close"><Input type="date" value={leadForm.expected_close_date || ''} onChange={(e) => setLeadForm({...leadForm,expected_close_date:e.target.value})} /></Field>
       <div className="md:col-span-2"><Field label="Notes"><Textarea value={leadForm.notes} onChange={(e) => setLeadForm({...leadForm,notes:e.target.value})} /></Field></div></div><Button disabled={saving || !leadForm.company_name || !leadForm.contact_name} onClick={saveLead}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Lead</Button></DialogContent></Dialog>
 
-    <Dialog open={complaintOpen} onOpenChange={setComplaintOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingComplaint ? 'Update Complaint' : 'Log Client Complaint'}</DialogTitle></DialogHeader><div className="grid gap-3 md:grid-cols-2">
+    <Dialog open={complaintOpen} onOpenChange={setComplaintOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingComplaint ? 'Update Relationship Follow-up' : 'Log Client Relationship Follow-up'}</DialogTitle></DialogHeader><div className="grid gap-3 md:grid-cols-2">
       <Field label="Client *"><Input value={complaintForm.client_name} onChange={(e) => setComplaintForm({...complaintForm,client_name:e.target.value})} /></Field><Field label="Contact"><Input value={complaintForm.contact_name} onChange={(e) => setComplaintForm({...complaintForm,contact_name:e.target.value})} /></Field>
       <Field label="Email"><Input value={complaintForm.contact_email} onChange={(e) => setComplaintForm({...complaintForm,contact_email:e.target.value})} /></Field><Field label="Phone"><Input value={complaintForm.contact_phone} onChange={(e) => setComplaintForm({...complaintForm,contact_phone:e.target.value})} /></Field>
-      <SelectField label="Complaint type" value={complaintForm.complaint_type} values={['technical_support','service_delivery','billing','product_supply','relationship']} onChange={(value) => setComplaintForm({...complaintForm,complaint_type:value,routed_department:value === 'billing' ? 'Finance & Accounts' : value === 'product_supply' ? 'Inventory' : 'Helpdesk'})} /><SelectField label="Priority" value={complaintForm.priority} values={['low','medium','high','critical']} onChange={(value) => setComplaintForm({...complaintForm,priority:value})} />
+      <SelectField label="Follow-up type" value={complaintForm.complaint_type} values={['relationship','commercial','service_feedback','renewal','satisfaction']} onChange={(value) => setComplaintForm({...complaintForm,complaint_type:value})} /><SelectField label="Priority" value={complaintForm.priority} values={['low','medium','high','critical']} onChange={(value) => setComplaintForm({...complaintForm,priority:value})} />
       <div className="md:col-span-2"><Field label="Issue title *"><Input value={complaintForm.issue_title} onChange={(e) => setComplaintForm({...complaintForm,issue_title:e.target.value})} /></Field></div><div className="md:col-span-2"><Field label="Full complaint"><Textarea className="min-h-28" value={complaintForm.issue_description} onChange={(e) => setComplaintForm({...complaintForm,issue_description:e.target.value})} /></Field></div>
-      <Field label="Client follow-up date"><Input type="date" value={complaintForm.followup_date || ''} onChange={(e) => setComplaintForm({...complaintForm,followup_date:e.target.value})} /></Field><Field label="Destination"><Input value={complaintForm.routed_department} disabled /></Field></div><Button disabled={saving || !complaintForm.client_name || !complaintForm.issue_title} onClick={saveComplaint}>Save Complaint</Button></DialogContent></Dialog>
+      <Field label="Next client follow-up"><Input type="date" value={complaintForm.followup_date || ''} onChange={(e) => setComplaintForm({...complaintForm,followup_date:e.target.value})} /></Field></div><Button disabled={saving || !complaintForm.client_name || !complaintForm.issue_title} onClick={saveComplaint}>Save Follow-up</Button></DialogContent></Dialog>
 
     <Dialog open={activityOpen} onOpenChange={setActivityOpen}><DialogContent><DialogHeader><DialogTitle>Log Activity — {activityTarget?.company_name}</DialogTitle></DialogHeader><SelectField label="Activity type" value={activityForm.activity_type} values={['call','email','meeting','site_visit','proposal','note']} onChange={(value) => setActivityForm({...activityForm,activity_type:value})} /><Field label="Subject *"><Input value={activityForm.subject} onChange={(e) => setActivityForm({...activityForm,subject:e.target.value})} /></Field><Field label="Notes"><Textarea value={activityForm.notes} onChange={(e) => setActivityForm({...activityForm,notes:e.target.value})} /></Field><Field label="Outcome"><Input value={activityForm.outcome} onChange={(e) => setActivityForm({...activityForm,outcome:e.target.value})} /></Field><Field label="Next action"><Input type="datetime-local" value={activityForm.next_action_at} onChange={(e) => setActivityForm({...activityForm,next_action_at:e.target.value})} /></Field><Button disabled={saving || !activityForm.subject} onClick={saveActivity}>Record Activity</Button></DialogContent></Dialog>
   </div>;

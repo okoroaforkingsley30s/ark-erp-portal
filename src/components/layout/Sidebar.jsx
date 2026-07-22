@@ -41,6 +41,7 @@ import {
   Wallet,
   Search,
   Route,
+  BriefcaseBusiness,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -242,6 +243,12 @@ const ALL_MENUS = [
     label: 'CRM',
     icon: TrendingUp,
     path: '/crm',
+    permission: 'crm',
+  },
+  {
+    label: 'POC, LPO & SLA',
+    icon: BriefcaseBusiness,
+    path: '/crm-commercial',
     permission: 'crm',
   },
   {
