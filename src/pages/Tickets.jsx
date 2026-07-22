@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Link, useOutletContext } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation, useNavigate, useOutletContext } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabaseClient';
 import { usePrivateStorageUrl } from '@/hooks/usePrivateStorageUrl';
@@ -813,11 +813,14 @@ function EngineerPhotoGallery({ ticket }) {
 export default function Tickets() {
   const { user } = useOutletContext();
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const role = user?.role || 'client';
   const normalizedRole = normalize(role);
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [mailTicketDraft, setMailTicketDraft] = useState(null);
   const [rejectingTicket, setRejectingTicket] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [reviewingTicketId, setReviewingTicketId] = useState(null);
@@ -837,6 +840,15 @@ export default function Tickets() {
     escalated: true,
     closed: false,
   });
+
+  useEffect(() => {
+    const draft = location.state?.createTicketFromEmail;
+    if (!draft) return;
+
+    setMailTicketDraft(draft);
+    setCreateOpen(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate]);
 
   const [visibleLimits, setVisibleLimits] = useState({
     open: DEFAULT_GROUP_LIMIT,
@@ -1588,6 +1600,8 @@ export default function Tickets() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         user={user}
+        initialDraft={mailTicketDraft}
+        onCreated={() => setMailTicketDraft(null)}
       />
     </div>
   );

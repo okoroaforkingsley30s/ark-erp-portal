@@ -372,21 +372,7 @@ const EXECUTIVE_REPORT_ACCESS = [
 ];
 
 export const ROLE_ACCESS = {
-  system_admin: [
-    PERMISSIONS.DASHBOARD,
-    PERMISSIONS.NOTIFICATIONS,
-    PERMISSIONS.COMMUNICATION,
-    PERMISSIONS.OFFICIAL_MAIL,
-    PERMISSIONS.ARK_CONNECT,
-    PERMISSIONS.USERS,
-    PERMISSIONS.USER_MANAGEMENT,
-    PERMISSIONS.STAFF_DIRECTORY,
-    PERMISSIONS.DEPARTMENTS,
-    PERMISSIONS.SETTINGS,
-    PERMISSIONS.DATA_IMPORT,
-    PERMISSIONS.AUDIT_LOGS,
-    PERMISSIONS.ADMIN_DIAGNOSTICS,
-  ],
+  system_admin: ["*"],
 
   ceo: ["*"],
 
@@ -959,6 +945,23 @@ export function canAccess(role, permission) {
 
   const normalizedRole = normalizeRole(role);
   if (permission === PERMISSIONS.ADMIN_DIAGNOSTICS) return normalizedRole === "system_admin";
+
+  // ERP administrators support every operational module, but financial records
+  // remain visible only to the Finance/Accounts approval chain.
+  if (
+    normalizedRole === "system_admin" &&
+    [
+      PERMISSIONS.FINANCE,
+      PERMISSIONS.ACCOUNT,
+      PERMISSIONS.FUND_REQUESTS,
+      PERMISSIONS.APPROVE_PAYMENT,
+      PERMISSIONS.RELEASE_FUND,
+      PERMISSIONS.VENDOR_PAYMENT,
+      PERMISSIONS.PRINT_FINANCE_REPORT,
+    ].includes(permission)
+  ) {
+    return false;
+  }
   const access = ROLE_ACCESS[normalizedRole];
 
   if (!access) return false;
@@ -1030,7 +1033,7 @@ export function isDepartmentHod(userOrRole, department) {
   const role =
     typeof userOrRole === "string" ? normalizeRole(userOrRole) : getUserRole(userOrRole);
 
-  if (["admin", "ceo", "agm"].includes(role)) return true;
+  if (["system_admin", "admin", "ceo", "agm"].includes(role)) return true;
 
   return getDepartmentHodRoles(department).includes(role);
 }
@@ -1058,7 +1061,7 @@ export function canApproveForDepartment(userOrRole, department) {
   const role =
     typeof userOrRole === "string" ? normalizeRole(userOrRole) : getUserRole(userOrRole);
 
-  if (["admin", "ceo", "agm"].includes(role)) return true;
+  if (["system_admin", "admin", "ceo", "agm"].includes(role)) return true;
 
   return getApprovalOwners({ department }).includes(role);
 }
@@ -1081,6 +1084,7 @@ export function isExecutiveRole(role) {
 
 export function isOperationsRole(role) {
   return [
+    "system_admin",
     "ceo",
     "agm",
     "manager",
@@ -1091,6 +1095,7 @@ export function isOperationsRole(role) {
 
 export function isInventoryRole(role) {
   return [
+    "system_admin",
     "ceo",
     "agm",
     "manager",
@@ -1100,6 +1105,7 @@ export function isInventoryRole(role) {
 
 export function isRRHeadRole(role) {
   return [
+    "system_admin",
     "ceo",
     "agm",
     "manager",
@@ -1127,6 +1133,7 @@ export function isITRole(role) {
 
 export function isBusinessDevelopmentRole(role) {
   return [
+    "system_admin",
     "ceo",
     "agm",
     "head_of_business_development",

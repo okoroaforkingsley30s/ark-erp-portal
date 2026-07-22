@@ -16,12 +16,15 @@ import {
   Inbox,
   FileText,
   ArrowLeft,
+  TicketPlus,
+  Paperclip,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
 import { useAuth } from '@/lib/AuthContext';
 import { reportError } from '@/lib/errorReporting';
 import { Button } from '@/components/ui/button';
-import { normalizeMailBody, splitMailThread } from '@/lib/mailThread';
+import { normalizeMailBody } from '@/lib/mailThread';
 
 function cleanBody(text = '') {
   return normalizeMailBody(text);
@@ -102,8 +105,43 @@ function initialComposeState() {
   };
 }
 
+function RecipientInput({ value, onChange, placeholder, contacts }) {
+  const token = value.split(',').at(-1)?.trim().toLowerCase() || '';
+  const matches = token.length < 2 ? [] : contacts
+    .filter((contact) => contact.email.includes(token) || contact.name.toLowerCase().includes(token))
+    .slice(0, 8);
+
+  const choose = (email) => {
+    const parts = value.split(',');
+    parts[parts.length - 1] = ` ${email}`;
+    onChange(parts.map((part) => part.trim()).filter(Boolean).join(', '));
+  };
+
+  return (
+    <div className="relative">
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900 outline-none focus:border-[#ff5a00]"
+      />
+      {matches.length > 0 && (
+        <div className="absolute z-50 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+          {matches.map((contact) => (
+            <button key={contact.email} type="button" onClick={() => choose(contact.email)} className="block w-full px-3 py-2 text-left text-sm text-slate-800 hover:bg-slate-100">
+              <span className="font-medium">{contact.name || contact.email}</span>
+              {contact.name && <span className="ml-2 text-xs text-slate-500">{contact.email}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function OfficialMailInbox() {
   const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [emails, setEmails] = useState([]);
   const [selectedEmail, setSelectedEmail] = useState(null);
@@ -123,6 +161,8 @@ export default function OfficialMailInbox() {
   const [sending, setSending] = useState(false);
   const [composerError, setComposerError] = useState('');
   const [showCcBcc, setShowCcBcc] = useState(false);
+  const [directoryContacts, setDirectoryContacts] = useState([]);
+  const [openingAttachment, setOpeningAttachment] = useState('');
 
   const loadGmailConnection = async () => {
     if (!user?.id) {
@@ -195,6 +235,10 @@ export default function OfficialMailInbox() {
           updated_at,
           synced_at,
           gmail_thread_id,
+          gmail_message_id,
+          attachments,
+          converted_to_ticket,
+          linked_ticket_id,
           direction,
           folder
         `)
@@ -297,6 +341,17 @@ export default function OfficialMailInbox() {
   }, [user?.id]);
 
   useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from('users')
+      .select('full_name,email')
+      .eq('is_approved', true)
+      .not('email', 'is', null)
+      .limit(500)
+      .then(({ data }) => setDirectoryContacts(data || []));
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!user?.id || !gmailConnection?.email) return undefined;
 
     const refreshMailbox = () => {
@@ -366,10 +421,30 @@ export default function OfficialMailInbox() {
     });
   }, [folderEmails, search]);
 
-  const selectedThread = useMemo(() => {
-    if (!selectedEmail) return { current: '', quoted: '' };
-    return splitMailThread(selectedEmail.message_body || selectedEmail.snippet || '');
-  }, [selectedEmail]);
+  const selectedConversation = useMemo(() => {
+    if (!selectedEmail) return [];
+    const rows = selectedEmail.gmail_thread_id
+      ? emails.filter((email) => email.gmail_thread_id === selectedEmail.gmail_thread_id)
+      : [selectedEmail];
+    return [...rows].sort(
+      (a, b) => new Date(a.received_at || a.created_at) - new Date(b.received_at || b.created_at),
+    );
+  }, [emails, selectedEmail]);
+
+  const contactSuggestions = useMemo(() => {
+    const contacts = new Map();
+    for (const item of directoryContacts) {
+      const email = stripEmailAddress(item.email).toLowerCase();
+      if (email) contacts.set(email, { email, name: item.full_name || '' });
+    }
+    for (const email of emails) {
+      for (const address of [email.sender_email, email.recipient_email, email.cc, email.bcc].flatMap(splitEmails)) {
+        const normalized = address.toLowerCase();
+        if (normalized && !contacts.has(normalized)) contacts.set(normalized, { email: normalized, name: '' });
+      }
+    }
+    return [...contacts.values()];
+  }, [directoryContacts, emails]);
 
   const changeFolder = (folder) => {
     setActiveFolder(folder);
@@ -415,12 +490,6 @@ export default function OfficialMailInbox() {
       to = recipientEmails.join(', ');
     }
 
-    const replyBody = `\n\nOn ${
-      selectedEmail.received_at
-        ? new Date(selectedEmail.received_at).toLocaleString()
-        : 'an earlier date'
-    }, ${selectedEmail.sender_name || selectedEmail.sender_email || 'sender'} wrote:\n\n${normalizeMailBody(selectedEmail.message_body || selectedEmail.snippet || '')}`;
-
     if (mode === 'forward') {
       setComposer({
         mode: 'forward',
@@ -443,7 +512,7 @@ export default function OfficialMailInbox() {
       cc,
       bcc: '',
       subject: ensureReplySubject(selectedEmail.subject),
-      body: replyBody,
+      body: '',
     });
 
     setComposerOpen(true);
@@ -559,6 +628,65 @@ export default function OfficialMailInbox() {
     { key: 'drafts', label: 'Drafts', icon: FileText, count: stats.drafts },
     { key: 'all', label: 'All Mail', icon: Mail, count: stats.all },
   ];
+
+  const convertToTicket = () => {
+    if (!selectedEmail || selectedEmail.converted_to_ticket) return;
+    const body = cleanBody(selectedEmail.message_body || selectedEmail.snippet || '');
+    const combined = `${selectedEmail.subject || ''}\n${body}`;
+    const priority = /critical|urgent|down|offline|cannot transact/i.test(combined)
+      ? 'high'
+      : /minor|low priority/i.test(combined) ? 'low' : 'medium';
+    const category = /network|connectivity|internet|link/i.test(combined)
+      ? 'network'
+      : /software|application|error|login/i.test(combined) ? 'software' : 'hardware';
+
+    navigate('/tickets', {
+      state: {
+        createTicketFromEmail: {
+          emailId: selectedEmail.id,
+          attachments: selectedEmail.attachments || [],
+          form: {
+            title: selectedEmail.subject || 'Support request received by email',
+            description: `Reported by: ${selectedEmail.sender_email || 'Unknown'}\n\n${body}`,
+            category,
+            priority,
+          },
+        },
+      },
+    });
+  };
+
+  const openAttachment = async (message, attachment) => {
+    try {
+      setOpeningAttachment(attachment.attachment_id);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) throw new Error('Your session has expired.');
+      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/gmail-attachment`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emailId: message.id, attachmentId: attachment.attachment_id }),
+      });
+      if (!response.ok) throw new Error((await response.json())?.error || 'Attachment could not be opened.');
+      const url = URL.createObjectURL(await response.blob());
+      const previewable = /^(image|video|audio)\//.test(attachment.mime_type || '') || attachment.mime_type === 'application/pdf';
+      if (previewable) window.open(url, '_blank', 'noopener,noreferrer');
+      else {
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = attachment.filename || 'attachment';
+        link.click();
+      }
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (error) {
+      alert(error.message || 'Attachment could not be opened.');
+    } finally {
+      setOpeningAttachment('');
+    }
+  };
 
   return (
     <div className="h-[calc(100dvh-8rem)] min-h-0 w-full overflow-hidden rounded-2xl border border-white/10 bg-[#071133] text-white shadow-xl">
@@ -815,16 +943,30 @@ export default function OfficialMailInbox() {
                       <Forward className="mr-1.5 h-3.5 w-3.5" />
                       Forward
                     </Button>
+
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={convertToTicket}
+                      disabled={selectedEmail.converted_to_ticket}
+                      className="border-[#ff5a00] text-[#c44600] hover:bg-orange-50"
+                    >
+                      <TicketPlus className="mr-1.5 h-3.5 w-3.5" />
+                      {selectedEmail.converted_to_ticket ? 'Ticket created' : 'Convert to ticket'}
+                    </Button>
                   </div>
                 </div>
               </div>
 
               <div className="min-h-0 flex-1 touch-pan-y overflow-y-scroll overscroll-contain px-4 py-5 sm:px-6 sm:py-6">
-                <div className="mx-auto max-w-5xl">
+                <div className="mx-auto max-w-5xl space-y-5">
+                  {selectedConversation.map((message) => {
+                    const messageThread = normalizeMailBody(message.message_body || message.snippet || '');
+                    return <section key={message.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                   <div className="flex items-start gap-4 border-b pb-5">
                     <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#102969] text-sm font-bold text-white">
-                      {(selectedEmail.sender_name ||
-                        selectedEmail.sender_email ||
+                      {(message.sender_name ||
+                        message.sender_email ||
                         'M')
                         .slice(0, 1)
                         .toUpperCase()}
@@ -833,66 +975,66 @@ export default function OfficialMailInbox() {
                     <div className="min-w-0 flex-1">
                       <p className="flex items-center gap-2 font-semibold text-slate-900">
                         <User className="h-4 w-4 text-slate-400" />
-                        {selectedEmail.sender_name ||
-                          selectedEmail.sender_email ||
+                        {message.sender_name ||
+                          message.sender_email ||
                           'Unknown sender'}
                       </p>
 
-                      {selectedEmail.sender_email && (
+                      {message.sender_email && (
                         <p className="mt-1 break-all text-xs text-slate-500">
-                          From: {selectedEmail.sender_email}
+                          From: {message.sender_email}
                         </p>
                       )}
 
-                      {selectedEmail.recipient_email && (
+                      {message.recipient_email && (
                         <p className="mt-1 break-all text-xs text-slate-500">
-                          To: {selectedEmail.recipient_email}
+                          To: {message.recipient_email}
                         </p>
                       )}
 
-                      {selectedEmail.cc && (
+                      {message.cc && (
                         <p className="mt-1 break-all text-xs text-slate-500">
-                          CC: {selectedEmail.cc}
+                          CC: {message.cc}
                         </p>
                       )}
 
-                      {selectedEmail.bcc && (
+                      {message.bcc && (
                         <p className="mt-1 break-all text-xs text-slate-500">
-                          BCC: {selectedEmail.bcc}
+                          BCC: {message.bcc}
                         </p>
                       )}
                     </div>
 
-                    {selectedEmail.received_at && (
+                    {message.received_at && (
                       <p className="hidden shrink-0 items-center gap-1 text-xs text-slate-500 lg:flex">
                         <Clock className="h-3.5 w-3.5" />
-                        {new Date(selectedEmail.received_at).toLocaleString()}
+                        {new Date(message.received_at).toLocaleString()}
                       </p>
                     )}
                   </div>
 
-                  <article className="mt-6 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+                  <article className="mt-6">
                     <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-slate-900">
-                    {selectedThread.current || (
+                    {messageThread || (
                       <span className="italic text-slate-500">
                         No message body available.
                       </span>
                     )}
                     </div>
                   </article>
-
-                  {selectedThread.quoted && (
-                    <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50">
-                      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-[#102969] hover:bg-slate-100">
-                        Show previous conversation
-                      </summary>
-                      <div className="max-h-[45vh] overflow-y-auto border-t border-slate-200 p-4">
-                        <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-600">
-                          {selectedThread.quoted}
-                        </pre>
+                  {Array.isArray(message.attachments) && message.attachments.length > 0 && (
+                    <div className="mt-5 border-t pt-4">
+                      <p className="mb-2 flex items-center gap-2 text-sm font-semibold"><Paperclip className="h-4 w-4" /> Attachments</p>
+                      <div className="flex flex-wrap gap-2">
+                        {message.attachments.map((attachment) => (
+                          <button type="button" onClick={() => openAttachment(message, attachment)} disabled={openingAttachment === attachment.attachment_id} key={attachment.attachment_id} className="rounded-lg border bg-slate-50 px-3 py-2 text-left text-xs hover:bg-slate-100 disabled:opacity-50">
+                            {openingAttachment === attachment.attachment_id ? 'Opening…' : attachment.filename} · {Math.max(1, Math.ceil((attachment.size || 0) / 1024))} KB
+                          </button>
+                        ))}
                       </div>
-                    </details>
+                    </div>
                   )}
+                  </section>})}
                 </div>
               </div>
             </div>
@@ -923,12 +1065,7 @@ export default function OfficialMailInbox() {
               )}
 
               <div className="space-y-3">
-                <input
-                  value={composer.to}
-                  onChange={(event) => updateComposer('to', event.target.value)}
-                  placeholder="To"
-                  className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900 outline-none focus:border-[#ff5a00]"
-                />
+                <RecipientInput value={composer.to} onChange={(value) => updateComposer('to', value)} placeholder="To" contacts={contactSuggestions} />
 
                 <button
                   type="button"
@@ -943,19 +1080,9 @@ export default function OfficialMailInbox() {
 
                 {showCcBcc && (
                   <div className="grid gap-3 sm:grid-cols-2">
-                    <input
-                      value={composer.cc}
-                      onChange={(event) => updateComposer('cc', event.target.value)}
-                      placeholder="CC"
-                      className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900 outline-none focus:border-[#ff5a00]"
-                    />
+                    <RecipientInput value={composer.cc} onChange={(value) => updateComposer('cc', value)} placeholder="CC" contacts={contactSuggestions} />
 
-                    <input
-                      value={composer.bcc}
-                      onChange={(event) => updateComposer('bcc', event.target.value)}
-                      placeholder="BCC"
-                      className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900 outline-none focus:border-[#ff5a00]"
-                    />
+                    <RecipientInput value={composer.bcc} onChange={(value) => updateComposer('bcc', value)} placeholder="BCC" contacts={contactSuggestions} />
                   </div>
                 )}
 

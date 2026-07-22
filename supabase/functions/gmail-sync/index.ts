@@ -45,6 +45,24 @@ function messageBody(part: any): string {
   return messageBody(html) || messageBody(plain) || parts.map(messageBody).find(Boolean) || ''
 }
 
+function messageAttachments(part: any, output: any[] = []): any[] {
+  if (!part) return output
+  const attachmentId = part.body?.attachmentId
+  const filename = String(part.filename || '').trim()
+  if (attachmentId && filename) {
+    output.push({
+      attachment_id: attachmentId,
+      filename,
+      mime_type: part.mimeType || 'application/octet-stream',
+      size: Number(part.body?.size || 0),
+    })
+  }
+  for (const child of Array.isArray(part.parts) ? part.parts : []) {
+    messageAttachments(child, output)
+  }
+  return output
+}
+
 async function getAccessToken(supabase: any, connection: any, forceRefresh = false) {
   const expiresSoon = connection.expires_at &&
     new Date(connection.expires_at).getTime() <= Date.now() + 60_000
@@ -160,6 +178,7 @@ serve(async (req) => {
           subject: header(headers, 'Subject') || '(No subject)',
           snippet: message.snippet || '',
           message_body: messageBody(message.payload),
+          attachments: messageAttachments(message.payload),
           received_at: new Date(Number(message.internalDate || Date.now())).toISOString(),
           direction: isSent ? 'sent' : 'received',
           email_status: isDraft ? 'Draft' : isSent ? 'Sent' : 'Received',

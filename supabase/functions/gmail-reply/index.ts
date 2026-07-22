@@ -26,7 +26,7 @@ function base64Url(input: string) {
     .replace(/=+$/, "");
 }
 
-function makeReply({ to, cc, subject, body, from, inReplyTo }: any) {
+function makeReply({ to, cc, subject, body, from, inReplyTo, references }: any) {
   const messageId = `<${crypto.randomUUID()}@arkone.arktechnologiesgroup.com>`;
   const lines = [
     `From: ${from}`,
@@ -37,7 +37,7 @@ function makeReply({ to, cc, subject, body, from, inReplyTo }: any) {
     `Date: ${new Date().toUTCString()}`,
     `Message-ID: ${messageId}`,
     inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
-    inReplyTo ? `References: ${inReplyTo}` : "",
+    inReplyTo ? `References: ${[references, inReplyTo].filter(Boolean).join(' ')}` : "",
     "MIME-Version: 1.0",
     `Content-Type: text/html; charset="UTF-8"`,
     "Content-Transfer-Encoding: 8bit",
@@ -166,6 +166,9 @@ serve(async (req) => {
       Array.isArray(rawHeaders)
         ? rawHeaders.find((h: any) => h.name?.toLowerCase() === "message-id")?.value
         : "";
+    const referencesHeader = Array.isArray(rawHeaders)
+      ? rawHeaders.find((h: any) => h.name?.toLowerCase() === "references")?.value || ""
+      : "";
 
     const encodedReply = makeReply({
       to,
@@ -174,6 +177,7 @@ serve(async (req) => {
       body,
       from: connection.email,
       inReplyTo: messageIdHeader,
+      references: referencesHeader,
     });
 
     const gmailRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
