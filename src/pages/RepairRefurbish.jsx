@@ -23,6 +23,9 @@ import {
   Archive,
   History,
   XCircle,
+  BarChart3,
+  Printer,
+  Share2,
 } from 'lucide-react';
 
 const STATUS = {
@@ -173,6 +176,46 @@ function statusBadgeClass(job) {
   return 'bg-[#ff5a00]/15 text-[#ff5a00] border border-[#ff5a00]/30';
 }
 
+function jobReportText(job) {
+  return [
+    'ARK ONE REPAIR & REFURBISHMENT JOB REPORT',
+    `Job Number: ${job.job_number || job.id}`,
+    `Item: ${getJobTitle(job)}`,
+    `Status: ${STATUS[job.status] || job.status || '—'}`,
+    `Source: ${job.source_type || '—'} / ${job.received_from || '—'}`,
+    `Brand / Model: ${job.machine_brand || '—'} / ${job.machine_model || '—'}`,
+    `Fault: ${job.fault_description || '—'}`,
+    `Diagnosis: ${job.diagnosis || '—'}`,
+    `Action Required: ${job.action_required || '—'}`,
+    `Parts / Consumables Used: ${job.parts_used || '—'}`,
+    `QA Result: ${TEST_RESULT[job.test_result] || job.test_result || '—'}`,
+    `Good / Bad Quantity: ${job.good_quantity || 0} / ${job.bad_quantity || 0}`,
+    `Final Remark: ${job.final_remark || '—'}`,
+    `RR HOD Owner: ${job.hod_owner_email || '—'}`,
+    `Received: ${job.created_at ? new Date(job.created_at).toLocaleString() : '—'}`,
+    `Assigned: ${job.assigned_at ? new Date(job.assigned_at).toLocaleString() : '—'}`,
+    `Completed: ${job.completed_at ? new Date(job.completed_at).toLocaleString() : '—'}`,
+  ].join('\n');
+}
+
+function printJob(job) {
+  const popup = window.open('', '_blank', 'width=850,height=900');
+  if (!popup) return;
+  const safeText = jobReportText(job).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  popup.document.write(`<html><head><title>${job.job_number || 'RR Job'}</title><style>body{font-family:Arial,sans-serif;padding:36px;color:#172554}h1{font-size:22px;border-bottom:3px solid #f97316;padding-bottom:12px}pre{white-space:pre-wrap;line-height:1.7;font:14px Arial,sans-serif}.footer{margin-top:40px;border-top:1px solid #bbb;padding-top:12px;font-size:11px;color:#666}</style></head><body><h1>ARK ONE · Repair & Refurbishment</h1><pre>${safeText}</pre><div class="footer">Generated from ARK ONE on ${new Date().toLocaleString()}</div><script>window.onload=()=>window.print()</script></body></html>`);
+  popup.document.close();
+}
+
+async function shareJob(job) {
+  const text = jobReportText(job);
+  if (navigator.share) {
+    await navigator.share({ title: `RR Job ${job.job_number || ''}`, text });
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+  alert('Job report copied. You can paste it into WhatsApp, email or ARK Connect.');
+}
+
 export default function RepairRefurbish() {
   const outlet = useOutletContext() || {};
   const user = outlet.user || outlet.profile || outlet.currentUser || null;
@@ -251,6 +294,15 @@ export default function RepairRefurbish() {
         String(job.assigned_rr_technician || '') === String(profileId) ||
         String(job.assigned_to || '') === String(profileId)
       );
+    },
+  });
+
+  const { data: performance } = useQuery({
+    queryKey: ['rr-performance', 90],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc('ark_rr_performance_snapshot', { p_days: 90 });
+      if (error) throw error;
+      return data || { summary: {}, people: [], trend: [] };
     },
   });
 
@@ -465,6 +517,22 @@ export default function RepairRefurbish() {
         </p>
       </div>
 
+      <Card className="bg-[#102969]/90 border border-white/10 p-4 text-white">
+        <div className="flex items-center gap-2 mb-3"><BarChart3 className="w-5 h-5 text-[#ff5a00]" /><h2 className="font-bold">RR Performance · Last 90 Days</h2></div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          {[
+            ['Jobs received', performance?.summary?.total || 0],
+            ['Completed', performance?.summary?.completed || 0],
+            ['Pending', performance?.summary?.pending || 0],
+            ['QA failed / rework', performance?.summary?.qa_failed || 0],
+            ['Avg turnaround', `${performance?.summary?.avg_turnaround_hours || 0}h`],
+          ].map(([label, value]) => <div key={label} className="rounded-xl bg-[#08153d]/80 border border-white/10 p-3"><p className="text-2xl font-bold">{value}</p><p className="text-xs text-slate-300">{label}</p></div>)}
+        </div>
+        {(performance?.people || []).length > 0 && (
+          <div className="overflow-x-auto mt-4"><table className="w-full text-xs"><thead className="text-slate-300 text-left"><tr><th className="py-2">RR owner/technician</th><th>Assigned</th><th>Completed</th><th>Pending</th><th>Rework</th><th>Avg turnaround</th></tr></thead><tbody>{performance.people.map((person) => <tr key={person.owner_email} className="border-t border-white/10"><td className="py-2"><p className="font-semibold">{person.owner_name}</p><p className="text-slate-400">{person.owner_email}</p></td><td>{person.assigned}</td><td className="text-emerald-300">{person.completed}</td><td>{person.pending}</td><td className="text-amber-300">{person.rework}</td><td>{person.avg_turnaround_hours ? `${person.avg_turnaround_hours}h` : '—'}</td></tr>)}</tbody></table></div>
+        )}
+      </Card>
+
       <div className="grid md:grid-cols-4 xl:grid-cols-8 gap-4">
         {statusCards.map(({ key, label, value, icon: Icon }) => (
           <Card
@@ -608,6 +676,12 @@ export default function RepairRefurbish() {
                   )}
 
                   <div className="flex flex-wrap gap-2 mt-4">
+                    <Button size="sm" variant="outline" onClick={() => printJob(job)} className="border-white/10 text-white hover:bg-white/10">
+                      <Printer className="w-4 h-4 mr-1" />Print Job
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => shareJob(job).catch((error) => alert('Share failed: ' + error.message))} className="border-white/10 text-white hover:bg-white/10">
+                      <Share2 className="w-4 h-4 mr-1" />Share Job
+                    </Button>
                     {canTakeUp &&
                       !job.hod_owner_profile_id &&
                       !job.assigned_rr_technician &&

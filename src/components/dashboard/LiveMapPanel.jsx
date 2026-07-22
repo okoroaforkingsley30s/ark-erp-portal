@@ -406,6 +406,30 @@ async function safeFetch(table, select = '*', options = {}) {
 }
 
 async function fetchCurrentMapData() {
+  const { data: snapshot, error: snapshotError } = await supabase.rpc('ark_live_operations_map_snapshot');
+
+  if (!snapshotError && snapshot) {
+    const visitEngineers = (snapshot.site_visits || []).map((visit) => ({
+      ...visit,
+      current_latitude: visit.checkin_lat,
+      current_longitude: visit.checkin_lng,
+      current_site_name: visit.site_name,
+      last_active: visit.checkout_time || visit.checkin_time || visit.created_at,
+      status: visit.checkout_time ? 'online' : 'on_site',
+    }));
+
+    return {
+      staffEngineers: snapshot.users || [],
+      engineerStatuses: [...(snapshot.engineers || []), ...visitEngineers],
+      devices: [...(snapshot.devices || []), ...(snapshot.bank_devices || [])],
+      branches: snapshot.branches || [],
+      sourceSites: snapshot.sites || [],
+      tickets: snapshot.tickets || [],
+      generatedAt: snapshot.generated_at,
+      warnings: [],
+    };
+  }
+
   const [
     engineers,
     employees,
@@ -469,7 +493,7 @@ async function fetchCurrentMapData() {
     branches: branches.rows,
     sourceSites: sites.rows,
     tickets: tickets.rows,
-    warnings,
+    warnings: snapshotError ? ['ark_live_operations_map_snapshot', ...warnings] : warnings,
   };
 }
 
@@ -571,8 +595,7 @@ function buildSiteGroups(devices, branches, tickets) {
       ...site,
       latitude: toNumber(site.latitude),
       longitude: toNumber(site.longitude),
-    }))
-    .filter((site) => site.latitude !== null && site.longitude !== null);
+    }));
 }
 
 export default function LiveMapPanel({ compact = false }) {
@@ -595,6 +618,16 @@ export default function LiveMapPanel({ compact = false }) {
   const siteGroups = useMemo(
     () => buildSiteGroups(data?.devices || [], [...(data?.branches || []), ...(data?.sourceSites || [])], data?.tickets || []),
     [data]
+  );
+
+  const mappedSites = useMemo(
+    () => siteGroups.filter((site) => site.latitude !== null && site.longitude !== null),
+    [siteGroups]
+  );
+
+  const incompleteSites = useMemo(
+    () => siteGroups.filter((site) => site.latitude === null || site.longitude === null),
+    [siteGroups]
   );
 
   const mappedEngineers = useMemo(() => engineers.filter(engineerHasCoords), [engineers]);
@@ -636,13 +669,13 @@ export default function LiveMapPanel({ compact = false }) {
   }, [layerFilter, mappedEngineers]);
 
   const visibleSites = useMemo(() => {
-    if (layerFilter === 'sites_active') return siteStatusGroups.healthy;
-    if (layerFilter === 'sites_down') return siteStatusGroups.critical;
-    if (layerFilter === 'sites_wip') return siteStatusGroups.maintenance;
-    if (layerFilter === 'sites_offline') return siteStatusGroups.offline;
+    if (layerFilter === 'sites_active') return siteStatusGroups.healthy.filter((site) => site.latitude !== null && site.longitude !== null);
+    if (layerFilter === 'sites_down') return siteStatusGroups.critical.filter((site) => site.latitude !== null && site.longitude !== null);
+    if (layerFilter === 'sites_wip') return siteStatusGroups.maintenance.filter((site) => site.latitude !== null && site.longitude !== null);
+    if (layerFilter === 'sites_offline') return siteStatusGroups.offline.filter((site) => site.latitude !== null && site.longitude !== null);
     if (layerFilter.startsWith('engineers_')) return [];
-    return siteGroups;
-  }, [layerFilter, siteGroups, siteStatusGroups]);
+    return mappedSites;
+  }, [layerFilter, mappedSites, siteStatusGroups]);
 
   const stats = useMemo(
     () => ({
@@ -657,9 +690,11 @@ export default function LiveMapPanel({ compact = false }) {
       maintenanceSites: siteStatusGroups.maintenance.length,
       offlineSites: siteStatusGroups.offline.length,
       totalSites: siteGroups.length,
+      mappedSites: mappedSites.length,
+      incompleteSites: incompleteSites.length,
       totalDevices: data?.devices?.length || 0,
     }),
-    [engineerGroups, engineers.length, mappedEngineers.length, siteStatusGroups, siteGroups.length, data?.devices?.length]
+    [engineerGroups, engineers.length, mappedEngineers.length, siteStatusGroups, siteGroups.length, mappedSites.length, incompleteSites.length, data?.devices?.length]
   );
 
   const center = [9.082, 8.675];
@@ -861,6 +896,13 @@ export default function LiveMapPanel({ compact = false }) {
           </p>
         )}
 
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-400/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-100">
+          <span>Live snapshot: {data?.generatedAt ? new Date(data.generatedAt).toLocaleString() : 'browser fallback'} · {stats.totalDevices} devices · {stats.totalSites} sites · {stats.engineersTotal} engineers</span>
+          <button type="button" className="font-semibold text-orange-300 hover:underline" onClick={() => setDetailPanel('incomplete_locations')}>
+            {stats.incompleteSites} location{stats.incompleteSites === 1 ? '' : 's'} need coordinates
+          </button>
+        </div>
+
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mt-2 text-xs">
           <StatButton
             label="Healthy Sites"
@@ -957,13 +999,14 @@ export default function LiveMapPanel({ compact = false }) {
           onClose={() => setDetailPanel(null)}
           engineers={engineerGroups}
           sites={siteStatusGroups}
+          incompleteSites={incompleteSites}
         />
       )}
     </>
   );
 }
 
-function LiveMapDetailPanel({ type, onClose, engineers, sites }) {
+function LiveMapDetailPanel({ type, onClose, engineers, sites, incompleteSites = [] }) {
   const config = {
     online_engineers: {
       title: 'Online Engineers',
@@ -1018,6 +1061,12 @@ function LiveMapDetailPanel({ type, onClose, engineers, sites }) {
       empty: 'No offline sites found.',
       kind: 'site',
       rows: sites.offline,
+    },
+    incomplete_locations: {
+      title: 'Locations Missing GPS Coordinates',
+      empty: 'All known locations have coordinates.',
+      kind: 'site',
+      rows: incompleteSites,
     },
   }[type];
 
