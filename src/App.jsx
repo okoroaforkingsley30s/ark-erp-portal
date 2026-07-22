@@ -36,6 +36,7 @@ const HRPortal = lazy(() => import('@/pages/HRPortal'));
 const FinancePortal = lazy(() => import('@/pages/FinancePortal'));
 const FundRequests = lazy(() => import('@/pages/FundRequests'));
 const CRMPortal = lazy(() => import('@/pages/CRMPortal'));
+const CRMDepartmentHandoffs = lazy(() => import('@/pages/CRMDepartmentHandoffs'));
 const ProcurementPortal = lazy(() => import('@/pages/ProcurementPortal'));
 const ManagerDashboard = lazy(() => import('@/pages/ManagerDashboard'));
 const LiveMap = lazy(() => import('@/pages/LiveMap'));
@@ -223,6 +224,7 @@ const AuthenticatedApp = () => {
   }
 />
           <Route path="/crm" element={<SecurePage path="/crm"><CRMPortal /></SecurePage>} />
+          <Route path="/crm-handoffs" element={<SecurePage path="/crm-handoffs"><CRMDepartmentHandoffs /></SecurePage>} />
           <Route path="/procurement" element={<SecurePage path="/procurement"><ProcurementPortal /></SecurePage>} />
           <Route path="/manager" element={<SecurePage path="/manager"><ManagerDashboard /></SecurePage>} />
 

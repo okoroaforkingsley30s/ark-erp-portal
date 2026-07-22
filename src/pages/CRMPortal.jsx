@@ -1,1375 +1,265 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useOutletContext } from 'react-router-dom';
+import { useNavigate, useOutletContext } from 'react-router-dom';
+import { format } from 'date-fns';
+import {
+  Building2, ClipboardCheck,
+  Clock3, History, Loader2, Mail, MessageSquareWarning, Pencil,
+  Phone, Plus, Printer, RefreshCw, Route, Search, Star, Target, TrendingUp, Users,
+} from 'lucide-react';
 import { supabase } from '@/lib/supabaseClient';
+import { getUserRole } from '@/lib/roleAccess';
 import { useFormDraft } from '@/hooks/useFormDraft';
-
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-
-import {
-  TrendingUp,
-  Plus,
-  Phone,
-  Mail,
-  Building2,
-  Target,
-  Loader2,
-  Pencil,
-  Users,
-  Calendar,
-  BriefcaseBusiness,
-  Handshake,
-  AlertTriangle,
-  CheckCircle2,
-  Search,
-  RefreshCw,
-  MessageSquareWarning,
-  Star,
-  ClipboardCheck,
-} from 'lucide-react';
-
-import { format } from 'date-fns';
-
 const LEAD_STATUS = {
-  new: { label: 'New', color: 'bg-blue-50 text-blue-700 border-blue-200' },
-  contacted: { label: 'Contacted', color: 'bg-cyan-50 text-cyan-700 border-cyan-200' },
-  qualified: { label: 'Qualified', color: 'bg-purple-50 text-purple-700 border-purple-200' },
-  proposal: { label: 'Proposal', color: 'bg-amber-500/15 text-amber-300 border-amber-200' },
-  negotiation: { label: 'Negotiation', color: 'bg-orange-50 text-orange-700 border-orange-200' },
-  won: { label: 'Won', color: 'bg-green-500/15 text-green-300 border-green-200' },
-  lost: { label: 'Lost', color: 'bg-red-500/15 text-red-300 border-red-200' },
+  new: 'New', contacted: 'Contacted', qualified: 'Qualified', proposal: 'Proposal',
+  negotiation: 'Negotiation', pending_won_approval: 'Won — Awaiting Approval', won: 'Won', lost: 'Lost',
 };
-
-const CLIENT_STATUS = {
-  active: { label: 'Active', color: 'bg-green-500/15 text-green-300 border-green-500/30' },
-  inactive: { label: 'Inactive', color: 'bg-slate-500/15 text-slate-300 border-slate-500/30' },
-  prospect: { label: 'Prospect', color: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
-  expired: { label: 'Expired', color: 'bg-red-500/15 text-red-300 border-red-500/30' },
+const LEAD_FLOW = ['new', 'contacted', 'qualified', 'proposal', 'negotiation', 'pending_won_approval', 'lost'];
+const STATUS_STYLE = {
+  new: 'border-blue-400/40 text-blue-200', contacted: 'border-cyan-400/40 text-cyan-200',
+  qualified: 'border-violet-400/40 text-violet-200', proposal: 'border-amber-400/40 text-amber-200',
+  negotiation: 'border-orange-400/40 text-orange-200', pending_won_approval: 'border-yellow-300 text-yellow-200',
+  won: 'border-emerald-400/40 text-emerald-200', lost: 'border-red-400/40 text-red-200',
+  open: 'border-red-400/40 text-red-200', ticket_created: 'border-blue-400/40 text-blue-200',
+  routed_to_helpdesk: 'border-amber-400/40 text-amber-200',
+  resolved: 'border-emerald-400/40 text-emerald-200', closed: 'border-slate-400/40 text-slate-200',
 };
-
-const COMPLAINT_STATUS = {
-  open: { label: 'Open', color: 'bg-red-500/15 text-red-300 border-red-500/30' },
-  in_progress: { label: 'In Progress', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
-  ticket_created: { label: 'Ticket Created', color: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
-  resolved: { label: 'Resolved', color: 'bg-green-500/15 text-green-300 border-green-500/30' },
-  closed: { label: 'Closed', color: 'bg-slate-500/15 text-slate-300 border-slate-500/30' },
-};
-
 const EMPTY_LEAD = {
-  company_name: '',
-  contact_name: '',
-  contact_email: '',
-  contact_phone: '',
-  industry: '',
-  source: 'other',
-  status: 'new',
-  estimated_value: '',
-  devices_interested: '',
-  notes: '',
-  next_followup: '',
+  company_name: '', contact_name: '', contact_email: '', contact_phone: '', industry: '', source: 'other',
+  status: 'new', estimated_value: '', devices_interested: '', notes: '', next_followup: '', probability: 10,
+  expected_close_date: '', opportunity_type: 'general', currency: 'NGN', lost_reason: '',
 };
-
-const EMPTY_CLIENT = {
-  client_name: '',
-  industry: '',
-  contact_name: '',
-  contact_email: '',
-  contact_phone: '',
-  relationship_manager: '',
-  relationship_manager_email: '',
-  contract_value: '',
-  contract_start: '',
-  contract_end: '',
-  sla_level: 'standard',
-  branch_count: 0,
-  status: 'active',
-  notes: '',
-};
-
 const EMPTY_COMPLAINT = {
-  client_id: '',
-  client_name: '',
-  contact_name: '',
-  contact_email: '',
-  contact_phone: '',
-  issue_title: '',
-  issue_description: '',
-  priority: 'medium',
-  status: 'open',
-  ticket_number: '',
-  followup_date: '',
-  satisfaction_rating: '',
-  feedback: '',
+  client_id: '', client_name: '', contact_name: '', contact_email: '', contact_phone: '', issue_title: '',
+  issue_description: '', priority: 'medium', complaint_type: 'technical_support', routed_department: 'Helpdesk',
+  followup_date: '', satisfaction_rating: '', feedback: '',
 };
-
-const money = (value) => `₦${Number(value || 0).toLocaleString()}`;
-
-const normalize = (value) => String(value || '').toLowerCase().trim();
-
-const safeNumber = (value) => {
-  const n = Number(String(value ?? '').replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
+const EMPTY_ACTIVITY = {
+  activity_type: 'call', subject: '', notes: '', outcome: '', next_action_at: '',
 };
+const money = (value, currency = 'NGN') => new Intl.NumberFormat('en-NG', { style: 'currency', currency, maximumFractionDigits: 0 }).format(Number(value || 0));
+const norm = (value) => String(value || '').toLowerCase().trim();
+const when = (value, withTime = false) => value ? format(new Date(value), withTime ? 'MMM d, yyyy h:mm a' : 'MMM d, yyyy') : '—';
+const due = (value) => Boolean(value && new Date(value) <= new Date());
 
-function dateLabel(value) {
-  if (!value) return '—';
-
-  try {
-    return format(new Date(value), 'MMM d, yyyy');
-  } catch {
-    return String(value);
-  }
-}
-
-function isDue(value) {
-  if (!value) return false;
-  return new Date(value) <= new Date();
-}
-
-async function fetchLeads() {
-  const { data, error } = await supabase
-    .from('leads')
-    .select('*')
-    .order('created_at', { ascending: false });
-
+async function tableRows(table) {
+  const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: false });
   if (error) throw error;
-  return data || [];
-}
-
-async function fetchClients() {
-  const { data, error } = await supabase
-    .from('crm_clients')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.warn('crm_clients not ready:', error);
-    return [];
-  }
-
-  return data || [];
-}
-
-async function fetchComplaints() {
-  const { data, error } = await supabase
-    .from('crm_complaints')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) {
-    console.warn('crm_complaints not ready:', error);
-    return [];
-  }
-
   return data || [];
 }
 
 export default function CRMPortal() {
   const outlet = useOutletContext() || {};
   const user = outlet.user || outlet.profile || outlet.currentUser || {};
+  const role = getUserRole(user);
+  const canReview = ['head_of_business_development', 'ceo', 'agm', 'manager'].includes(role);
   const qc = useQueryClient();
-
+  const navigate = useNavigate();
   const [tab, setTab] = useState('leads');
   const [search, setSearch] = useState('');
-
+  const [statusFilter, setStatusFilter] = useState('all');
   const [leadOpen, setLeadOpen] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [leadForm, setLeadForm] = useState(EMPTY_LEAD);
-
-  const [clientOpen, setClientOpen] = useState(false);
-  const [editingClient, setEditingClient] = useState(null);
-  const [clientForm, setClientForm] = useState(EMPTY_CLIENT);
-
   const [complaintOpen, setComplaintOpen] = useState(false);
   const [editingComplaint, setEditingComplaint] = useState(null);
   const [complaintForm, setComplaintForm] = useState(EMPTY_COMPLAINT);
-
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityTarget, setActivityTarget] = useState(null);
+  const [activityForm, setActivityForm] = useState(EMPTY_ACTIVITY);
   const [saving, setSaving] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('all');
 
-  const crmDraftOptions = {
-    userId: user?.id || user?.email,
-    storage: 'session',
-    maxAgeMs: 8 * 60 * 60 * 1000,
+  const draft = { userId: user?.id || user?.email, storage: 'session', maxAgeMs: 8 * 60 * 60 * 1000 };
+  useFormDraft({ key: editingLead?.id ? `crm-lead:${editingLead.id}` : 'crm-lead:new', form: leadForm, setForm: setLeadForm, enabled: leadOpen, ...draft });
+  useFormDraft({ key: editingComplaint?.id ? `crm-complaint:${editingComplaint.id}` : 'crm-complaint:new', form: complaintForm, setForm: setComplaintForm, enabled: complaintOpen, ...draft });
+
+  const leadsQuery = useQuery({ queryKey: ['crm-leads'], queryFn: () => tableRows('leads') });
+  const clientsQuery = useQuery({ queryKey: ['crm-clients'], queryFn: () => tableRows('crm_clients') });
+  const complaintsQuery = useQuery({ queryKey: ['crm-complaints'], queryFn: () => tableRows('crm_complaints') });
+  const activitiesQuery = useQuery({ queryKey: ['crm-activities'], queryFn: () => tableRows('crm_activities') });
+  const historyQuery = useQuery({ queryKey: ['crm-history'], queryFn: () => tableRows('crm_workflow_history') });
+  const leads = leadsQuery.data || [];
+  const clients = clientsQuery.data || [];
+  const complaints = complaintsQuery.data || [];
+  const activities = activitiesQuery.data || [];
+  const history = historyQuery.data || [];
+  const loading = leadsQuery.isLoading || clientsQuery.isLoading || complaintsQuery.isLoading;
+
+  const refresh = () => ['crm-leads', 'crm-clients', 'crm-complaints', 'crm-activities', 'crm-history']
+    .forEach((key) => qc.invalidateQueries({ queryKey: [key] }));
+
+  useEffect(() => {
+    const channel = supabase.channel('crm-live-workflow')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_clients' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_complaints' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_activities' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'crm_department_handoffs' }, refresh)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const matches = (row, fields) => !norm(search) || fields.some((field) => norm(row[field]).includes(norm(search)));
+  const filteredLeads = useMemo(() => leads.filter((row) =>
+    (statusFilter === 'all' || row.status === statusFilter) && matches(row, ['company_name', 'contact_name', 'contact_email', 'industry', 'devices_interested', 'owner_name'])
+  ), [leads, search, statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filteredClients = useMemo(() => clients.filter((row) => matches(row, ['client_code', 'client_name', 'contact_name', 'contact_email', 'relationship_manager', 'onboarding_status'])), [clients, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  const filteredComplaints = useMemo(() => complaints.filter((row) => matches(row, ['complaint_number', 'client_name', 'issue_title', 'ticket_number', 'routed_department'])), [complaints, search]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const rpc = async (name, args) => {
+    const { data, error } = await supabase.rpc(name, args);
+    if (error) throw error;
+    return data;
+  };
+  const run = async (work, success) => {
+    setSaving(true);
+    try { await work(); refresh(); if (success) alert(success); }
+    catch (error) { console.error(error); alert(error.message || 'Action failed'); }
+    finally { setSaving(false); }
   };
 
-  useFormDraft({ key: editingLead?.id ? `crm-lead-edit:${editingLead.id}` : 'crm-lead-new', form: leadForm, setForm: setLeadForm, enabled: leadOpen, ...crmDraftOptions });
-  useFormDraft({ key: editingClient?.id ? `crm-client-edit:${editingClient.id}` : 'crm-client-new', form: clientForm, setForm: setClientForm, enabled: clientOpen, ...crmDraftOptions });
-  useFormDraft({ key: editingComplaint?.id ? `crm-complaint-edit:${editingComplaint.id}` : 'crm-complaint-new', form: complaintForm, setForm: setComplaintForm, enabled: complaintOpen, ...crmDraftOptions });
-
-  const { data: leads = [], isLoading: leadsLoading } = useQuery({
-    queryKey: ['leads'],
-    queryFn: fetchLeads,
-  });
-
-  const { data: clients = [], isLoading: clientsLoading } = useQuery({
-    queryKey: ['crm-clients'],
-    queryFn: fetchClients,
-  });
-
-  const { data: complaints = [], isLoading: complaintsLoading } = useQuery({
-    queryKey: ['crm-complaints'],
-    queryFn: fetchComplaints,
-  });
-
-  const refreshAll = () => {
-    qc.invalidateQueries({ queryKey: ['leads'] });
-    qc.invalidateQueries({ queryKey: ['crm-clients'] });
-    qc.invalidateQueries({ queryKey: ['crm-complaints'] });
-  };
-
-  const filteredLeads = useMemo(() => {
-    const q = normalize(search);
-
-    return leads.filter((lead) => {
-      const matchStatus = statusFilter === 'all' || lead.status === statusFilter;
-      const matchSearch =
-        !q ||
-        [
-          lead.company_name,
-          lead.contact_name,
-          lead.contact_email,
-          lead.contact_phone,
-          lead.industry,
-          lead.devices_interested,
-          lead.notes,
-        ]
-          .filter(Boolean)
-          .some((value) => normalize(value).includes(q));
-
-      return matchStatus && matchSearch;
-    });
-  }, [leads, search, statusFilter]);
-
-  const filteredClients = useMemo(() => {
-    const q = normalize(search);
-
-    return clients.filter((client) =>
-      !q ||
-      [
-        client.client_name,
-        client.industry,
-        client.contact_name,
-        client.contact_email,
-        client.contact_phone,
-        client.relationship_manager,
-        client.sla_level,
-        client.status,
-      ]
-        .filter(Boolean)
-        .some((value) => normalize(value).includes(q))
-    );
-  }, [clients, search]);
-
-  const filteredComplaints = useMemo(() => {
-    const q = normalize(search);
-
-    return complaints.filter((complaint) =>
-      !q ||
-      [
-        complaint.complaint_number,
-        complaint.client_name,
-        complaint.contact_name,
-        complaint.issue_title,
-        complaint.issue_description,
-        complaint.ticket_number,
-        complaint.status,
-        complaint.priority,
-      ]
-        .filter(Boolean)
-        .some((value) => normalize(value).includes(q))
-    );
-  }, [complaints, search]);
-
-  const wonValue = leads
-    .filter((lead) => lead.status === 'won')
-    .reduce((sum, lead) => sum + safeNumber(lead.estimated_value), 0);
-
-  const pipelineValue = leads
-    .filter((lead) => !['won', 'lost'].includes(lead.status))
-    .reduce((sum, lead) => sum + safeNumber(lead.estimated_value), 0);
-
-  const contractValue = clients.reduce((sum, client) => sum + safeNumber(client.contract_value), 0);
-
-  const followupsDue =
-    leads.filter((lead) => isDue(lead.next_followup)).length +
-    complaints.filter((complaint) => isDue(complaint.followup_date)).length;
-
-  const expiringContracts = clients.filter((client) => {
-    if (!client.contract_end) return false;
-    const days = (new Date(client.contract_end) - new Date()) / (1000 * 60 * 60 * 24);
-    return days >= 0 && days <= 60;
-  }).length;
-
-  const openComplaints = complaints.filter((complaint) =>
-    ['open', 'in_progress', 'ticket_created'].includes(complaint.status || 'open')
-  ).length;
-
-  const setLeadField = (key, value) => setLeadForm((prev) => ({ ...prev, [key]: value }));
-  const setClientField = (key, value) => setClientForm((prev) => ({ ...prev, [key]: value }));
-  const setComplaintField = (key, value) => setComplaintForm((prev) => ({ ...prev, [key]: value }));
-
-  const openNewLead = () => {
-    setEditingLead(null);
-    setLeadForm(EMPTY_LEAD);
-    setLeadOpen(true);
-  };
-
-  const openEditLead = (lead) => {
+  const editLead = (lead = null) => {
     setEditingLead(lead);
-    setLeadForm({
-      ...EMPTY_LEAD,
-      ...lead,
-      estimated_value: lead.estimated_value || '',
-      next_followup: lead.next_followup || '',
-    });
+    setLeadForm(lead ? { ...EMPTY_LEAD, ...lead, estimated_value: lead.estimated_value || '', next_followup: lead.next_followup || '', expected_close_date: lead.expected_close_date || '' } : EMPTY_LEAD);
     setLeadOpen(true);
   };
-
-  const openNewClient = () => {
-    setEditingClient(null);
-    setClientForm({
-      ...EMPTY_CLIENT,
-      relationship_manager: user.full_name || user.name || '',
-      relationship_manager_email: user.email || user.user_email || '',
-    });
-    setClientOpen(true);
+  const saveLead = () => run(async () => {
+    await rpc('ark_crm_save_lead', { p_payload: leadForm, p_lead_id: editingLead?.id || null });
+    setLeadOpen(false); setEditingLead(null); setLeadForm(EMPTY_LEAD);
+  }, editingLead ? 'Lead updated.' : 'Lead created and assigned to you.');
+  const transitionLead = (lead, target) => {
+    let note = null;
+    if (target === 'lost') note = window.prompt('Enter the reason this opportunity was lost:');
+    if (target === 'lost' && !note) return;
+    run(() => rpc('ark_crm_transition_lead', { p_lead_id: lead.id, p_target_status: target, p_note: note }),
+      target === 'pending_won_approval' ? 'Won business submitted to Head of Business Development.' : 'Lead stage updated.');
   };
-
-  const openEditClient = (client) => {
-    setEditingClient(client);
-    setClientForm({
-      ...EMPTY_CLIENT,
-      ...client,
-      contract_value: client.contract_value || '',
-      contract_start: client.contract_start || '',
-      contract_end: client.contract_end || '',
-    });
-    setClientOpen(true);
+  const reviewWon = (lead, decision) => {
+    const note = window.prompt(decision === 'reject' ? 'Rejection reason (required):' : 'Approval note (optional):') || '';
+    if (decision === 'reject' && !note) return;
+    run(() => rpc('ark_crm_review_won_lead', { p_lead_id: lead.id, p_decision: decision, p_note: note }),
+      decision === 'approve' ? 'Won business approved. Client and departmental handoffs created.' : 'Lead returned to negotiation.');
   };
+  const openActivity = (lead) => { setActivityTarget(lead); setActivityForm(EMPTY_ACTIVITY); setActivityOpen(true); };
+  const saveActivity = () => run(async () => {
+    await rpc('ark_crm_log_activity', { p_payload: { ...activityForm, lead_id: activityTarget.id } });
+    setActivityOpen(false);
+  }, 'Activity recorded.');
 
-  const openNewComplaint = () => {
-    setEditingComplaint(null);
-    setComplaintForm(EMPTY_COMPLAINT);
-    setComplaintOpen(true);
-  };
-
-  const openEditComplaint = (complaint) => {
+  const editComplaint = (complaint = null, client = null) => {
     setEditingComplaint(complaint);
-    setComplaintForm({
-      ...EMPTY_COMPLAINT,
-      ...complaint,
-      satisfaction_rating: complaint.satisfaction_rating || '',
-      followup_date: complaint.followup_date || '',
-    });
+    setComplaintForm(complaint ? { ...EMPTY_COMPLAINT, ...complaint, satisfaction_rating: complaint.satisfaction_rating || '', followup_date: complaint.followup_date || '' } : client ? {
+      ...EMPTY_COMPLAINT, client_id: client.id, client_name: client.client_name, contact_name: client.contact_name || '',
+      contact_email: client.contact_email || '', contact_phone: client.contact_phone || '', relationship_manager_email: client.relationship_manager_email || '',
+    } : EMPTY_COMPLAINT);
     setComplaintOpen(true);
   };
-
-  const convertLeadToClient = async (lead) => {
-    try {
-      const existing = clients.find(
-        (client) =>
-          normalize(client.source_lead_id) === normalize(lead.id) ||
-          normalize(client.client_name) === normalize(lead.company_name)
-      );
-
-      if (existing) return existing;
-
-      const payload = {
-        client_name: lead.company_name,
-        industry: lead.industry || '',
-        contact_name: lead.contact_name || '',
-        contact_email: lead.contact_email || '',
-        contact_phone: lead.contact_phone || '',
-        relationship_manager: user.full_name || user.name || user.email || '',
-        relationship_manager_email: user.email || user.user_email || '',
-        source_lead_id: lead.id,
-        contract_value: safeNumber(lead.estimated_value),
-        status: 'active',
-        notes: lead.notes || '',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data, error } = await supabase
-        .from('crm_clients')
-        .insert(payload)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      qc.invalidateQueries({ queryKey: ['crm-clients'] });
-      return data;
-    } catch (err) {
-      console.error(err);
-      alert('Lead won, but client conversion failed: ' + (err?.message || 'Unknown error'));
-      return null;
-    }
+  const saveComplaint = () => run(async () => {
+    await rpc('ark_crm_save_complaint', { p_payload: complaintForm, p_complaint_id: editingComplaint?.id || null });
+    setComplaintOpen(false); setEditingComplaint(null);
+  }, editingComplaint ? 'CRM complaint updated.' : 'CRM complaint logged.');
+  const routeComplaint = (complaint) => run(
+    () => rpc('ark_crm_route_complaint_to_helpdesk', { p_complaint_id: complaint.id }),
+    'Complaint submitted to Helpdesk. Helpdesk will create and own the support ticket.'
+  );
+  const closeComplaint = (complaint) => {
+    const rating = Number(window.prompt('Enter the client satisfaction rating (1–5):'));
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) return alert('Enter a rating from 1 to 5.');
+    const feedback = window.prompt('Record the client feedback or closure note:') || '';
+    run(() => rpc('ark_crm_close_complaint', { p_complaint_id: complaint.id, p_satisfaction_rating: rating, p_feedback: feedback }), 'Complaint closed after client follow-up.');
   };
 
-  const handleSaveLead = async () => {
-    if (!leadForm.company_name || !leadForm.contact_name) return;
-
-    setSaving(true);
-
-    try {
-      const data = {
-        ...leadForm,
-        estimated_value: safeNumber(leadForm.estimated_value) || null,
-        updated_at: new Date().toISOString(),
-      };
-
-      let savedLead = editingLead;
-
-      if (editingLead) {
-        const { data: updated, error } = await supabase
-          .from('leads')
-          .update(data)
-          .eq('id', editingLead.id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        savedLead = updated;
-      } else {
-        const { data: inserted, error } = await supabase
-          .from('leads')
-          .insert({
-            ...data,
-            assigned_to: user?.email || user?.user_email || null,
-            created_at: new Date().toISOString(),
-          })
-          .select()
-          .single();
-
-        if (error) throw error;
-        savedLead = inserted;
-      }
-
-      if (savedLead?.status === 'won') {
-        await convertLeadToClient(savedLead);
-      }
-
-      qc.invalidateQueries({ queryKey: ['leads'] });
-
-      setLeadForm(EMPTY_LEAD);
-      setEditingLead(null);
-      setLeadOpen(false);
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const moveStatus = async (lead, status) => {
-    try {
-      const { data, error } = await supabase
-        .from('leads')
-        .update({
-          status,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', lead.id)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      if (status === 'won') {
-        await convertLeadToClient(data || { ...lead, status });
-      }
-
-      qc.invalidateQueries({ queryKey: ['leads'] });
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    }
-  };
-
-  const handleSaveClient = async () => {
-    if (!clientForm.client_name) return;
-
-    setSaving(true);
-
-    try {
-      const data = {
-        ...clientForm,
-        contract_value: safeNumber(clientForm.contract_value),
-        branch_count: safeNumber(clientForm.branch_count),
-        updated_at: new Date().toISOString(),
-      };
-
-      if (editingClient) {
-        const { error } = await supabase
-          .from('crm_clients')
-          .update(data)
-          .eq('id', editingClient.id);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('crm_clients')
-          .insert({
-            ...data,
-            created_at: new Date().toISOString(),
-          });
-
-        if (error) throw error;
-      }
-
-      qc.invalidateQueries({ queryKey: ['crm-clients'] });
-      setClientForm(EMPTY_CLIENT);
-      setEditingClient(null);
-      setClientOpen(false);
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveComplaint = async () => {
-    if (!complaintForm.client_name || !complaintForm.issue_title) return;
-
-    setSaving(true);
-
-    try {
-      const complaintNumber =
-        editingComplaint?.complaint_number ||
-        `CRM-${new Date().getFullYear()}-${Date.now().toString().slice(-5)}`;
-
-      const data = {
-        ...complaintForm,
-        complaint_number: complaintNumber,
-        satisfaction_rating: complaintForm.satisfaction_rating
-          ? safeNumber(complaintForm.satisfaction_rating)
-          : null,
-        created_by_email: user.email || user.user_email || '',
-        created_by_name: user.full_name || user.name || user.email || '',
-        updated_at: new Date().toISOString(),
-      };
-
-      if (editingComplaint) {
-        const { error } = await supabase
-          .from('crm_complaints')
-          .update(data)
-          .eq('id', editingComplaint.id);
-
-        if (error) throw error;
-      } else {
-        const { error } = await supabase
-          .from('crm_complaints')
-          .insert({
-            ...data,
-            created_at: new Date().toISOString(),
-          });
-
-        if (error) throw error;
-      }
-
-      qc.invalidateQueries({ queryKey: ['crm-complaints'] });
-      setComplaintForm(EMPTY_COMPLAINT);
-      setEditingComplaint(null);
-      setComplaintOpen(false);
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const startComplaintForClient = (client) => {
-    setEditingComplaint(null);
-    setComplaintForm({
-      ...EMPTY_COMPLAINT,
-      client_id: client.id,
-      client_name: client.client_name,
-      contact_name: client.contact_name || '',
-      contact_email: client.contact_email || '',
-      contact_phone: client.contact_phone || '',
-    });
-    setComplaintOpen(true);
-  };
-
-  const createTicketFromComplaint = async (complaint) => {
-    try {
-      const { data, error } = await supabase
-        .from('tickets')
-        .insert({
-          title: complaint.issue_title,
-          description: complaint.issue_description,
-          bank_name: complaint.client_name,
-          contact_name: complaint.contact_name,
-          contact_phone: complaint.contact_phone,
-          contact_email: complaint.contact_email,
-          priority: complaint.priority || 'medium',
-          status: 'open',
-          source: 'CRM',
-          created_by_email: user.email || user.user_email || '',
-          created_by_name: user.full_name || user.name || user.email || '',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      const ticketNumber = data?.ticket_number || data?.id || '';
-
-      const { error: updateError } = await supabase
-        .from('crm_complaints')
-        .update({
-          ticket_id: data?.id || null,
-          ticket_number: ticketNumber,
-          status: 'ticket_created',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', complaint.id);
-
-      if (updateError) throw updateError;
-
-      qc.invalidateQueries({ queryKey: ['crm-complaints'] });
-      alert('Ticket created from CRM complaint.');
-    } catch (err) {
-      console.error(err);
-      alert('Ticket creation failed: ' + (err?.message || 'Unknown error'));
-    }
-  };
-
-  const dashboardCards = [
-    {
-      title: 'Total Leads',
-      value: leads.length,
-      icon: TrendingUp,
-      note: `${leads.filter((lead) => lead.status === 'won').length} won`,
-    },
-    {
-      title: 'Active Clients',
-      value: clients.filter((client) => client.status === 'active').length,
-      icon: BriefcaseBusiness,
-      note: `${clients.length} total clients`,
-    },
-    {
-      title: 'Pipeline Value',
-      value: money(pipelineValue),
-      icon: Target,
-      note: 'Open opportunities',
-    },
-    {
-      title: 'Contract Value',
-      value: money(contractValue || wonValue),
-      icon: Handshake,
-      note: contractValue ? 'Active client contracts' : 'Based on won leads',
-    },
-    {
-      title: 'Open Complaints',
-      value: openComplaints,
-      icon: MessageSquareWarning,
-      note: 'CRM issues needing attention',
-    },
-    {
-      title: 'Follow-ups Due',
-      value: followupsDue,
-      icon: Calendar,
-      note: 'Leads + complaints',
-    },
-    {
-      title: 'Expiring Contracts',
-      value: expiringContracts,
-      icon: AlertTriangle,
-      note: 'Within 60 days',
-    },
-    {
-      title: 'Won Value',
-      value: money(wonValue),
-      icon: CheckCircle2,
-      note: 'Converted business',
-    },
+  const pipeline = leads.filter((lead) => !['won', 'lost'].includes(lead.status)).reduce((sum, lead) => sum + Number(lead.estimated_value || 0), 0);
+  const cards = [
+    ['Pipeline', leads.filter((lead) => !['won', 'lost'].includes(lead.status)).length, `${money(pipeline)} open value`],
+    ['Won Approval', leads.filter((lead) => lead.status === 'pending_won_approval').length, 'Head BD action required'],
+    ['Active Clients', clients.filter((client) => client.status === 'active').length, `${clients.filter((client) => client.onboarding_status === 'in_progress').length} onboarding`],
+    ['Open Complaints', complaints.filter((item) => !['closed'].includes(item.status)).length, `${complaints.filter((item) => item.status === 'resolved').length} need client follow-up`],
   ];
 
-  return (
-    <div className="space-y-5 pb-20 text-slate-100">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2 text-white">
-            <TrendingUp className="w-7 h-7 text-[#ff5a00]" />
-            CRM, Marketing & Business Development
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Lead pipeline, client relationship, contracts, complaints, follow-ups and customer satisfaction.
-          </p>
-        </div>
+  return <div className="space-y-5 pb-20 text-slate-100">
+    <header className="flex flex-wrap items-start justify-between gap-3">
+      <div><h1 className="flex items-center gap-2 text-3xl font-bold text-white"><TrendingUp className="text-[#ff5a00]" />Business Development & CRM</h1>
+        <p className="text-sm text-slate-400">Lead ownership, Head approval, client onboarding, departmental handoffs and complaint recovery.</p></div>
+      <div className="flex flex-wrap gap-2"><Button variant="outline" onClick={refresh}><RefreshCw className="mr-2 h-4 w-4" />Refresh</Button><Button variant="outline" onClick={() => window.print()}><Printer className="mr-2 h-4 w-4" />Print CRM Report</Button>
+        <Button variant="outline" onClick={() => navigate('/crm-handoffs')}><Route className="mr-2 h-4 w-4" />Department Handoffs</Button>
+        <Button className="bg-[#ff5a00]" onClick={() => editLead()}><Plus className="mr-2 h-4 w-4" />Add Lead</Button></div>
+    </header>
 
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={refreshAll}>
-            <RefreshCw className="w-4 h-4 mr-1" />
-            Refresh
-          </Button>
-          <Button onClick={openNewLead} className="bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Lead
-          </Button>
-          <Button variant="outline" onClick={openNewClient}>
-            <BriefcaseBusiness className="w-4 h-4 mr-2" />
-            Add Client
-          </Button>
-          <Button variant="outline" onClick={openNewComplaint}>
-            <MessageSquareWarning className="w-4 h-4 mr-2" />
-            Add Complaint
-          </Button>
-        </div>
-      </div>
+    <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">{cards.map(([title, value, note]) =>
+      <Card key={title} className="border-[#ff5a00]/20 bg-[#102969]"><CardContent className="p-4"><p className="text-xs uppercase text-slate-400">{title}</p><p className="mt-1 text-3xl font-black text-white">{value}</p><p className="text-xs text-[#ff8a45]">{note}</p></CardContent></Card>)}</section>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        {dashboardCards.map(({ title, value, icon: Icon, note }) => (
-          <Card key={title} className="bg-[#102969] border border-[#ff5a00]/20 shadow-lg">
-            <CardContent className="p-4">
-              <Icon className="w-5 h-5 text-[#ff5a00]" />
-              <p className="text-2xl font-black text-white mt-2">{value}</p>
-              <p className="text-xs text-muted-foreground">{title}</p>
-              <p className="text-[11px] text-slate-400 mt-1">{note}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      <div className="rounded-xl border border-[#ff5a00]/20 bg-[#102969] p-4">
-        <p className="text-sm text-[#ff5a00] font-semibold">
-          CRM workflow
-        </p>
-        <p className="text-xs text-muted-foreground mt-1">
-          Lead → Won → Auto Client Record → Contract/SLA → Complaint → Helpdesk Ticket → Follow-up → Satisfaction.
-        </p>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        {[
-          { key: 'leads', label: 'Marketing Pipeline' },
-          { key: 'clients', label: 'Clients & Contracts' },
-          { key: 'complaints', label: 'Complaints & Follow-up' },
-        ].map((item) => (
-          <button
-            key={item.key}
-            onClick={() => setTab(item.key)}
-            className={
-              'px-4 py-2 rounded-lg text-sm font-medium border transition-all ' +
-              (tab === item.key
-                ? 'bg-[#ff5a00] text-white border-[#ff5a00]'
-                : 'bg-[#102969] border-[#ff5a00]/20 text-slate-300 hover:border-[#ff5a00]/50')
-            }
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <div className="relative flex-1 min-w-[240px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search company, client, contact, complaint, ticket..."
-            className="pl-9"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-
-        {tab === 'leads' && (
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-44">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Lead Status</SelectItem>
-              {Object.entries(LEAD_STATUS).map(([key, value]) => (
-                <SelectItem key={key} value={key}>
-                  {value.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {tab === 'leads' && (
-        <>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setStatusFilter('all')}
-              className={
-                'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
-                (statusFilter === 'all'
-                  ? 'bg-[#ff5a00] text-white border-[#ff5a00]'
-                  : 'bg-[#102969] border-[#ff5a00]/20 text-muted-foreground')
-              }
-            >
-              All ({leads.length})
-            </button>
-
-            {Object.entries(LEAD_STATUS).map(([key, value]) => (
-              <button
-                key={key}
-                onClick={() => setStatusFilter(key)}
-                className={
-                  'px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ' +
-                  (statusFilter === key
-                    ? 'bg-[#ff5a00] text-white border-[#ff5a00]'
-                    : 'bg-[#102969] border-[#ff5a00]/20 text-muted-foreground')
-                }
-              >
-                {value.label} ({leads.filter((lead) => lead.status === key).length})
-              </button>
-            ))}
-          </div>
-
-          {leadsLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-[#ff5a00]" />
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredLeads.map((lead) => {
-                const status = LEAD_STATUS[lead.status] || LEAD_STATUS.new;
-
-                return (
-                  <Card key={lead.id} className="bg-[#102969] border border-[#ff5a00]/20 p-4 hover:border-[#ff5a00]/50 transition-all">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <p className="font-semibold text-sm text-white">{lead.company_name}</p>
-                        <p className="text-xs text-muted-foreground">{lead.contact_name}</p>
-                      </div>
-
-                      <Badge variant="outline" className={`${status.color} text-[10px]`}>
-                        {status.label}
-                      </Badge>
-                    </div>
-
-                    <div className="space-y-1 text-xs text-muted-foreground mb-3">
-                      {lead.contact_email && (
-                        <p className="flex items-center gap-1">
-                          <Mail className="w-3 h-3" />
-                          {lead.contact_email}
-                        </p>
-                      )}
-
-                      {lead.contact_phone && (
-                        <p className="flex items-center gap-1">
-                          <Phone className="w-3 h-3" />
-                          {lead.contact_phone}
-                        </p>
-                      )}
-
-                      {lead.industry && (
-                        <p className="flex items-center gap-1">
-                          <Building2 className="w-3 h-3" />
-                          {lead.industry}
-                        </p>
-                      )}
-
-                      {lead.devices_interested && (
-                        <p className="flex items-center gap-1">
-                          <Target className="w-3 h-3" />
-                          {lead.devices_interested}
-                        </p>
-                      )}
-
-                      {lead.estimated_value && (
-                        <p className="font-semibold text-[#ff5a00]">
-                          {money(lead.estimated_value)}
-                        </p>
-                      )}
-
-                      {lead.next_followup && (
-                        <p className={`flex items-center gap-1 ${isDue(lead.next_followup) ? 'text-amber-300' : ''}`}>
-                          <Calendar className="w-3 h-3" />
-                          Follow-up: {dateLabel(lead.next_followup)}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex gap-2">
-                      <Select value={lead.status} onValueChange={(value) => moveStatus(lead, value)}>
-                        <SelectTrigger className="h-8 text-xs flex-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(LEAD_STATUS).map(([key, value]) => (
-                            <SelectItem key={key} value={key}>
-                              {value.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-
-                      <Button variant="outline" size="sm" onClick={() => openEditLead(lead)}>
-                        <Pencil className="w-3 h-3" />
-                      </Button>
-                    </div>
-                  </Card>
-                );
-              })}
-
-              {filteredLeads.length === 0 && (
-                <div className="col-span-full text-center py-12 text-muted-foreground">
-                  <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p>No leads found</p>
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {tab === 'clients' && (
-        <>
-          {clientsLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-[#ff5a00]" />
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredClients.map((client) => {
-                const status = CLIENT_STATUS[client.status] || CLIENT_STATUS.active;
-
-                return (
-                  <Card key={client.id} className="bg-[#102969] border border-[#ff5a00]/20 p-4 hover:border-[#ff5a00]/50 transition-all">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <p className="font-semibold text-sm text-white">{client.client_name}</p>
-                        <p className="text-xs text-muted-foreground">{client.industry || 'No industry'}</p>
-                      </div>
-
-                      <Badge variant="outline" className={`${status.color} text-[10px]`}>
-                        {status.label}
-                      </Badge>
-                    </div>
-
-                    <div className="space-y-1 text-xs text-muted-foreground mb-3">
-                      {client.contact_name && <p>Contact: {client.contact_name}</p>}
-                      {client.contact_email && (
-                        <p className="flex items-center gap-1">
-                          <Mail className="w-3 h-3" />
-                          {client.contact_email}
-                        </p>
-                      )}
-                      {client.contact_phone && (
-                        <p className="flex items-center gap-1">
-                          <Phone className="w-3 h-3" />
-                          {client.contact_phone}
-                        </p>
-                      )}
-                      <p>Branches: {client.branch_count || 0}</p>
-                      <p>SLA: {client.sla_level || 'standard'}</p>
-                      <p>Contract: {dateLabel(client.contract_start)} → {dateLabel(client.contract_end)}</p>
-                      <p className="font-semibold text-[#ff5a00]">{money(client.contract_value)}</p>
-                      {client.relationship_manager && <p>RM: {client.relationship_manager}</p>}
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEditClient(client)}>
-                        <Pencil className="w-3 h-3 mr-1" />
-                        Edit
-                      </Button>
-                      <Button size="sm" onClick={() => startComplaintForClient(client)} className="bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white">
-                        <MessageSquareWarning className="w-3 h-3 mr-1" />
-                        Complaint
-                      </Button>
-                    </div>
-                  </Card>
-                );
-              })}
-
-              {filteredClients.length === 0 && (
-                <div className="col-span-full text-center py-12 text-muted-foreground">
-                  <BriefcaseBusiness className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p>No clients found. Won leads will auto-convert to clients.</p>
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      {tab === 'complaints' && (
-        <>
-          {complaintsLoading ? (
-            <div className="flex justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-[#ff5a00]" />
-            </div>
-          ) : (
-            <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredComplaints.map((complaint) => {
-                const status = COMPLAINT_STATUS[complaint.status] || COMPLAINT_STATUS.open;
-
-                return (
-                  <Card key={complaint.id} className="bg-[#102969] border border-[#ff5a00]/20 p-4 hover:border-[#ff5a00]/50 transition-all">
-                    <div className="flex items-start justify-between mb-3">
-                      <div>
-                        <p className="font-mono text-[11px] text-muted-foreground">{complaint.complaint_number}</p>
-                        <p className="font-semibold text-sm text-white">{complaint.issue_title}</p>
-                        <p className="text-xs text-muted-foreground">{complaint.client_name}</p>
-                      </div>
-
-                      <Badge variant="outline" className={`${status.color} text-[10px]`}>
-                        {status.label}
-                      </Badge>
-                    </div>
-
-                    <p className="text-xs text-muted-foreground line-clamp-3 mb-3">
-                      {complaint.issue_description || 'No description'}
-                    </p>
-
-                    <div className="space-y-1 text-xs text-muted-foreground mb-3">
-                      {complaint.ticket_number && <p>Ticket: {complaint.ticket_number}</p>}
-                      <p>Priority: {complaint.priority || 'medium'}</p>
-                      {complaint.followup_date && (
-                        <p className={isDue(complaint.followup_date) ? 'text-amber-300' : ''}>
-                          Follow-up: {dateLabel(complaint.followup_date)}
-                        </p>
-                      )}
-                      {complaint.satisfaction_rating && (
-                        <p className="flex items-center gap-1 text-[#ff5a00]">
-                          <Star className="w-3 h-3" />
-                          Rating: {complaint.satisfaction_rating}/5
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="outline" size="sm" onClick={() => openEditComplaint(complaint)}>
-                        <Pencil className="w-3 h-3 mr-1" />
-                        Edit
-                      </Button>
-                      {!complaint.ticket_number && (
-                        <Button size="sm" onClick={() => createTicketFromComplaint(complaint)} className="bg-[#ff5a00] hover:bg-[#ff5a00]/90 text-white">
-                          <ClipboardCheck className="w-3 h-3 mr-1" />
-                          Create Ticket
-                        </Button>
-                      )}
-                    </div>
-                  </Card>
-                );
-              })}
-
-              {filteredComplaints.length === 0 && (
-                <div className="col-span-full text-center py-12 text-muted-foreground">
-                  <MessageSquareWarning className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                  <p>No complaints found</p>
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-
-      <Dialog open={leadOpen} onOpenChange={setLeadOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingLead ? 'Edit' : 'Add'} Lead</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Company Name *</Label>
-                <Input value={leadForm.company_name} onChange={(e) => setLeadField('company_name', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Contact Name *</Label>
-                <Input value={leadForm.contact_name} onChange={(e) => setLeadField('contact_name', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input value={leadForm.contact_email} onChange={(e) => setLeadField('contact_email', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Phone</Label>
-                <Input value={leadForm.contact_phone} onChange={(e) => setLeadField('contact_phone', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Industry</Label>
-                <Input value={leadForm.industry} onChange={(e) => setLeadField('industry', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Source</Label>
-                <Select value={leadForm.source} onValueChange={(value) => setLeadField('source', value)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['referral', 'website', 'cold_call', 'email', 'event', 'other'].map((source) => (
-                      <SelectItem key={source} value={source}>{source.replace('_', ' ')}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Status</Label>
-                <Select value={leadForm.status} onValueChange={(value) => setLeadField('status', value)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(LEAD_STATUS).map(([key, value]) => (
-                      <SelectItem key={key} value={key}>{value.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Estimated Value</Label>
-                <Input type="number" value={leadForm.estimated_value} onChange={(e) => setLeadField('estimated_value', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Devices / Services Interested In</Label>
-              <Input value={leadForm.devices_interested} onChange={(e) => setLeadField('devices_interested', e.target.value)} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Next Follow-up</Label>
-              <Input type="date" value={leadForm.next_followup || ''} onChange={(e) => setLeadField('next_followup', e.target.value)} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea value={leadForm.notes} onChange={(e) => setLeadField('notes', e.target.value)} className="h-20" />
-            </div>
-
-            <Button className="w-full" onClick={handleSaveLead} disabled={!leadForm.company_name || !leadForm.contact_name || saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingLead ? 'Update' : 'Add'} Lead
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={clientOpen} onOpenChange={setClientOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingClient ? 'Edit' : 'Add'} Client</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Client Name *</Label>
-                <Input value={clientForm.client_name} onChange={(e) => setClientField('client_name', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Industry</Label>
-                <Input value={clientForm.industry} onChange={(e) => setClientField('industry', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>Contact Name</Label>
-                <Input value={clientForm.contact_name} onChange={(e) => setClientField('contact_name', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input value={clientForm.contact_email} onChange={(e) => setClientField('contact_email', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Phone</Label>
-                <Input value={clientForm.contact_phone} onChange={(e) => setClientField('contact_phone', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>Contract Value</Label>
-                <Input type="number" value={clientForm.contract_value} onChange={(e) => setClientField('contract_value', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Contract Start</Label>
-                <Input type="date" value={clientForm.contract_start || ''} onChange={(e) => setClientField('contract_start', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Contract End</Label>
-                <Input type="date" value={clientForm.contract_end || ''} onChange={(e) => setClientField('contract_end', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>SLA Level</Label>
-                <Select value={clientForm.sla_level} onValueChange={(value) => setClientField('sla_level', value)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['standard', 'premium', 'critical', '24_7'].map((sla) => (
-                      <SelectItem key={sla} value={sla}>{sla.replace('_', '/')}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label>Branches</Label>
-                <Input type="number" value={clientForm.branch_count} onChange={(e) => setClientField('branch_count', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Status</Label>
-                <Select value={clientForm.status} onValueChange={(value) => setClientField('status', value)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(CLIENT_STATUS).map(([key, value]) => (
-                      <SelectItem key={key} value={key}>{value.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Relationship Manager</Label>
-                <Input value={clientForm.relationship_manager} onChange={(e) => setClientField('relationship_manager', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Manager Email</Label>
-                <Input value={clientForm.relationship_manager_email} onChange={(e) => setClientField('relationship_manager_email', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea value={clientForm.notes} onChange={(e) => setClientField('notes', e.target.value)} className="h-20" />
-            </div>
-
-            <Button className="w-full" onClick={handleSaveClient} disabled={!clientForm.client_name || saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingClient ? 'Update' : 'Add'} Client
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={complaintOpen} onOpenChange={setComplaintOpen}>
-        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingComplaint ? 'Edit' : 'Add'} Complaint / Follow-up</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Client Name *</Label>
-                <Input value={complaintForm.client_name} onChange={(e) => setComplaintField('client_name', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Contact Name</Label>
-                <Input value={complaintForm.contact_name} onChange={(e) => setComplaintField('contact_name', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Email</Label>
-                <Input value={complaintForm.contact_email} onChange={(e) => setComplaintField('contact_email', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Phone</Label>
-                <Input value={complaintForm.contact_phone} onChange={(e) => setComplaintField('contact_phone', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Issue Title *</Label>
-              <Input value={complaintForm.issue_title} onChange={(e) => setComplaintField('issue_title', e.target.value)} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Issue Description</Label>
-              <Textarea value={complaintForm.issue_description} onChange={(e) => setComplaintField('issue_description', e.target.value)} className="h-24" />
-            </div>
-
-            <div className="grid grid-cols-3 gap-3">
-              <div className="space-y-1.5">
-                <Label>Priority</Label>
-                <Select value={complaintForm.priority} onValueChange={(value) => setComplaintField('priority', value)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {['low', 'medium', 'high', 'critical'].map((priority) => (
-                      <SelectItem key={priority} value={priority}>{priority}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Status</Label>
-                <Select value={complaintForm.status} onValueChange={(value) => setComplaintField('status', value)}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(COMPLAINT_STATUS).map(([key, value]) => (
-                      <SelectItem key={key} value={key}>{value.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Follow-up Date</Label>
-                <Input type="date" value={complaintForm.followup_date || ''} onChange={(e) => setComplaintField('followup_date', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Ticket Number</Label>
-                <Input value={complaintForm.ticket_number || ''} onChange={(e) => setComplaintField('ticket_number', e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label>Satisfaction Rating /5</Label>
-                <Input type="number" min="1" max="5" value={complaintForm.satisfaction_rating || ''} onChange={(e) => setComplaintField('satisfaction_rating', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Feedback</Label>
-              <Textarea value={complaintForm.feedback || ''} onChange={(e) => setComplaintField('feedback', e.target.value)} className="h-20" />
-            </div>
-
-            <Button className="w-full" onClick={handleSaveComplaint} disabled={!complaintForm.client_name || !complaintForm.issue_title || saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              {editingComplaint ? 'Update' : 'Add'} Complaint
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+    <div className="rounded-xl border border-[#ff5a00]/25 bg-[#102969] p-4 text-sm">
+      <b className="text-[#ff8a45]">Controlled workflow:</b> Lead → Qualification → Proposal → Negotiation → Head BD Won Approval → Client → Department Handoffs → Delivery. Complaints route to Helpdesk and return here for client satisfaction closure.
     </div>
-  );
+
+    <div className="flex flex-wrap gap-2">{[['leads','Lead Pipeline'],['clients','Clients & Onboarding'],['complaints','Complaints'],['activities','Activity & Audit']].map(([key,label]) =>
+      <Button key={key} variant={tab === key ? 'default' : 'outline'} className={tab === key ? 'bg-[#ff5a00]' : ''} onClick={() => setTab(key)}>{label}</Button>)}</div>
+    <div className="flex gap-2"><div className="relative flex-1"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><Input className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search CRM records…" /></div>
+      {tab === 'leads' && <Select value={statusFilter} onValueChange={setStatusFilter}><SelectTrigger className="w-56"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">All stages</SelectItem>{Object.entries(LEAD_STATUS).map(([key,label]) => <SelectItem key={key} value={key}>{label}</SelectItem>)}</SelectContent></Select>}</div>
+
+    {loading && <Loader2 className="mx-auto h-8 w-8 animate-spin text-[#ff5a00]" />}
+
+    {tab === 'leads' && !loading && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filteredLeads.map((lead) =>
+      <Card key={lead.id} className="border-[#ff5a00]/20 bg-[#102969] p-4">
+        <div className="flex justify-between gap-3"><div><b className="text-white">{lead.company_name}</b><p className="text-xs text-slate-400">{lead.contact_name}</p></div><Badge variant="outline" className={STATUS_STYLE[lead.status]}>{LEAD_STATUS[lead.status] || lead.status}</Badge></div>
+        <div className="my-3 space-y-1 text-xs text-slate-300">
+          {lead.contact_email && <p className="flex gap-1"><Mail className="h-3 w-3" />{lead.contact_email}</p>}{lead.contact_phone && <p className="flex gap-1"><Phone className="h-3 w-3" />{lead.contact_phone}</p>}
+          <p className="flex gap-1"><Target className="h-3 w-3" />{lead.opportunity_type?.replaceAll('_',' ')} · {lead.probability || 0}%</p>
+          <p className="font-semibold text-[#ff8a45]">{money(lead.estimated_value, lead.currency || 'NGN')}</p>
+          <p>Owner: {lead.owner_name || lead.owner_email || lead.assigned_to || 'Unassigned'}</p>
+          <p className={due(lead.next_followup) ? 'text-yellow-300' : ''}>Next follow-up: {when(lead.next_followup)}</p>
+          {lead.won_review_note && <p className="rounded bg-black/15 p-2">Review: {lead.won_review_note}</p>}
+        </div>
+        <div className="flex flex-wrap gap-2"><Select value={lead.status === 'won' ? 'won' : lead.status} disabled={lead.status === 'won' || lead.status === 'pending_won_approval'} onValueChange={(value) => transitionLead(lead, value)}><SelectTrigger className="h-8 flex-1 text-xs"><SelectValue /></SelectTrigger><SelectContent>{LEAD_FLOW.map((key) => <SelectItem key={key} value={key}>{LEAD_STATUS[key]}</SelectItem>)}</SelectContent></Select>
+          <Button size="sm" variant="outline" onClick={() => openActivity(lead)}><Clock3 className="h-3 w-3" /></Button><Button size="sm" variant="outline" onClick={() => editLead(lead)}><Pencil className="h-3 w-3" /></Button></div>
+        {canReview && lead.status === 'pending_won_approval' && <div className="mt-3 grid grid-cols-2 gap-2"><Button size="sm" variant="destructive" onClick={() => reviewWon(lead,'reject')}>Reject</Button><Button size="sm" className="bg-emerald-600" onClick={() => reviewWon(lead,'approve')}>Approve Won</Button></div>}
+      </Card>)}{!filteredLeads.length && <Empty icon={Users} label="No leads found" />}</section>}
+
+    {tab === 'clients' && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filteredClients.map((client) =>
+      <Card key={client.id} className="border-[#ff5a00]/20 bg-[#102969] p-4"><div className="flex justify-between"><div><b>{client.client_name}</b><p className="font-mono text-xs text-slate-400">{client.client_code || 'Legacy client'}</p></div><Badge variant="outline">{client.onboarding_status || 'pending'}</Badge></div>
+        <div className="my-3 space-y-1 text-xs text-slate-300"><p>{client.industry || 'Industry not recorded'}</p><p>{client.contact_name || 'No contact'} · {client.contact_email || 'No email'}</p><p>Relationship manager: {client.relationship_manager || 'Not assigned'}</p><p>Contract: {money(client.contract_value)}</p><p>Created: {when(client.created_at, true)}</p></div>
+        <Button size="sm" className="bg-[#ff5a00]" onClick={() => editComplaint(null, client)}><MessageSquareWarning className="mr-2 h-3 w-3" />Log Complaint</Button>
+      </Card>)}{!filteredClients.length && <Empty icon={Building2} label="No approved clients found" />}</section>}
+
+    {tab === 'complaints' && <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{filteredComplaints.map((item) =>
+      <Card key={item.id} className="border-[#ff5a00]/20 bg-[#102969] p-4"><div className="flex justify-between"><div><p className="font-mono text-xs text-slate-400">{item.complaint_number}</p><b>{item.issue_title}</b><p className="text-xs text-slate-400">{item.client_name}</p></div><Badge variant="outline" className={STATUS_STYLE[item.status]}>{item.status?.replaceAll('_',' ')}</Badge></div>
+        <p className="my-3 line-clamp-3 text-xs text-slate-300">{item.issue_description}</p><div className="space-y-1 text-xs text-slate-400"><p>Type: {item.complaint_type?.replaceAll('_',' ')}</p><p>Route: {item.routed_department || 'Awaiting route'}</p><p>Ticket: {item.ticket_number || 'Not created'}</p>{item.resolution_summary && <p>Resolution: {item.resolution_summary}</p>}{item.satisfaction_rating && <p className="flex gap-1 text-yellow-300"><Star className="h-3 w-3" />{item.satisfaction_rating}/5</p>}</div>
+        <div className="mt-3 flex flex-wrap gap-2"><Button size="sm" variant="outline" onClick={() => editComplaint(item)}><Pencil className="mr-1 h-3 w-3" />Edit</Button>{item.status === 'open' && !item.ticket_id && <Button size="sm" className="bg-[#ff5a00]" onClick={() => routeComplaint(item)}><ClipboardCheck className="mr-1 h-3 w-3" />Submit to Helpdesk</Button>}{item.status === 'routed_to_helpdesk' && <Badge variant="outline" className="border-amber-400/40 text-amber-200">Awaiting Helpdesk ticket</Badge>}{item.status === 'resolved' && <Button size="sm" className="bg-emerald-600" onClick={() => closeComplaint(item)}>Client Follow-up & Close</Button>}</div>
+      </Card>)}{!filteredComplaints.length && <Empty icon={MessageSquareWarning} label="No complaints found" />}</section>}
+
+    {tab === 'activities' && <section className="grid gap-4 lg:grid-cols-2"><AuditList title="Sales Activities" rows={activities} subject={(row) => row.subject} detail={(row) => `${row.activity_type} · ${row.created_by_name || row.created_by_email} · ${when(row.created_at, true)}`} /><AuditList title="Workflow Audit" rows={history} subject={(row) => row.action?.replaceAll('_',' ')} detail={(row) => `${row.entity_type}: ${row.from_status || 'start'} → ${row.to_status || 'recorded'} · ${row.actor_name || row.actor_email} · ${when(row.created_at, true)}`} /></section>}
+
+    <Dialog open={leadOpen} onOpenChange={setLeadOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingLead ? 'Update Lead' : 'Capture New Lead'}</DialogTitle></DialogHeader><div className="grid gap-3 md:grid-cols-2">
+      <Field label="Company *"><Input value={leadForm.company_name} onChange={(e) => setLeadForm({...leadForm,company_name:e.target.value})} /></Field><Field label="Contact name *"><Input value={leadForm.contact_name} onChange={(e) => setLeadForm({...leadForm,contact_name:e.target.value})} /></Field>
+      <Field label="Contact email"><Input type="email" value={leadForm.contact_email} onChange={(e) => setLeadForm({...leadForm,contact_email:e.target.value})} /></Field><Field label="Contact phone"><Input value={leadForm.contact_phone} onChange={(e) => setLeadForm({...leadForm,contact_phone:e.target.value})} /></Field>
+      <Field label="Industry"><Input value={leadForm.industry} onChange={(e) => setLeadForm({...leadForm,industry:e.target.value})} /></Field><SelectField label="Source" value={leadForm.source} values={['referral','website','cold_call','email','event','other']} onChange={(value) => setLeadForm({...leadForm,source:value})} />
+      <SelectField label="Opportunity type" value={leadForm.opportunity_type} values={['general','service_contract','product_supply','project_integration']} onChange={(value) => setLeadForm({...leadForm,opportunity_type:value})} /><Field label="Products / services"><Input value={leadForm.devices_interested} onChange={(e) => setLeadForm({...leadForm,devices_interested:e.target.value})} /></Field>
+      <Field label="Estimated value"><Input type="number" min="0" value={leadForm.estimated_value} onChange={(e) => setLeadForm({...leadForm,estimated_value:e.target.value})} /></Field><Field label="Probability %"><Input type="number" min="0" max="100" value={leadForm.probability} onChange={(e) => setLeadForm({...leadForm,probability:e.target.value})} /></Field>
+      <Field label="Next follow-up"><Input type="date" value={leadForm.next_followup || ''} onChange={(e) => setLeadForm({...leadForm,next_followup:e.target.value})} /></Field><Field label="Expected close"><Input type="date" value={leadForm.expected_close_date || ''} onChange={(e) => setLeadForm({...leadForm,expected_close_date:e.target.value})} /></Field>
+      <div className="md:col-span-2"><Field label="Notes"><Textarea value={leadForm.notes} onChange={(e) => setLeadForm({...leadForm,notes:e.target.value})} /></Field></div></div><Button disabled={saving || !leadForm.company_name || !leadForm.contact_name} onClick={saveLead}>{saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Save Lead</Button></DialogContent></Dialog>
+
+    <Dialog open={complaintOpen} onOpenChange={setComplaintOpen}><DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl"><DialogHeader><DialogTitle>{editingComplaint ? 'Update Complaint' : 'Log Client Complaint'}</DialogTitle></DialogHeader><div className="grid gap-3 md:grid-cols-2">
+      <Field label="Client *"><Input value={complaintForm.client_name} onChange={(e) => setComplaintForm({...complaintForm,client_name:e.target.value})} /></Field><Field label="Contact"><Input value={complaintForm.contact_name} onChange={(e) => setComplaintForm({...complaintForm,contact_name:e.target.value})} /></Field>
+      <Field label="Email"><Input value={complaintForm.contact_email} onChange={(e) => setComplaintForm({...complaintForm,contact_email:e.target.value})} /></Field><Field label="Phone"><Input value={complaintForm.contact_phone} onChange={(e) => setComplaintForm({...complaintForm,contact_phone:e.target.value})} /></Field>
+      <SelectField label="Complaint type" value={complaintForm.complaint_type} values={['technical_support','service_delivery','billing','product_supply','relationship']} onChange={(value) => setComplaintForm({...complaintForm,complaint_type:value,routed_department:value === 'billing' ? 'Finance & Accounts' : value === 'product_supply' ? 'Inventory' : 'Helpdesk'})} /><SelectField label="Priority" value={complaintForm.priority} values={['low','medium','high','critical']} onChange={(value) => setComplaintForm({...complaintForm,priority:value})} />
+      <div className="md:col-span-2"><Field label="Issue title *"><Input value={complaintForm.issue_title} onChange={(e) => setComplaintForm({...complaintForm,issue_title:e.target.value})} /></Field></div><div className="md:col-span-2"><Field label="Full complaint"><Textarea className="min-h-28" value={complaintForm.issue_description} onChange={(e) => setComplaintForm({...complaintForm,issue_description:e.target.value})} /></Field></div>
+      <Field label="Client follow-up date"><Input type="date" value={complaintForm.followup_date || ''} onChange={(e) => setComplaintForm({...complaintForm,followup_date:e.target.value})} /></Field><Field label="Destination"><Input value={complaintForm.routed_department} disabled /></Field></div><Button disabled={saving || !complaintForm.client_name || !complaintForm.issue_title} onClick={saveComplaint}>Save Complaint</Button></DialogContent></Dialog>
+
+    <Dialog open={activityOpen} onOpenChange={setActivityOpen}><DialogContent><DialogHeader><DialogTitle>Log Activity — {activityTarget?.company_name}</DialogTitle></DialogHeader><SelectField label="Activity type" value={activityForm.activity_type} values={['call','email','meeting','site_visit','proposal','note']} onChange={(value) => setActivityForm({...activityForm,activity_type:value})} /><Field label="Subject *"><Input value={activityForm.subject} onChange={(e) => setActivityForm({...activityForm,subject:e.target.value})} /></Field><Field label="Notes"><Textarea value={activityForm.notes} onChange={(e) => setActivityForm({...activityForm,notes:e.target.value})} /></Field><Field label="Outcome"><Input value={activityForm.outcome} onChange={(e) => setActivityForm({...activityForm,outcome:e.target.value})} /></Field><Field label="Next action"><Input type="datetime-local" value={activityForm.next_action_at} onChange={(e) => setActivityForm({...activityForm,next_action_at:e.target.value})} /></Field><Button disabled={saving || !activityForm.subject} onClick={saveActivity}>Record Activity</Button></DialogContent></Dialog>
+  </div>;
 }
+
+function Field({ label, children }) { return <div className="space-y-1.5"><Label>{label}</Label>{children}</div>; }
+function SelectField({ label, value, values, onChange }) { return <Field label={label}><Select value={value} onValueChange={onChange}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{values.map((item) => <SelectItem key={item} value={item}>{item.replaceAll('_',' ')}</SelectItem>)}</SelectContent></Select></Field>; }
+function Empty({ icon: Icon, label }) { return <div className="col-span-full py-12 text-center text-slate-500"><Icon className="mx-auto mb-2 h-8 w-8" /><p>{label}</p></div>; }
+function AuditList({ title, rows, subject, detail }) { return <Card className="border-[#ff5a00]/20 bg-[#102969] p-4"><h2 className="mb-3 flex items-center gap-2 font-bold"><History className="h-4 w-4 text-[#ff5a00]" />{title}</h2><div className="max-h-[34rem] space-y-2 overflow-y-auto">{rows.map((row) => <div key={row.id} className="rounded-lg border border-white/10 p-3"><p className="text-sm font-semibold capitalize">{subject(row)}</p><p className="text-xs text-slate-400">{detail(row)}</p>{(row.notes || row.note || row.outcome) && <p className="mt-1 text-xs text-slate-300">{row.notes || row.note || row.outcome}</p>}</div>)}{!rows.length && <p className="py-8 text-center text-sm text-slate-500">No records yet.</p>}</div></Card>; }
