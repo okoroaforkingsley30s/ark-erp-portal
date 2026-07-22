@@ -313,8 +313,8 @@ export default function CreateTicketDialog({ open, onOpenChange, user, initialDr
         priority: form.priority,
         ticket_id: ticketNumber,
         ticket_number: ticketNumber,
-        client_email: user.email,
-        client_name: user.full_name || user.name || user.email,
+        client_email: initialDraft?.form?.client_email || user.email,
+        client_name: initialDraft?.form?.client_name || user.full_name || user.name || user.email,
         status: form.assigned_to ? 'assigned' : 'new',
         attachments,
         department: user.department || '',
@@ -336,6 +336,61 @@ export default function CreateTicketDialog({ open, onOpenChange, user, initialDr
         if (form.assigned_to) {
           ticketData.assigned_at = now;
         }
+      }
+
+      if (initialDraft?.emailId) {
+        if (String(user?.role || '').toLowerCase() !== 'helpdesk') {
+          alert('Only Helpdesk may convert official mail to a ticket.');
+          return;
+        }
+        const { data: converted, error: conversionError } = await supabase.rpc(
+          'ark_helpdesk_convert_email_to_ticket',
+          {
+            p_email_id: initialDraft.emailId,
+            p_payload: {
+              title: ticketData.title,
+              description: ticketData.description,
+              category: ticketData.category,
+              priority: ticketData.priority,
+              client_email: ticketData.client_email,
+              client_name: ticketData.client_name,
+              bank_name: ticketData.bank_name,
+              branch_name: ticketData.branch_name,
+              terminal_id: ticketData.terminal_id,
+              device_name: ticketData.device_name,
+              assigned_to_name: ticketData.assigned_to_name,
+              assigned_to: ticketData.assigned_to,
+              sla_level: ticketData.sla_level,
+              attachments,
+            },
+          },
+        );
+        if (conversionError) {
+          alert('Mail-to-ticket conversion failed: ' + conversionError.message);
+          return;
+        }
+        const convertedTicket = {
+          id: converted?.ticket_id,
+          ticket_number: converted?.ticket_number,
+          ...ticketData,
+        };
+        await createNotification({
+          userEmail: user.email,
+          title: 'Mail Converted to Ticket',
+          message: `${converted?.ticket_number} was created from the official mail conversation.`,
+          type: 'ticket_created',
+          link: `/tickets/${converted?.ticket_id}`,
+          sound: 'bell',
+          data: { ticket_id: converted?.ticket_id, ticket_number: converted?.ticket_number },
+          sendEmail: false,
+        });
+        queryClient.invalidateQueries({ queryKey: ['tickets'] });
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        onCreated?.(convertedTicket);
+        clearDraft();
+        onOpenChange(false);
+        alert(`Ticket ${converted?.ticket_number} created from the complete mail conversation.`);
+        return;
       }
 
       const { data: insertedTicket, error } = await supabase
@@ -368,17 +423,6 @@ export default function CreateTicketDialog({ open, onOpenChange, user, initialDr
       queryClient.invalidateQueries({ queryKey: ['tickets-dashboard'] });
 
       alert('Ticket created successfully');
-
-      if (initialDraft?.emailId) {
-        const { error: linkError } = await supabase.rpc('ark_link_email_to_ticket', {
-          p_email_id: initialDraft.emailId,
-          p_ticket_id: insertedTicket.id,
-        });
-
-        if (linkError) {
-          console.warn('Ticket created but email linkage failed:', linkError);
-        }
-      }
 
       onCreated?.(insertedTicket);
 

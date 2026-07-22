@@ -3,7 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { googleApiError, requireEnv } from '../_shared/security.ts'
 
 const ALLOWED_DOMAIN = '@arktechnologiesgroup.com'
-const MAX_MESSAGES = 75
+const MAX_MESSAGES = 100
 const FETCH_BATCH_SIZE = 10
 
 const corsHeaders = {
@@ -91,12 +91,20 @@ async function getAccessToken(supabase: any, connection: any, forceRefresh = fal
   return tokens.access_token
 }
 
-async function gmailFetch(url: string, accessToken: string) {
-  return fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+async function gmailFetch(url: string, accessToken: string, attempt = 0): Promise<Response> {
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } })
+  if ((response.status === 429 || response.status >= 500) && attempt < 3) {
+    await new Promise((resolve) => setTimeout(resolve, 300 * (2 ** attempt)))
+    return gmailFetch(url, accessToken, attempt + 1)
+  }
+  return response
 }
 
-async function listMessages(supabase: any, connection: any) {
-  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=${MAX_MESSAGES}&q=newer_than:30d`
+async function listMessages(supabase: any, connection: any, pageToken = '', query = '') {
+  const params = new URLSearchParams({ maxResults: String(MAX_MESSAGES), includeSpamTrash: 'true' })
+  if (pageToken) params.set('pageToken', pageToken)
+  if (query) params.set('q', query)
+  const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`
   let accessToken = await getAccessToken(supabase, connection)
   let response = await gmailFetch(url, accessToken)
 
@@ -109,7 +117,12 @@ async function listMessages(supabase: any, connection: any) {
   if (!response.ok) {
     throw new Error(googleApiError(payload, 'Gmail message list failed'))
   }
-  return { accessToken, messages: Array.isArray(payload.messages) ? payload.messages : [] }
+  return {
+    accessToken,
+    messages: Array.isArray(payload.messages) ? payload.messages : [],
+    nextPageToken: String(payload.nextPageToken || ''),
+    resultSizeEstimate: Number(payload.resultSizeEstimate || 0),
+  }
 }
 
 serve(async (req) => {
@@ -149,8 +162,13 @@ serve(async (req) => {
       }, 403)
     }
 
-    const { accessToken, messages: summaries } = await listMessages(supabase, connection)
+    const requestBody = await req.json().catch(() => ({}))
+    const pageToken = String(requestBody.pageToken || connection.next_page_token || '')
+    const query = String(requestBody.query || '').trim().slice(0, 500)
+    const { accessToken, messages: summaries, nextPageToken, resultSizeEstimate } =
+      await listMessages(supabase, connection, pageToken, query)
     const rows = []
+    const failures: Array<{ id: string; status: number }> = []
 
     for (let offset = 0; offset < summaries.length; offset += FETCH_BATCH_SIZE) {
       const batch = summaries.slice(offset, offset + FETCH_BATCH_SIZE)
@@ -159,7 +177,10 @@ serve(async (req) => {
           `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(summary.id)}?format=full`,
           accessToken,
         )
-        if (!response.ok) return null
+        if (!response.ok) {
+          failures.push({ id: summary.id, status: response.status })
+          return null
+        }
         return response.json()
       }))
 
@@ -188,6 +209,11 @@ serve(async (req) => {
           archived_status: !labels.includes('INBOX') && !isSent && !isDraft,
           folder: isTrash ? 'trash' : isDraft ? 'drafts' : isSent ? 'sent' : 'inbox',
           raw_headers: headers,
+          label_ids: labels,
+          is_starred: labels.includes('STARRED'),
+          is_snoozed: false,
+          is_spam: labels.includes('SPAM'),
+          is_trash: labels.includes('TRASH'),
           synced_at: new Date().toISOString(),
           created_by: user.id,
         })
@@ -207,7 +233,21 @@ serve(async (req) => {
       }
     }
 
-    return jsonResponse({ success: true, synced: rows.length })
+    await supabase.from('gmail_connections').update({
+      next_page_token: nextPageToken || null,
+      initial_sync_complete: !nextPageToken,
+      last_synced_at: new Date().toISOString(),
+      last_sync_error: failures.length ? `${failures.length} message(s) could not be fetched` : null,
+    }).eq('id', connection.id).eq('user_id', user.id)
+
+    return jsonResponse({
+      success: true,
+      synced: rows.length,
+      failed: failures,
+      next_page_token: nextPageToken || null,
+      initial_sync_complete: !nextPageToken,
+      result_size_estimate: resultSizeEstimate,
+    })
   } catch (error) {
     console.error('gmail-sync failure:', error)
     return jsonResponse({

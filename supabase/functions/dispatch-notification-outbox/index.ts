@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { buildMimeMessage } from '../_shared/security.ts'
 
 const BATCH_SIZE = 25
 
@@ -176,5 +177,76 @@ Deno.serve(async (request) => {
     }
   }
 
-  return jsonResponse({ processed: sent + failed, sent, failed })
+  // The same audited Google worker also delivers user-scheduled Official Mail.
+  // This keeps all outbound mail on approved company Gmail identities.
+  const { data: scheduledRows } = await admin.from('ark_scheduled_emails')
+    .select('*').eq('status', 'scheduled').lte('scheduled_at', new Date().toISOString())
+    .lt('attempts', 5).order('scheduled_at', { ascending: true }).limit(10)
+
+  let scheduledSent = 0
+  let scheduledFailed = 0
+  for (const mail of scheduledRows || []) {
+    const attempts = Number(mail.attempts || 0) + 1
+    const { data: claimed } = await admin.from('ark_scheduled_emails')
+      .update({ status: 'processing', attempts, updated_at: new Date().toISOString() })
+      .eq('id', mail.id).eq('status', 'scheduled').select('id').maybeSingle()
+    if (!claimed) continue
+    try {
+      const { data: senderConnection } = await admin.from('gmail_connections').select('*')
+        .eq('user_id', mail.user_id).eq('email', mail.sender_email).eq('is_active', true)
+        .order('connected_at', { ascending: false }).limit(1).maybeSingle()
+      if (!senderConnection?.refresh_token) throw new Error('Sender Gmail connection is unavailable')
+      const token = await refreshGoogleAccessToken(senderConnection)
+      await admin.from('gmail_connections').update({
+        access_token: token.accessToken,
+        expires_at: new Date(Date.now() + token.expiresIn * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq('id', senderConnection.id)
+      const mime = buildMimeMessage({
+        from: mail.sender_email,
+        to: mail.recipient_email,
+        cc: mail.cc || '',
+        bcc: mail.bcc || '',
+        subject: mail.subject,
+        html: mail.message_body,
+        attachments: Array.isArray(mail.attachments) ? mail.attachments : [],
+      })
+      const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token.accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ raw: mime.raw }),
+      })
+      const gmail = await response.json()
+      if (!response.ok) throw new Error(`Gmail API returned ${response.status}`)
+      await admin.from('ark_scheduled_emails').update({
+        status: 'sent', gmail_message_id: gmail.id, gmail_thread_id: gmail.threadId,
+        sent_at: new Date().toISOString(), updated_at: new Date().toISOString(), last_error: null,
+      }).eq('id', mail.id)
+      await admin.from('email_messages').insert({
+        gmail_message_id: gmail.id, gmail_thread_id: gmail.threadId,
+        sender_email: mail.sender_email, recipient_email: mail.recipient_email,
+        cc: mail.cc, bcc: mail.bcc, subject: mail.subject, message_body: mail.message_body,
+        snippet: String(mail.message_body).replace(/<[^>]*>/g, '').slice(0, 200),
+        direction: 'sent', email_status: 'Sent', is_sent: true, is_read: true,
+        folder: 'sent', label_ids: ['SENT'], attachments: mail.attachments,
+        received_at: new Date().toISOString(), synced_at: new Date().toISOString(), created_by: mail.user_id,
+      })
+      scheduledSent += 1
+    } catch (scheduledError) {
+      await admin.from('ark_scheduled_emails').update({
+        status: attempts >= 5 ? 'failed' : 'scheduled',
+        last_error: String(scheduledError).slice(0, 1000), updated_at: new Date().toISOString(),
+      }).eq('id', mail.id)
+      scheduledFailed += 1
+    }
+  }
+
+  return jsonResponse({
+    processed: sent + failed,
+    sent,
+    failed,
+    scheduled_processed: scheduledSent + scheduledFailed,
+    scheduled_sent: scheduledSent,
+    scheduled_failed: scheduledFailed,
+  })
 })

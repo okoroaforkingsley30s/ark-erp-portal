@@ -1,9 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  encodeMimeHeader,
+  buildMimeMessage,
   googleApiError,
-  htmlMailDocument,
   parseEmailList,
   requireEnv,
   safeMailHeader,
@@ -17,35 +16,6 @@ const corsHeaders = {
 
 function jsonResponse(payload: unknown, status = 200) {
   return Response.json(payload, { status, headers: corsHeaders });
-}
-
-function base64Url(input: string) {
-  return btoa(unescape(encodeURIComponent(input)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function makeReply({ to, cc, subject, body, from, inReplyTo, references }: any) {
-  const messageId = `<${crypto.randomUUID()}@arkone.arktechnologiesgroup.com>`;
-  const lines = [
-    `From: ${from}`,
-    `Reply-To: ${from}`,
-    `To: ${to}`,
-    cc ? `Cc: ${cc}` : "",
-    `Subject: ${encodeMimeHeader(subject)}`,
-    `Date: ${new Date().toUTCString()}`,
-    `Message-ID: ${messageId}`,
-    inReplyTo ? `In-Reply-To: ${inReplyTo}` : "",
-    inReplyTo ? `References: ${[references, inReplyTo].filter(Boolean).join(' ')}` : "",
-    "MIME-Version: 1.0",
-    `Content-Type: text/html; charset="UTF-8"`,
-    "Content-Transfer-Encoding: 8bit",
-    "",
-    htmlMailDocument(body),
-  ].filter(Boolean);
-
-  return { raw: base64Url(lines.join("\r\n")), messageId };
 }
 
 async function verifyMailbox(accessToken: string, expectedEmail: string) {
@@ -126,8 +96,10 @@ serve(async (req) => {
     const originalEmailId = String(requestBody.originalEmailId || "").trim();
     const to = parseEmailList(requestBody.to, true);
     const cc = parseEmailList(requestBody.cc);
+    const bcc = parseEmailList(requestBody.bcc);
     const subject = safeMailHeader(requestBody.subject, 300);
     const body = String(requestBody.body || "");
+    const attachments = Array.isArray(requestBody.attachments) ? requestBody.attachments : [];
     if (!originalEmailId) return jsonResponse({ error: "Missing reply data" }, 400);
     if (body.length > 1_000_000) return jsonResponse({ error: "Email body is too large" }, 400);
 
@@ -170,14 +142,16 @@ serve(async (req) => {
       ? rawHeaders.find((h: any) => h.name?.toLowerCase() === "references")?.value || ""
       : "";
 
-    const encodedReply = makeReply({
+    const encodedReply = buildMimeMessage({
       to,
       cc,
+      bcc,
       subject,
-      body,
+      html: body,
       from: connection.email,
       inReplyTo: messageIdHeader,
       references: referencesHeader,
+      attachments,
     });
 
     const gmailRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
@@ -206,6 +180,7 @@ serve(async (req) => {
         sender_email: connection.email,
         recipient_email: to,
         cc,
+        bcc,
         subject,
         message_body: body,
         snippet: body.replace(/<[^>]*>/g, "").slice(0, 200),
@@ -220,6 +195,8 @@ serve(async (req) => {
         synced_at: new Date().toISOString(),
         created_by: user.id,
         raw_headers: [{ name: "Message-ID", value: encodedReply.messageId }],
+        attachments: attachments.map((attachment: any) => ({ filename: attachment.name, mime_type: attachment.type, size: Number(attachment.size || 0) })),
+        label_ids: ["SENT"],
       })
       .select()
       .single();

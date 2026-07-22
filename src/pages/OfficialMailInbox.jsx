@@ -18,6 +18,14 @@ import {
   ArrowLeft,
   TicketPlus,
   Paperclip,
+  Star,
+  Archive,
+  Trash2,
+  AlertOctagon,
+  MailOpen,
+  AlarmClock,
+  CalendarClock,
+  Save,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabaseClient';
@@ -25,6 +33,11 @@ import { useAuth } from '@/lib/AuthContext';
 import { reportError } from '@/lib/errorReporting';
 import { Button } from '@/components/ui/button';
 import { normalizeMailBody } from '@/lib/mailThread';
+import {
+  groupMailboxThreads,
+  isInMailboxFolder,
+  replyRecipients,
+} from '@/lib/mailboxModel';
 
 function cleanBody(text = '') {
   return normalizeMailBody(text);
@@ -54,10 +67,6 @@ function splitEmails(value = '') {
     .split(',')
     .map((item) => stripEmailAddress(item))
     .filter(Boolean);
-}
-
-function uniqueEmails(values = []) {
-  return [...new Set(values.map((item) => item.toLowerCase()))].join(', ');
 }
 
 function ensureReplySubject(subject = '') {
@@ -102,6 +111,9 @@ function initialComposeState() {
     bcc: '',
     subject: '',
     body: '',
+    attachments: [],
+    scheduledAt: '',
+    draftId: '',
   };
 }
 
@@ -141,6 +153,7 @@ function RecipientInput({ value, onChange, placeholder, contacts }) {
 
 export default function OfficialMailInbox() {
   const { user } = useAuth();
+  const isHelpdesk = String(user?.role || '').toLowerCase() === 'helpdesk';
   const navigate = useNavigate();
 
   const [emails, setEmails] = useState([]);
@@ -163,6 +176,8 @@ export default function OfficialMailInbox() {
   const [showCcBcc, setShowCcBcc] = useState(false);
   const [directoryContacts, setDirectoryContacts] = useState([]);
   const [openingAttachment, setOpeningAttachment] = useState('');
+  const [actingOnEmail, setActingOnEmail] = useState('');
+  const composeDraftKey = `ark_one_mail_compose_${user?.id || 'guest'}`;
 
   const loadGmailConnection = async () => {
     if (!user?.id) {
@@ -174,14 +189,7 @@ export default function OfficialMailInbox() {
     try {
       setLoadingConnection(true);
 
-      const { data, error } = await supabase
-        .from('gmail_connections')
-        .select('email, provider, is_active, connected_at, expires_at')
-        .eq('user_id', user.id)
-        .eq('is_active', true)
-        .order('connected_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await supabase.rpc('ark_gmail_connection_status');
 
       if (error) {
         reportError(error, { context: 'gmail.connection.query', notify: false });
@@ -189,7 +197,7 @@ export default function OfficialMailInbox() {
         return;
       }
 
-      setGmailConnection(data || null);
+      setGmailConnection(data?.connected ? data : null);
     } catch (error) {
       reportError(error, { context: 'gmail.connection.load', notify: false });
       setGmailConnection(null);
@@ -240,11 +248,19 @@ export default function OfficialMailInbox() {
           converted_to_ticket,
           linked_ticket_id,
           direction,
-          folder
+          folder,
+          label_ids,
+          is_starred,
+          is_snoozed,
+          is_spam,
+          is_trash,
+          snoozed_until,
+          scheduled_at
+          ,gmail_draft_id
         `)
         .eq('created_by', user.id)
         .order('received_at', { ascending: false })
-        .limit(80);
+        .limit(1000);
 
       if (error) {
         reportError(error, { context: 'gmail.messages.query', notify: false });
@@ -254,7 +270,29 @@ export default function OfficialMailInbox() {
         return;
       }
 
-      const rows = data || [];
+      const { data: scheduledRows } = await supabase
+        .from('ark_scheduled_emails')
+        .select('id,sender_email,recipient_email,cc,bcc,subject,message_body,attachments,scheduled_at,status,created_at,updated_at')
+        .eq('user_id', user.id)
+        .in('status', ['scheduled', 'processing', 'failed'])
+        .order('scheduled_at', { ascending: false })
+        .limit(200);
+      const rows = [
+        ...(data || []),
+        ...(scheduledRows || []).map((mail) => ({
+          ...mail,
+          id: `scheduled:${mail.id}`,
+          scheduled_id: mail.id,
+          folder: 'scheduled',
+          email_status: mail.status,
+          message_body: mail.message_body,
+          received_at: mail.scheduled_at,
+          is_read: true,
+          is_sent: false,
+          is_draft: false,
+          label_ids: [],
+        })),
+      ];
       setEmails(rows);
 
       setSelectedEmail((current) => {
@@ -312,11 +350,20 @@ export default function OfficialMailInbox() {
         return;
       }
 
-      const { data, error } = await supabase.functions.invoke('gmail-sync', {
-        headers: {
-          Authorization: `Bearer ${session.access_token}`,
-        },
-      });
+      let pageToken = '';
+      let totalSynced = 0;
+      let data = null;
+      let error = null;
+      for (let page = 0; page < (silent ? 1 : 5); page += 1) {
+        ({ data, error } = await supabase.functions.invoke('gmail-sync', {
+          body: { pageToken },
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        }));
+        if (error) break;
+        totalSynced += Number(data?.synced || 0);
+        pageToken = data?.next_page_token || '';
+        if (!pageToken) break;
+      }
 
       if (error) {
         const message = await functionErrorMessage(error, 'Failed to sync Gmail.');
@@ -326,7 +373,7 @@ export default function OfficialMailInbox() {
       }
 
       await loadEmails(true);
-      if (!silent) alert(`Gmail sync completed. Synced ${data?.synced ?? 0} email(s).`);
+      if (!silent) alert(`Gmail sync completed. Synced ${totalSynced} email(s).${pageToken ? ' Run Sync again to continue older mail.' : ''}`);
     } catch (error) {
       reportError(error, { context: 'gmail.sync.unexpected', notify: false });
       if (!silent) setErrorMessage('Failed to sync Gmail. Please reconnect the mailbox and retry.');
@@ -338,6 +385,16 @@ export default function OfficialMailInbox() {
   useEffect(() => {
     loadGmailConnection();
     loadEmails();
+  }, [user?.id]);
+
+  useEffect(() => {
+    const handleOAuth = (event) => {
+      if (event.data?.type !== 'ark-one-gmail-connected') return;
+      loadGmailConnection();
+      loadEmails(true);
+    };
+    window.addEventListener('message', handleOAuth);
+    return () => window.removeEventListener('message', handleOAuth);
   }, [user?.id]);
 
   useEffect(() => {
@@ -378,39 +435,31 @@ export default function OfficialMailInbox() {
     };
   }, [user?.id, gmailConnection?.email]);
 
+  useEffect(() => {
+    if (!composerOpen) return;
+    const timer = window.setTimeout(() => {
+      localStorage.setItem(composeDraftKey, JSON.stringify(composer));
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [composeDraftKey, composer, composerOpen]);
+
   const stats = useMemo(() => {
     return {
-      inbox: emails.filter((e) => !e.is_sent && !e.is_draft && !e.archived_status).length,
-      sent: emails.filter((e) => e.is_sent || e.folder === 'sent' || e.direction === 'sent').length,
-      drafts: emails.filter((e) => e.is_draft || e.folder === 'drafts').length,
-      all: emails.length,
+      ...Object.fromEntries(['inbox', 'starred', 'snoozed', 'sent', 'drafts', 'scheduled', 'spam', 'trash', 'all']
+        .map((folder) => [folder, emails.filter((email) => isInMailboxFolder(email, folder)).length])),
     };
   }, [emails]);
 
   const folderEmails = useMemo(() => {
-    return emails.filter((email) => {
-      if (activeFolder === 'sent') {
-        return email.is_sent || email.folder === 'sent' || email.direction === 'sent';
-      }
-
-      if (activeFolder === 'drafts') {
-        return email.is_draft || email.folder === 'drafts';
-      }
-
-      if (activeFolder === 'all') {
-        return true;
-      }
-
-      return !email.is_sent && !email.is_draft && !email.archived_status;
-    });
+    return emails.filter((email) => isInMailboxFolder(email, activeFolder));
   }, [emails, activeFolder]);
 
   const filteredEmails = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) return folderEmails;
+    if (!query) return groupMailboxThreads(folderEmails);
 
-    return folderEmails.filter((email) => {
+    return groupMailboxThreads(folderEmails.filter((email) => {
       return (
         (email.subject || '').toLowerCase().includes(query) ||
         (email.sender_name || '').toLowerCase().includes(query) ||
@@ -418,7 +467,7 @@ export default function OfficialMailInbox() {
         (email.recipient_email || '').toLowerCase().includes(query) ||
         (email.snippet || '').toLowerCase().includes(query)
       );
-    });
+    }));
   }, [folderEmails, search]);
 
   const selectedConversation = useMemo(() => {
@@ -462,33 +511,35 @@ export default function OfficialMailInbox() {
     setShowCcBcc(false);
 
     if (mode === 'compose' || !selectedEmail) {
-      setComposer(initialComposeState());
+      try {
+        const saved = JSON.parse(localStorage.getItem(composeDraftKey) || 'null');
+        setComposer(saved?.mode === 'compose' ? { ...initialComposeState(), ...saved } : initialComposeState());
+      } catch {
+        setComposer(initialComposeState());
+      }
       setComposerOpen(true);
       return;
     }
 
-    const ownEmail = stripEmailAddress(gmailConnection.email).toLowerCase();
-    const senderEmail = stripEmailAddress(selectedEmail.sender_email);
-    const recipientEmails = splitEmails(selectedEmail.recipient_email);
-    const ccEmails = splitEmails(selectedEmail.cc);
-
-    let to = senderEmail;
-    let cc = '';
-
-    if (mode === 'replyAll') {
-      const everyone = [
-        senderEmail,
-        ...recipientEmails,
-        ...ccEmails,
-      ].filter((email) => email && email.toLowerCase() !== ownEmail);
-
-      to = uniqueEmails(everyone);
-      setShowCcBcc(true);
+    if (mode === 'editDraft') {
+      setComposer({
+        ...initialComposeState(),
+        mode: 'compose',
+        draftId: selectedEmail.gmail_draft_id || '',
+        to: selectedEmail.recipient_email || '',
+        cc: selectedEmail.cc || '',
+        bcc: selectedEmail.bcc || '',
+        subject: selectedEmail.subject || '',
+        body: cleanBody(selectedEmail.message_body || ''),
+      });
+      setShowCcBcc(Boolean(selectedEmail.cc || selectedEmail.bcc));
+      setComposerOpen(true);
+      return;
     }
 
-    if (selectedEmail.is_sent || selectedEmail.direction === 'sent') {
-      to = recipientEmails.join(', ');
-    }
+    const recipients = replyRecipients(selectedEmail, gmailConnection.email, mode === 'replyAll');
+    let { to, cc } = recipients;
+    if (mode === 'replyAll') setShowCcBcc(true);
 
     if (mode === 'forward') {
       setComposer({
@@ -499,6 +550,8 @@ export default function OfficialMailInbox() {
         bcc: '',
         subject: ensureForwardSubject(selectedEmail.subject),
         body: formatQuotedMail(selectedEmail),
+        attachments: [],
+        scheduledAt: '',
       });
       setShowCcBcc(true);
       setComposerOpen(true);
@@ -513,6 +566,8 @@ export default function OfficialMailInbox() {
       bcc: '',
       subject: ensureReplySubject(selectedEmail.subject),
       body: '',
+      attachments: [],
+      scheduledAt: '',
     });
 
     setComposerOpen(true);
@@ -525,6 +580,7 @@ export default function OfficialMailInbox() {
     setComposer(initialComposeState());
     setComposerError('');
     setShowCcBcc(false);
+    localStorage.removeItem(composeDraftKey);
   };
 
   const updateComposer = (field, value) => {
@@ -574,7 +630,14 @@ export default function OfficialMailInbox() {
             bcc: composer.bcc.trim(),
             subject,
             body: composer.body.replace(/\n/g, '<br/>'),
+            attachments: composer.attachments,
+            draftId: composer.draftId,
           };
+
+      if (isReply) {
+        payload.bcc = composer.bcc.trim();
+        payload.attachments = composer.attachments;
+      }
 
       const { data, error } = await supabase.functions.invoke(functionName, {
         body: payload,
@@ -614,6 +677,52 @@ export default function OfficialMailInbox() {
     }
   };
 
+  const scheduleEmail = async () => {
+    if (!composer.to.trim() || !composer.subject.trim() || !composer.body.trim()) return setComposerError('Recipient, subject and message are required.');
+    if (!composer.scheduledAt) return setComposerError('Choose a future date and time.');
+    try {
+      setSending(true);
+      setComposerError('');
+      const { data, error } = await supabase.functions.invoke('gmail-schedule', {
+        body: {
+          to: composer.to.trim(), cc: composer.cc.trim(), bcc: composer.bcc.trim(),
+          subject: composer.subject.trim(), body: composer.body.replace(/\n/g, '<br/>'),
+          attachments: composer.attachments, scheduledAt: new Date(composer.scheduledAt).toISOString(),
+        },
+      });
+      if (error || data?.error) throw new Error(data?.error || await functionErrorMessage(error, 'Unable to schedule email.'));
+      closeComposer();
+      await loadEmails(true);
+      alert(`Email scheduled for ${new Date(data.scheduled.scheduled_at).toLocaleString()}.`);
+    } catch (error) {
+      setComposerError(error.message || 'Unable to schedule email.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const saveGmailDraft = async () => {
+    try {
+      setSending(true);
+      setComposerError('');
+      const { data, error } = await supabase.functions.invoke('gmail-draft', {
+        body: {
+          draftId: composer.draftId, to: composer.to.trim(), cc: composer.cc.trim(), bcc: composer.bcc.trim(),
+          subject: composer.subject.trim() || '(No subject)', body: composer.body.replace(/\n/g, '<br/>'), attachments: composer.attachments,
+        },
+      });
+      if (error || data?.error) throw new Error(data?.error || await functionErrorMessage(error, 'Unable to save Gmail draft.'));
+      localStorage.removeItem(composeDraftKey);
+      setComposer((current) => ({ ...current, draftId: data.draft_id }));
+      await loadEmails(true);
+      setComposerOpen(false);
+    } catch (error) {
+      setComposerError(error.message || 'Unable to save Gmail draft.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const composerTitle =
     {
       compose: 'New Message',
@@ -624,13 +733,18 @@ export default function OfficialMailInbox() {
 
   const navItems = [
     { key: 'inbox', label: 'Inbox', icon: Inbox, count: stats.inbox },
+    { key: 'starred', label: 'Starred', icon: Star, count: stats.starred },
+    { key: 'snoozed', label: 'Snoozed', icon: AlarmClock, count: stats.snoozed },
     { key: 'sent', label: 'Sent', icon: Send, count: stats.sent },
     { key: 'drafts', label: 'Drafts', icon: FileText, count: stats.drafts },
+    { key: 'scheduled', label: 'Scheduled', icon: CalendarClock, count: stats.scheduled },
     { key: 'all', label: 'All Mail', icon: Mail, count: stats.all },
+    { key: 'spam', label: 'Spam', icon: AlertOctagon, count: stats.spam },
+    { key: 'trash', label: 'Trash', icon: Trash2, count: stats.trash },
   ];
 
   const convertToTicket = () => {
-    if (!selectedEmail || selectedEmail.converted_to_ticket) return;
+    if (!isHelpdesk || !selectedEmail || selectedEmail.converted_to_ticket) return;
     const body = cleanBody(selectedEmail.message_body || selectedEmail.snippet || '');
     const combined = `${selectedEmail.subject || ''}\n${body}`;
     const priority = /critical|urgent|down|offline|cannot transact/i.test(combined)
@@ -650,10 +764,45 @@ export default function OfficialMailInbox() {
             description: `Reported by: ${selectedEmail.sender_email || 'Unknown'}\n\n${body}`,
             category,
             priority,
+            client_email: stripEmailAddress(selectedEmail.sender_email),
           },
         },
       },
     });
+  };
+
+  const mailboxAction = async (action, message = selectedEmail) => {
+    if (!message?.id) return;
+    if (action === 'delete' && !window.confirm('Permanently delete this Gmail message? This cannot be undone.')) return;
+    let until = '';
+    if (action === 'snooze') {
+      until = window.prompt('Snooze until (example: 2026-07-23 09:00):', '') || '';
+      if (!until) return;
+    }
+    try {
+      setActingOnEmail(`${message.id}:${action}`);
+      const { error } = await supabase.functions.invoke('gmail-action', { body: { emailId: message.id, action, until } });
+      if (error) throw new Error(await functionErrorMessage(error, 'Mailbox action failed.'));
+      if (action === 'delete' || action === 'trash' || action === 'archive' || action === 'spam') setSelectedEmail(null);
+      await loadEmails(true);
+    } catch (error) {
+      setErrorMessage(error.message || 'Mailbox action failed.');
+    } finally {
+      setActingOnEmail('');
+    }
+  };
+
+  const attachFiles = async (fileList) => {
+    const files = [...fileList].slice(0, 10);
+    const total = files.reduce((sum, file) => sum + file.size, 0);
+    if (total > 20 * 1024 * 1024) return setComposerError('Attachments exceed the 20 MB ARK Mail limit.');
+    const encoded = await Promise.all(files.map((file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ name: file.name, type: file.type || 'application/octet-stream', size: file.size, data: reader.result });
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    })));
+    updateComposer('attachments', encoded);
   };
 
   const openAttachment = async (message, attachment) => {
@@ -853,7 +1002,10 @@ export default function OfficialMailInbox() {
                 return (
                   <button
                     key={email.id}
-                    onClick={() => setSelectedEmail(email)}
+                    onClick={() => {
+                      setSelectedEmail(email);
+                      if (!email.is_read && email.gmail_message_id) mailboxAction('read', email);
+                    }}
                     className={[
                       'w-full border-b border-white/10 px-4 py-3 text-left transition',
                       isSelected
@@ -914,6 +1066,32 @@ export default function OfficialMailInbox() {
                   </h2>
 
                   <div className="flex shrink-0 flex-wrap gap-2">
+                    {selectedEmail.is_draft && (
+                      <Button size="sm" className="bg-[#ff5a00] text-white hover:bg-[#e65100]" onClick={() => openComposer('editDraft')}><FileText className="mr-1.5 h-3.5 w-3.5" />Edit draft</Button>
+                    )}
+                    {selectedEmail.scheduled_id ? (
+                      <Button size="sm" variant="outline" className="text-red-700" onClick={async () => {
+                        const { error } = await supabase.functions.invoke('gmail-schedule', { body: { action: 'cancel', id: selectedEmail.scheduled_id } });
+                        if (error) setErrorMessage(await functionErrorMessage(error, 'Unable to cancel scheduled email.'));
+                        else { setSelectedEmail(null); await loadEmails(true); }
+                      }}><X className="mr-1.5 h-3.5 w-3.5" />Cancel scheduled mail</Button>
+                    ) : <>
+                    <Button size="sm" variant="outline" onClick={() => mailboxAction(selectedEmail.is_read ? 'unread' : 'read')} disabled={Boolean(actingOnEmail)}>
+                      <MailOpen className="mr-1.5 h-3.5 w-3.5" />
+                      {selectedEmail.is_read ? 'Unread' : 'Read'}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => mailboxAction(selectedEmail.is_starred ? 'unstar' : 'star')} disabled={Boolean(actingOnEmail)}>
+                      <Star className={`mr-1.5 h-3.5 w-3.5 ${selectedEmail.is_starred ? 'fill-amber-400 text-amber-500' : ''}`} />
+                      {selectedEmail.is_starred ? 'Unstar' : 'Star'}
+                    </Button>
+                    {!selectedEmail.is_trash && (
+                      <Button size="sm" variant="outline" onClick={() => mailboxAction('archive')} disabled={Boolean(actingOnEmail)}>
+                        <Archive className="mr-1.5 h-3.5 w-3.5" /> Archive
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => mailboxAction(selectedEmail.is_snoozed ? 'unsnooze' : 'snooze')} disabled={Boolean(actingOnEmail)}>
+                      <AlarmClock className="mr-1.5 h-3.5 w-3.5" /> {selectedEmail.is_snoozed ? 'Unsnooze' : 'Snooze'}
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -944,16 +1122,21 @@ export default function OfficialMailInbox() {
                       Forward
                     </Button>
 
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={convertToTicket}
-                      disabled={selectedEmail.converted_to_ticket}
-                      className="border-[#ff5a00] text-[#c44600] hover:bg-orange-50"
-                    >
-                      <TicketPlus className="mr-1.5 h-3.5 w-3.5" />
-                      {selectedEmail.converted_to_ticket ? 'Ticket created' : 'Convert to ticket'}
-                    </Button>
+                    {isHelpdesk && (
+                      <Button size="sm" variant="outline" onClick={convertToTicket} disabled={selectedEmail.converted_to_ticket} className="border-[#ff5a00] text-[#c44600] hover:bg-orange-50">
+                        <TicketPlus className="mr-1.5 h-3.5 w-3.5" />
+                        {selectedEmail.converted_to_ticket ? 'Ticket created' : 'Convert to ticket'}
+                      </Button>
+                    )}
+                    {selectedEmail.is_trash ? (
+                      <>
+                        <Button size="sm" variant="outline" onClick={() => mailboxAction('restore')} disabled={Boolean(actingOnEmail)}>Restore</Button>
+                        <Button size="sm" variant="outline" onClick={() => mailboxAction('delete')} disabled={Boolean(actingOnEmail)} className="text-red-700"><Trash2 className="mr-1.5 h-3.5 w-3.5" />Delete forever</Button>
+                      </>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={() => mailboxAction('trash')} disabled={Boolean(actingOnEmail)} className="text-red-700"><Trash2 className="mr-1.5 h-3.5 w-3.5" />Trash</Button>
+                    )}
+                    </>}
                   </div>
                 </div>
               </div>
@@ -1099,21 +1282,46 @@ export default function OfficialMailInbox() {
                   placeholder="Write your message..."
                   className="min-h-[280px] w-full resize-y rounded-xl border border-slate-200 p-3 text-sm leading-6 text-slate-900 outline-none focus:border-[#ff5a00]"
                 />
+
+                <div className="rounded-xl border border-slate-200 p-3">
+                  <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-[#102969]">
+                    <Paperclip className="h-4 w-4" />
+                    Attach files (up to 20 MB total)
+                    <input type="file" multiple className="sr-only" onChange={(event) => attachFiles(event.target.files || [])} />
+                  </label>
+                  {composer.attachments.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {composer.attachments.map((attachment, index) => (
+                        <button key={`${attachment.name}-${index}`} type="button" onClick={() => updateComposer('attachments', composer.attachments.filter((_, itemIndex) => itemIndex !== index))} className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700 hover:bg-red-50">
+                          {attachment.name} ×
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {composer.mode === 'compose' && (
+                  <label className="block text-xs font-medium text-slate-600">
+                    Schedule for later (optional)
+                    <input type="datetime-local" value={composer.scheduledAt} min={new Date(Date.now() + 60_000).toISOString().slice(0, 16)} onChange={(event) => updateComposer('scheduledAt', event.target.value)} className="mt-1 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-900" />
+                  </label>
+                )}
               </div>
             </div>
 
             <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-5 py-4">
-              <p className="text-xs text-slate-500">
-                Sending from {gmailConnection?.email || 'connected Gmail'}
-              </p>
+              <div>
+                <p className="text-xs text-slate-500">Sending from {gmailConnection?.email || 'connected Gmail'}</p>
+                <button type="button" onClick={saveGmailDraft} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[#102969] hover:text-[#ff5a00]"><Save className="h-3.5 w-3.5" />Save to Gmail Drafts</button>
+              </div>
 
               <Button
-                onClick={sendEmail}
+                onClick={composer.scheduledAt ? scheduleEmail : sendEmail}
                 disabled={sending}
                 className="bg-[#ff5a00] text-white hover:bg-[#e65100]"
               >
-                <Send className="mr-2 h-4 w-4" />
-                {sending ? 'Sending...' : 'Send'}
+                {composer.scheduledAt ? <CalendarClock className="mr-2 h-4 w-4" /> : <Send className="mr-2 h-4 w-4" />}
+                {sending ? 'Working...' : composer.scheduledAt ? 'Schedule' : 'Send'}
               </Button>
             </div>
           </div>

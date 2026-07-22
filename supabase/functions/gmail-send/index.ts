@@ -1,9 +1,8 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {
-  encodeMimeHeader,
+  buildMimeMessage,
   googleApiError,
-  htmlMailDocument,
   parseEmailList,
   requireEnv,
   safeMailHeader,
@@ -17,34 +16,6 @@ const corsHeaders = {
 
 function jsonResponse(payload: unknown, status = 200) {
   return Response.json(payload, { status, headers: corsHeaders });
-}
-
-function base64Url(input: string) {
-  return btoa(unescape(encodeURIComponent(input)))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-}
-
-function makeEmail({ to, cc, bcc, subject, body, from }: any) {
-  const messageId = `<${crypto.randomUUID()}@arkone.arktechnologiesgroup.com>`;
-  const lines = [
-    `From: ${from}`,
-    `Reply-To: ${from}`,
-    `To: ${to}`,
-    cc ? `Cc: ${cc}` : "",
-    bcc ? `Bcc: ${bcc}` : "",
-    `Subject: ${encodeMimeHeader(subject)}`,
-    `Date: ${new Date().toUTCString()}`,
-    `Message-ID: ${messageId}`,
-    "MIME-Version: 1.0",
-    `Content-Type: text/html; charset="UTF-8"`,
-    "Content-Transfer-Encoding: 8bit",
-    "",
-    htmlMailDocument(body),
-  ].filter(Boolean);
-
-  return { raw: base64Url(lines.join("\r\n")), messageId };
 }
 
 async function verifyMailbox(accessToken: string, expectedEmail: string) {
@@ -130,6 +101,8 @@ serve(async (req) => {
     const bcc = parseEmailList(requestBody.bcc);
     const subject = safeMailHeader(requestBody.subject, 300);
     const body = String(requestBody.body || "");
+    const attachments = Array.isArray(requestBody.attachments) ? requestBody.attachments : [];
+    const draftId = String(requestBody.draftId || '').trim();
 
     if (body.length > 1_000_000) return jsonResponse({ error: "Email body is too large" }, 400);
 
@@ -153,18 +126,23 @@ serve(async (req) => {
 
     const accessToken = await getAccessToken(supabase, connection);
     await verifyMailbox(accessToken, connection.email);
-    const encodedMessage = makeEmail({ to, cc, bcc, subject, body, from: connection.email });
+    const encodedMessage = buildMimeMessage({ to, cc, bcc, subject, html: body, from: connection.email, attachments });
 
-    const gmailRes = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+    const gmailRes = await fetch(
+      draftId
+        ? "https://gmail.googleapis.com/gmail/v1/users/me/drafts/send"
+        : "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+      {
       method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        raw: encodedMessage.raw,
-      }),
-    });
+        body: JSON.stringify(draftId
+          ? { id: draftId, message: { raw: encodedMessage.raw } }
+          : { raw: encodedMessage.raw }),
+      },
+    );
 
     const gmailData = await gmailRes.json();
     if (!gmailRes.ok) {
@@ -195,11 +173,21 @@ serve(async (req) => {
         synced_at: new Date().toISOString(),
         created_by: user.id,
         raw_headers: [{ name: "Message-ID", value: encodedMessage.messageId }],
+        attachments: attachments.map((attachment: any) => ({
+          filename: attachment.name,
+          mime_type: attachment.type,
+          size: Number(attachment.size || 0),
+        })),
+        label_ids: ["SENT"],
       })
       .select()
       .single();
 
     if (saveError) return jsonResponse({ error: "Sent but failed to save" }, 500);
+
+    if (draftId) {
+      await supabase.from('email_messages').delete().eq('created_by', user.id).eq('gmail_draft_id', draftId);
+    }
 
     return jsonResponse({
       message: "Email accepted by Google",
