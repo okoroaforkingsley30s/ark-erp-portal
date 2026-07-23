@@ -26,6 +26,7 @@ import {
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { resolveNotificationTarget } from '@/lib/notificationRouting';
+import MobileNotificationPreferences from '@/components/mobile/MobileNotificationPreferences';
 
 const typeIcons = {
   ticket_created: Ticket,
@@ -301,6 +302,8 @@ export default function Notifications() {
           </Button>
         )}
       </div>
+
+      <MobileNotificationPreferences />
 
       <div className="space-y-2">
         {notifications.length === 0 && (

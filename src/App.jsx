@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import { getRoleHome, ROUTE_PERMISSIONS } from '@/lib/roleAccess';
+import MobilePlatformBridge from '@/components/mobile/MobilePlatformBridge';
 
 const PageNotFound = lazy(() => import('./lib/PageNotFound'));
 const Welcome = lazy(() => import('@/pages/Welcome'));
@@ -269,6 +270,7 @@ function App() {
     <AuthProvider>
       <QueryClientProvider client={queryClientInstance}>
         <Router>
+          <MobilePlatformBridge />
           <AuthenticatedApp />
         </Router>
         <Toaster />
