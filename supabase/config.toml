@@ -152,3 +152,6 @@ entrypoint = "./functions/send-notification-email/index.ts"
 enabled = true
 verify_jwt = false
 entrypoint = "./functions/dispatch-notification-outbox/index.ts"
+
+[functions.dispatch-mobile-push]
+verify_jwt = false

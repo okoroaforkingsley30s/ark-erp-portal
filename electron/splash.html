@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'unsafe-inline'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Starting ARK ONE</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; overflow: hidden; font-family: Segoe UI, Arial, sans-serif; color: #fff; background: transparent; }
+      .shell { position: relative; width: 540px; height: 370px; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(255, 103, 0, .52); border-radius: 30px; background: radial-gradient(circle at 75% 18%, rgba(255, 115, 0, .26), transparent 35%), linear-gradient(145deg, #061943, #0b2d70 60%, #06163a); box-shadow: 0 28px 80px rgba(0,0,0,.5), inset 0 1px rgba(255,255,255,.13); }
+      .glow { position: absolute; width: 310px; height: 310px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 101, 0, .25), transparent 68%); animation: breathe 2.1s ease-in-out infinite; }
+      .content { position: relative; z-index: 2; display: grid; justify-items: center; gap: 13px; }
+      .logo { width: 168px; height: 168px; border-radius: 50%; filter: drop-shadow(0 14px 28px rgba(0,0,0,.4)); animation: float 2.1s ease-in-out infinite; }
+      h1 { margin: 0; font-size: 30px; letter-spacing: .08em; }
+      p { margin: 0; color: #c9d7f6; font-size: 14px; letter-spacing: .06em; }
+      .bar { width: 260px; height: 4px; margin-top: 12px; overflow: hidden; border-radius: 10px; background: rgba(255,255,255,.13); }
+      .bar::after { content: ''; display: block; width: 42%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, transparent, #ff6a00, #ffb15c, transparent); animation: loading 1.4s ease-in-out infinite; }
+      .status { font-size: 12px; color: #9fb6e7; }
+      @keyframes float { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-7px) scale(1.025); } }
+      @keyframes breathe { 0%,100% { transform: scale(.88); opacity: .55; } 50% { transform: scale(1.1); opacity: 1; } }
+      @keyframes loading { from { transform: translateX(-125%); } to { transform: translateX(340%); } }
+      @media (prefers-reduced-motion: reduce) { .logo, .glow, .bar::after { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <div class="glow"></div>
+      <section class="content">
+        <img class="logo" src="splash-logo.gif" alt="ARK Technologies Group" />
+        <h1>ARK ONE</h1>
+        <p>ENTERPRISE PORTAL</p>
+        <div class="bar"></div>
+        <div class="status">Preparing your secure workspace…</div>
+      </section>
+    </main>
+  </body>
+</html>

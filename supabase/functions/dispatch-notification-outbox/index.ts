@@ -241,6 +241,23 @@ Deno.serve(async (request) => {
     }
   }
 
+  let mobilePush: unknown = null
+  try {
+    const mobileResponse = await fetch(`${supabaseUrl}/functions/v1/dispatch-mobile-push`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${workerSecret}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ source: 'notification-outbox' }),
+    })
+    mobilePush = await mobileResponse.json()
+    if (!mobileResponse.ok) {
+      console.error('Mobile push worker returned an error', mobilePush)
+    }
+  } catch (mobileError) {
+    mobilePush = { error: String(mobileError) }
+  }
   return jsonResponse({
     processed: sent + failed,
     sent,
@@ -248,5 +265,6 @@ Deno.serve(async (request) => {
     scheduled_processed: scheduledSent + scheduledFailed,
     scheduled_sent: scheduledSent,
     scheduled_failed: scheduledFailed,
+    mobile_push: mobilePush,
   })
 })

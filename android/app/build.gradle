@@ -10,6 +10,9 @@ def releaseStorePassword = System.getenv('ARK_ANDROID_KEYSTORE_PASSWORD')
 def releaseKeyAlias = System.getenv('ARK_ANDROID_KEY_ALIAS')
 def releaseKeyPassword = System.getenv('ARK_ANDROID_KEY_PASSWORD')
 def hasReleaseSigning = releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+def releaseBuildRequested = gradle.startParameter.taskNames.any {
+    it.toLowerCase().contains('release')
+}
 
 android {
     namespace = "com.arktechnologiesgroup.arkone"
@@ -45,10 +48,10 @@ android {
             manifestPlaceholders = [usesCleartextTraffic: "true"]
         }
         release {
-            if (!hasReleaseSigning) {
+            if (!hasReleaseSigning && releaseBuildRequested) {
                 throw new GradleException('ARK Android release signing variables are required. See docs/RELEASES.md')
             }
-            signingConfig signingConfigs.release
+            if (hasReleaseSigning) { signingConfig signingConfigs.release }
             minifyEnabled true
             shrinkResources true
             manifestPlaceholders = [usesCleartextTraffic: "false"]

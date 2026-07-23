@@ -103,3 +103,49 @@
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground) / 0.5);
 }
+
+/* ARK ONE Android Go compatibility */
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+  overflow-wrap: anywhere;
+}
+
+@supports (padding: env(safe-area-inset-top)) {
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+@media (max-width: 380px) {
+  button,
+  input,
+  select,
+  textarea {
+    max-width: 100%;
+  }
+
+  .grid {
+    min-width: 0;
+  }
+
+  .fixed {
+    max-width: 100vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

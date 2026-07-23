@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
+import { Capacitor } from '@capacitor/core';
 
 import Sidebar from './Sidebar';
 import MobileBottomNav from './MobileBottomNav';
@@ -37,7 +38,9 @@ export default function AppLayout() {
   const playNotificationSound = useCallback((sound = 'bell') => {
     try {
       const audio = new Audio(
-        sound === 'click' ? '/sounds/click.mp3' : '/sounds/bell.mp3'
+        sound === 'click'
+          ? `${import.meta.env.BASE_URL}sounds/click.mp3`
+          : `${import.meta.env.BASE_URL}sounds/bell.mp3`
       );
 
       audio.volume = 0.65;
@@ -126,7 +129,10 @@ export default function AppLayout() {
   useEffect(() => {
     fetchUnreadNotifications();
 
-    const interval = setInterval(fetchUnreadNotifications, 5000);
+    const interval = setInterval(
+      fetchUnreadNotifications,
+      Capacitor.isNativePlatform() ? 30000 : 5000
+    );
 
     return () => clearInterval(interval);
   }, [fetchUnreadNotifications]);
@@ -174,6 +180,10 @@ export default function AppLayout() {
 
   useEffect(() => {
     if (!user?.email) return;
+
+    // Android Go devices use push delivery and refresh-on-resume instead of
+    // maintaining dozens of simultaneous database subscriptions.
+    if (Capacitor.isNativePlatform()) return;
 
     const realtimeTables = [
       'tickets',

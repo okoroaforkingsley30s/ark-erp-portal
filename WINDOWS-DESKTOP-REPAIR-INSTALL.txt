@@ -1,0 +1,32 @@
+ARK ONE 1.0.16 — Windows Desktop Experience Repair
+
+This cumulative repair adds:
+- branded animated startup screen using the company logo
+- company logo for EXE, taskbar, tray, shortcuts, installer and uninstaller
+- launch automatically when the user signs in to Windows
+- tray/background operation with Open, Refresh, Start with Windows and Quit controls
+- safe live-data refresh every 60 seconds, on focus, reconnection and system resume
+- audio autoplay support for ARK ONE notification sounds
+- GPS/geolocation permission restricted to the trusted ARK ONE renderer
+- existing signed auto-update behavior retained
+
+Important behavior:
+- Closing the window hides ARK ONE in the Windows system tray.
+- Use the tray menu > Quit ARK ONE to fully exit.
+- Automatic data refresh invalidates active server queries; it does not reload the page or erase forms.
+- Windows Location Services must be enabled for GPS to return a position.
+- Production installers still require the Windows signing variables documented in docs/RELEASES.md.
+
+After extraction into the repository root, run:
+
+  npm install
+  npm run validate:electron
+  npm run lint
+  npm run typecheck
+  npm test
+  npm run validate:windows-release
+  npm run release:windows
+
+Expected installer output:
+
+  dist-electron\ARK-ONE-Portal-1.0.16-x64.exe

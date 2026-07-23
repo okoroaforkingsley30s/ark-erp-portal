@@ -293,7 +293,7 @@ export default function Welcome() {
             <>
               <div className="text-center mb-20">
                 <img
-                  src="/logo.png"
+                  src={`${import.meta.env.BASE_URL}logo.png`}
                   alt="ARK Logo"
                   className="w-20 h-20 object-contain mx-auto mb-6"
                 />
@@ -357,7 +357,7 @@ export default function Welcome() {
           {/* HERO IMAGE */}
           <div className="bg-[#06102f] flex items-center justify-center px-5 py-5 lg:sticky lg:top-0 lg:h-screen lg:px-6 lg:py-6">
             <img
-              src="/ark-desktop-hero.png"
+              src={`${import.meta.env.BASE_URL}ark-desktop-hero.png`}
               alt="ARK ONE Portal"
               className="block w-full max-w-full h-auto max-h-[42vh] lg:max-h-[calc(100vh-3rem)] object-contain"
             />
